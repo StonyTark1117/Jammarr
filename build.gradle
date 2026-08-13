@@ -1,0 +1,128 @@
+plugins {
+    id 'java-library'
+    id 'idea'
+    id 'net.neoforged.moddev' version '2.0.143'
+}
+
+version = mod_version
+group = mod_group_id
+
+repositories {
+    mavenCentral()
+}
+
+base {
+    archivesName = mod_id
+}
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+
+neoForge {
+    version = project.neo_version
+
+    parchment {
+        mappingsVersion = project.parchment_mappings_version
+        minecraftVersion = project.parchment_minecraft_version
+    }
+
+    runs {
+        client {
+            client()
+            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+        }
+        server {
+            server()
+            programArgument '--nogui'
+            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+        }
+        gameTestServer {
+            type = 'gameTestServer'
+            gameDirectory = layout.buildDirectory.dir('run-gametest').get().asFile
+            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+        }
+        data {
+            data()
+            programArguments.addAll '--mod', project.mod_id, '--all', '--output', file('src/generated/resources/').getAbsolutePath(), '--existing', file('src/main/resources/').getAbsolutePath()
+        }
+        configureEach {
+            logLevel = org.slf4j.event.Level.INFO
+        }
+    }
+
+    mods {
+        "${mod_id}" {
+            sourceSet(sourceSets.main)
+        }
+    }
+
+    unitTest {
+        enable()
+        testedMod = mods."${mod_id}"
+    }
+}
+
+sourceSets.main.resources { srcDir 'src/generated/resources' }
+
+def emptyGameTestInput = layout.projectDirectory.file('gradle/empty-gametest.nbt.b64')
+def emptyGameTestOutput = layout.buildDirectory.dir('generated/gametestResources')
+var generateGameTestTemplate = tasks.register('generateGameTestTemplate') {
+    inputs.file(emptyGameTestInput)
+    outputs.dir(emptyGameTestOutput)
+    doLast {
+        def inputFile = inputs.files.singleFile
+        def outputFile = new File(outputs.files.singleFile, 'data/pampmod/structure/empty.nbt')
+        outputFile.parentFile.mkdirs()
+        outputFile.bytes = java.util.Base64.getDecoder().decode(inputFile.text.trim())
+    }
+}
+sourceSets.main.resources.srcDir(generateGameTestTemplate)
+
+dependencies {
+    jarJar(implementation('javazoom:jlayer:1.0.1'))
+    jarJar(implementation('de.sciss:jump3r:1.0.5'))
+    testImplementation(platform('org.junit:junit-bom:5.10.2'))
+    testImplementation('org.junit.jupiter:junit-jupiter')
+    testRuntimeOnly('org.junit.platform:junit-platform-launcher')
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+    inputs.property('pampmodLiveTestEnabled', providers.environmentVariable('PAMPMOD_LIVE_TEST').orElse('false'))
+    outputs.cacheIf('credentialed Plex integration tests must execute live') {
+        System.getenv('PAMPMOD_LIVE_TEST') != 'true'
+    }
+}
+
+tasks.named('jar', Jar) {
+    from('THIRD_PARTY_NOTICES.md') {
+        into('META-INF')
+    }
+}
+
+var generateModMetadata = tasks.register('generateModMetadata', ProcessResources) {
+    var replaceProperties = [minecraft_version      : minecraft_version,
+                             minecraft_version_range: minecraft_version_range,
+                             neo_version            : neo_version,
+                             neo_version_range      : neo_version_range,
+                             loader_version_range   : loader_version_range,
+                             mod_id                 : mod_id,
+                             mod_name               : mod_name,
+                             mod_license            : mod_license,
+                             mod_version            : mod_version,
+                             mod_authors            : mod_authors,
+                             mod_description        : mod_description]
+    inputs.properties replaceProperties
+    expand replaceProperties
+    from 'src/main/templates'
+    into 'build/generated/sources/modMetadata'
+}
+
+sourceSets.main.resources.srcDir generateModMetadata
+neoForge.ideSyncTask generateModMetadata
+
+idea {
+    module {
+        downloadSources = true
+        downloadJavadoc = true
+    }
+}

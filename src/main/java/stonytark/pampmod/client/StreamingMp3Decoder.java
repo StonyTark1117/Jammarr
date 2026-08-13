@@ -1,0 +1,69 @@
+package stonytark.pampmod.client;
+
+import javazoom.jl.decoder.Bitstream;
+import javazoom.jl.decoder.Decoder;
+import javazoom.jl.decoder.Header;
+import javazoom.jl.decoder.SampleBuffer;
+import stonytark.pampmod.Pampmod;
+
+import javax.sound.sampled.AudioFormat;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicLong;
+
+final class StreamingMp3Decoder implements AutoCloseable {
+    static final long MAX_BUFFERED_MS = 12_000;
+    private final ChunkInputStream input;
+    private final Queue<byte[]> pcm = new ConcurrentLinkedQueue<>();
+    private final AtomicLong bufferedBytes = new AtomicLong();
+    private final Object flowControl = new Object();
+    private final Thread thread;
+    private volatile AudioFormat format;
+    private volatile boolean closed;
+
+    StreamingMp3Decoder(int firstChunk, int totalChunks) {
+        input = new ChunkInputStream(firstChunk, totalChunks);
+        thread = Thread.ofPlatform().name("pampmod-mp3-decoder").daemon(true).start(this::decode);
+    }
+    boolean offer(int index, byte[] bytes) { return input.offer(index, bytes); }
+    AudioFormat format() { return format; }
+    long bufferedMillis() {
+        AudioFormat value = format; if (value == null) return 0;
+        return bufferedBytes.get() * 1000L / Math.max(1, (long)value.getSampleRate() * value.getChannels() * 2L);
+    }
+    byte[] poll() {
+        byte[] value = pcm.poll();
+        if (value != null) {
+            bufferedBytes.addAndGet(-value.length);
+            synchronized (flowControl) { flowControl.notifyAll(); }
+        }
+        return value;
+    }
+
+    private void decode() {
+        Bitstream stream = new Bitstream(input);
+        try {
+            Decoder decoder = new Decoder(); Header header;
+            while (!closed && (header = stream.readFrame()) != null) {
+                synchronized (flowControl) {
+                    while (!closed && bufferedMillis() >= MAX_BUFFERED_MS) flowControl.wait(250);
+                }
+                if (closed) break;
+                SampleBuffer samples = (SampleBuffer)decoder.decodeFrame(header, stream);
+                if (format == null) format = new AudioFormat(samples.getSampleFrequency(), 16, samples.getChannelCount(), true, false);
+                int length = samples.getBufferLength(); ByteBuffer bytes = ByteBuffer.allocate(length * 2).order(ByteOrder.LITTLE_ENDIAN);
+                short[] values = samples.getBuffer(); for (int i = 0; i < length; i++) bytes.putShort(values[i]);
+                byte[] result = bytes.array(); pcm.add(result); bufferedBytes.addAndGet(result.length); stream.closeFrame();
+            }
+        } catch (Exception e) {
+            if (!closed) Pampmod.LOGGER.warn("PAmpMod MP3 decoder stopped: {}", e.getMessage());
+        } finally { try { stream.close(); } catch (Exception ignored) {} }
+    }
+    @Override public void close() {
+        closed = true; input.close();
+        synchronized (flowControl) { flowControl.notifyAll(); }
+        thread.interrupt(); pcm.clear(); bufferedBytes.set(0);
+    }
+}
