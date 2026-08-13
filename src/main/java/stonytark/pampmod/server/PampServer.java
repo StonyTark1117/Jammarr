@@ -31,6 +31,6 @@ public final class PampServer {
     public void control(ServerPlayer sender, PampPayloads.ControlRequest request) { if (player != null) player.control(sender, request); }
     public void chunks(ServerPlayer sender, PampPayloads.ChunkRequest request) { if (player != null) player.chunks(sender, request); }
     public void acknowledge(ServerPlayer sender, PampPayloads.ChunkAcknowledgement acknowledgement) { if (player != null) player.acknowledge(sender, acknowledgement); }
-    public void sync(ServerPlayer sender) { if (player != null) player.playerJoined(sender); }
+    public void sync(ServerPlayer sender) { if (player != null) player.sync(sender); }
     public GlobalPlayer player() { return player; }
 }

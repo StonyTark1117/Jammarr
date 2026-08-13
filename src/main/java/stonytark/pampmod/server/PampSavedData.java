@@ -25,7 +25,7 @@ public final class PampSavedData extends SavedData {
         tag.put("queue", list); tag.putLong("checkpointMs", checkpointMs); tag.putBoolean("paused", paused); return tag;
     }
 
-    static PampSavedData load(CompoundTag tag, HolderLookup.Provider registries) {
+    public static PampSavedData load(CompoundTag tag, HolderLookup.Provider registries) {
         PampSavedData data = new PampSavedData();
         ListTag list = tag.getList("queue", Tag.TAG_COMPOUND);
         for (int i = 0; i < list.size(); i++) data.queue.add(QueueTrack.load(list.getCompound(i)));

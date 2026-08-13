@@ -97,6 +97,13 @@ tasks.named('jar', Jar) {
     from('THIRD_PARTY_NOTICES.md') {
         into('META-INF')
     }
+    from('LICENSE') {
+        into('META-INF')
+        rename { 'LICENSE-PAmpMod-CC0-1.0.txt' }
+    }
+    from('LICENSE-LGPL-2.1-or-later.txt') {
+        into('META-INF')
+    }
 }
 
 var generateModMetadata = tasks.register('generateModMetadata', ProcessResources) {

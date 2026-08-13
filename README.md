@@ -30,6 +30,8 @@ Important server options and defaults:
 | `audioBitrateKbps` | `160` | Exact constant-bitrate MP3 transport target |
 | `cacheSizeMiB` | `1024` | LRU audio-cache limit; current and next tracks remain pinned |
 
+Plex metadata responses are capped at 4 MiB, expanded albums/artists/playlists are capped to the remaining queue capacity, individual transcodes are capped at three hours and 256 MiB, and stalled transcode bodies are aborted after three minutes.
+
 Plain HTTP is allowed for trusted private networks and emits a warning. HTTPS uses normal Java certificate validation.
 
 ## In-game use
@@ -56,9 +58,9 @@ Commands:
 
 - The server owns the queue, timeline, Plex credentials, cache, and all media requests. The Plex token is never sent to clients.
 - Tracks are validated before atomic cache installation. The next track is prefetched while the current one plays.
-- MP3 data is split only on frame boundaries into payloads no larger than 16 KiB. Clients pull bounded windows, validate SHA-256 hashes, acknowledge complete windows, and retry dropped data.
+- MP3 data is split only on frame boundaries into payloads no larger than 16 KiB. Clients pull one server-authorized window at a time, validate SHA-256 hashes, acknowledge complete windows, and retry only the outstanding window. The server rejects out-of-order, unacknowledged, over-buffered, and excessive requests.
 - A new track is scheduled five seconds ahead using a filtered client/server clock estimate. Late joiners begin near the authoritative position. More than 500 ms of drift causes a local rebuffer rather than delaying every listener.
-- A preparation failure retries three times with backoff. Missing or permanently invalid items are skipped; authentication, configuration, and outage failures wait for Plex recovery. Cached playback continues during a temporary Plex outage.
+- A preparation failure retries three times with backoff. Missing or permanently invalid items are skipped; authentication, configuration, and outage failures wait for the 30-second Plex recovery check instead of retrying from every server tick. Cached playback continues during a temporary Plex outage.
 - The queue and five-second playback checkpoints live in world saved data. A graceful shutdown records the current position for `RESUME_POSITION`.
 - Unmodded clients and clients with an incompatible PAmpMod network protocol are rejected during payload negotiation.
 
@@ -89,4 +91,4 @@ PAMPMOD_PLEX_TOKEN='...' \
 
 Credentialed live-test results are deliberately non-cacheable. Test credentials are not build inputs and are not packaged into the mod JAR.
 
-Bundled third-party licensing is documented in `THIRD_PARTY_NOTICES.md` and copied into the built artifact.
+PAmpMod is released under CC0-1.0. Its license, the complete LGPL-2.1-or-later text for the embedded MP3 libraries, and `THIRD_PARTY_NOTICES.md` are copied into the built artifact.

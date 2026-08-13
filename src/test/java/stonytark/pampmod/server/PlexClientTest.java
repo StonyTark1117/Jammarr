@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PlexClientTest {
-    private enum Mode { NORMAL, UNAUTHORIZED, MALFORMED, TIMEOUT, TRANSCODE_FAILURE }
+    private enum Mode { NORMAL, UNAUTHORIZED, MALFORMED, TIMEOUT, TRANSCODE_FAILURE, CHUNKED_OVERSIZE, STALLED_BODY }
     private HttpServer server;
     private PlexClient client;
     private final AtomicReference<Mode> mode = new AtomicReference<>(Mode.NORMAL);
@@ -65,7 +65,8 @@ class PlexClientTest {
         PlexClient.Page page = client.browse(PampPayloads.BrowseKind.PLAYLISTS, "", 0, 20);
         assertEquals(PampPayloads.ItemKind.PLAYLIST, page.items().getFirst().kind());
         assertEquals("audio", lastQuery.get().get("playlistType"));
-        QueueTrack track = client.expand(PampPayloads.ItemKind.PLAYLIST, "88").getFirst();
+        QueueTrack track = client.expand(PampPayloads.ItemKind.PLAYLIST, "88", 2).getFirst();
+        assertEquals("2", lastQuery.get().get("X-Plex-Container-Size"));
         assertEquals("Song", track.title()); assertEquals("Artist", track.artist()); assertEquals("Album", track.album());
     }
 
@@ -80,6 +81,21 @@ class PlexClientTest {
         mode.set(Mode.TIMEOUT);
         PlexException error = assertThrows(PlexException.class, () -> client(Duration.ofMillis(50)).validate());
         assertEquals(PlexException.Kind.OFFLINE, error.kind());
+    }
+
+    @Test void boundsMetadataBodyReadTimeoutsAfterHeadersArrive() {
+        mode.set(Mode.STALLED_BODY);
+        PlexException error = assertThrows(PlexException.class, () -> client(Duration.ofMillis(50)).validate());
+        assertEquals(PlexException.Kind.OFFLINE, error.kind());
+        assertEquals("Plex metadata body timed out", error.getMessage());
+    }
+
+    @Test void rejectsChunkedMetadataThatExceedsTheReadLimit() {
+        mode.set(Mode.CHUNKED_OVERSIZE);
+        PlexException error = assertThrows(PlexException.class,
+                () -> new PlexClient(baseUrl(), "secret", "Music", Duration.ofSeconds(2), 64, PlexClient.MAX_TRANSCODE_BYTES).validate());
+        assertEquals(PlexException.Kind.INVALID_RESPONSE, error.kind());
+        assertEquals("Plex metadata response exceeds the safety limit", error.getMessage());
     }
 
     @Test void transcodeUsesRequiredGenericProfileAndWritesBody() throws Exception {
@@ -106,7 +122,27 @@ class PlexClientTest {
         } finally { Files.deleteIfExists(output); }
     }
 
-    private PlexClient client(Duration timeout) { return new PlexClient("http://127.0.0.1:" + server.getAddress().getPort(), "secret", "Music", timeout); }
+    @Test void rejectsOversizedTranscodesBeforeWritingThemToTheCache() throws Exception {
+        Path output = Files.createTempFile("pampmod-test-", ".mp3");
+        try {
+            PlexClient bounded = new PlexClient(baseUrl(), "secret", "Music", Duration.ofSeconds(2), PlexClient.MAX_JSON_BYTES, 1_024);
+            PlexException error = assertThrows(PlexException.class, () -> bounded.transcode(track(), output, 160));
+            assertEquals(PlexException.Kind.INVALID_RESPONSE, error.kind());
+            assertFalse(Files.exists(output));
+        } finally { Files.deleteIfExists(output); }
+    }
+
+    @Test void rejectsTracksBeyondTheDurationSafetyLimitWithoutContactingPlex() throws Exception {
+        Path output = Files.createTempFile("pampmod-test-", ".mp3");
+        try {
+            PlexException error = assertThrows(PlexException.class, () -> client.transcode(
+                    new QueueTrack("42", "Too long", "Artist", "Album", PlexClient.MAX_TRACK_DURATION_MS + 1), output, 160));
+            assertEquals(PlexException.Kind.INVALID_RESPONSE, error.kind());
+        } finally { Files.deleteIfExists(output); }
+    }
+
+    private String baseUrl() { return "http://127.0.0.1:" + server.getAddress().getPort(); }
+    private PlexClient client(Duration timeout) { return new PlexClient(baseUrl(), "secret", "Music", timeout); }
     private static QueueTrack track() { return new QueueTrack("42", "Song", "Artist", "Album", 123_000); }
 
     private void respond(HttpExchange exchange) throws IOException {
@@ -118,6 +154,17 @@ class PlexClientTest {
         }
         if (current == Mode.UNAUTHORIZED) { send(exchange, 401, "{}"); return; }
         if (current == Mode.MALFORMED) { send(exchange, 200, "not-json"); return; }
+        if (current == Mode.CHUNKED_OVERSIZE) {
+            byte[] bytes = ("{\"MediaContainer\":{\"Directory\":[" + " ".repeat(256) + "]}}").getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, 0); exchange.getResponseBody().write(bytes); exchange.close(); return;
+        }
+        if (current == Mode.STALLED_BODY) {
+            exchange.sendResponseHeaders(200, 0);
+            exchange.getResponseBody().write("{\"MediaContainer\":".getBytes(StandardCharsets.UTF_8));
+            exchange.getResponseBody().flush();
+            try { Thread.sleep(250); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            exchange.close(); return;
+        }
         if (exchange.getRequestURI().getPath().contains("transcode")) {
             assertNull(exchange.getRequestHeaders().getFirst("X-Plex-Token"));
             if (current == Mode.TRANSCODE_FAILURE) { send(exchange, 500, "failed"); return; }

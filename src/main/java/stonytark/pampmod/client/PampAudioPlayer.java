@@ -29,6 +29,7 @@ public final class PampAudioPlayer {
     private long lastAudioDataMs;
     private long lastCorrectionMs;
     private boolean started;
+    private final AsyncStartGuard channelStarts = new AsyncStartGuard();
 
     public PampAudioPlayer(ClockSynchronizer clock) { this.clock = clock; }
 
@@ -69,7 +70,7 @@ public final class PampAudioPlayer {
         Minecraft minecraft = Minecraft.getInstance();
         if (PampConfig.ENABLED.get()) minecraft.getMusicManager().stopPlaying();
         long localStart = clock.toLocalTime(manifest.startedAtEpochMs() + Math.max(0, firstChunkStartMs));
-        if (!started && !manifest.paused() && PampConfig.ENABLED.get() && decoder.format() != null && decoder.bufferedMillis() >= START_BUFFER_MS && firstChunkStartMs >= 0 && now >= localStart) {
+        if (!started && !channelStarts.pending() && !manifest.paused() && PampConfig.ENABLED.get() && decoder.format() != null && decoder.bufferedMillis() >= START_BUFFER_MS && firstChunkStartMs >= 0 && now >= localStart) {
             startChannel(now);
         }
         if (channel != null) {
@@ -108,12 +109,22 @@ public final class PampAudioPlayer {
     }
 
     private void startChannel(long now) {
+        long startToken = channelStarts.begin();
+        if (startToken < 0) return;
         StreamingMp3Decoder startingDecoder = decoder;
         UUID startingSession = manifest.sessionId();
         long startingPosition = Math.max(0, firstChunkStartMs);
         ChannelAccess access = ((SoundEngineAccessor)((SoundManagerAccessor)(Object)Minecraft.getInstance().getSoundManager()).pampmod$soundEngine()).pampmod$channelAccess();
-        access.createHandle(Library.Pool.STREAMING).thenAccept(handle -> {
-            if (handle == null) return;
+        access.createHandle(Library.Pool.STREAMING).whenComplete((handle, error) -> {
+            boolean current = decoder == startingDecoder && manifest != null && manifest.sessionId().equals(startingSession);
+            if (!current || !channelStarts.complete(startToken)) {
+                if (handle != null) handle.execute(com.mojang.blaze3d.audio.Channel::stop);
+                return;
+            }
+            if (error != null || handle == null) {
+                requestRebuffer();
+                return;
+            }
             if (decoder != startingDecoder || manifest == null || !manifest.sessionId().equals(startingSession)) {
                 handle.execute(com.mojang.blaze3d.audio.Channel::stop);
                 return;
@@ -139,6 +150,7 @@ public final class PampAudioPlayer {
     public void audioEngineReloaded() { if (manifest != null) { resetAudio(); if (PampConfig.ENABLED.get()) PacketDistributor.sendToServer(new PampPayloads.ManifestRequest(true)); } }
 
     private void resetAudio() {
+        channelStarts.cancel();
         if (channel != null) {
             if (!channel.isStopped()) channel.execute(com.mojang.blaze3d.audio.Channel::stop);
             channel = null;

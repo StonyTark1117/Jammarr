@@ -23,25 +23,50 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
 public final class PlexClient {
     private static final System.Logger LOGGER = System.getLogger(PlexClient.class.getName());
     private static final String CLIENT_ID = "f0b09ec2674d42f4a802c5cc9a57d774";
+    static final int MAX_EXPANDED_TRACKS = 500;
+    static final int MAX_JSON_BYTES = 4 * 1024 * 1024;
+    static final long MAX_TRANSCODE_BYTES = 256L * 1024 * 1024;
+    static final long MAX_TRACK_DURATION_MS = 3L * 60 * 60 * 1_000;
+    private static final Duration TRANSCODE_READ_TIMEOUT = Duration.ofMinutes(3);
+    private static final ScheduledExecutorService READ_TIMEOUTS = Executors.newSingleThreadScheduledExecutor(
+            Thread.ofPlatform().daemon(true).name("pampmod-http-timeouts").factory());
     public record Page(List<PampPayloads.MediaItem> items, boolean hasMore) {}
     private final HttpClient http;
     private final Duration requestTimeout;
     private final Supplier<String> configuredUrl;
     private final Supplier<String> configuredToken;
     private final Supplier<String> configuredLibrary;
+    private final int maxJsonBytes;
+    private final long maxTranscodeBytes;
+    private final Duration transcodeReadTimeout;
     private volatile String libraryKey;
 
     public PlexClient() { this(() -> PampConfig.PLEX_URL.get(), PampConfig::plexToken, () -> PampConfig.MUSIC_LIBRARY.get(), Duration.ofSeconds(15)); }
     PlexClient(String url, String token, String library) { this(() -> url, () -> token, () -> library, Duration.ofSeconds(15)); }
     PlexClient(String url, String token, String library, Duration requestTimeout) { this(() -> url, () -> token, () -> library, requestTimeout); }
+    PlexClient(String url, String token, String library, Duration requestTimeout, int maxJsonBytes, long maxTranscodeBytes) {
+        this(() -> url, () -> token, () -> library, requestTimeout, maxJsonBytes, maxTranscodeBytes, requestTimeout);
+    }
     private PlexClient(Supplier<String> url, Supplier<String> token, Supplier<String> library, Duration requestTimeout) {
+        this(url, token, library, requestTimeout, MAX_JSON_BYTES, MAX_TRANSCODE_BYTES, TRANSCODE_READ_TIMEOUT);
+    }
+    private PlexClient(Supplier<String> url, Supplier<String> token, Supplier<String> library, Duration requestTimeout,
+                       int maxJsonBytes, long maxTranscodeBytes, Duration transcodeReadTimeout) {
         this.configuredUrl = url; this.configuredToken = token; this.configuredLibrary = library;
         this.requestTimeout = requestTimeout;
+        this.maxJsonBytes = maxJsonBytes;
+        this.maxTranscodeBytes = maxTranscodeBytes;
+        this.transcodeReadTimeout = transcodeReadTimeout;
         this.http = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(requestTimeout).followRedirects(HttpClient.Redirect.NORMAL).build();
     }
@@ -85,15 +110,23 @@ public final class PlexClient {
     }
 
     public List<QueueTrack> expand(PampPayloads.ItemKind kind, String key) throws IOException, InterruptedException {
+        return expand(kind, key, MAX_EXPANDED_TRACKS);
+    }
+
+    public List<QueueTrack> expand(PampPayloads.ItemKind kind, String key, int limit) throws IOException, InterruptedException {
+        int boundedLimit = Math.max(1, Math.min(limit, MAX_EXPANDED_TRACKS));
         String path = switch (kind) {
             case TRACK -> "/library/metadata/" + encodePath(key);
             case ALBUM -> "/library/metadata/" + encodePath(key) + "/children";
             case ARTIST -> "/library/metadata/" + encodePath(key) + "/allLeaves";
             case PLAYLIST -> "/playlists/" + encodePath(key) + "/items";
         };
-        JsonArray metadata = array(container(getJson(path, "")), "Metadata");
+        String params = kind == PampPayloads.ItemKind.TRACK ? ""
+                : "X-Plex-Container-Start=0&X-Plex-Container-Size=" + boundedLimit;
+        JsonArray metadata = array(container(getJson(path, params)), "Metadata");
         List<QueueTrack> tracks = new ArrayList<>();
         for (JsonElement element : metadata) {
+            if (tracks.size() >= boundedLimit) break;
             if (!element.isJsonObject()) continue;
             JsonObject value = element.getAsJsonObject();
             if (!"track".equals(text(value, "type"))) continue;
@@ -105,6 +138,9 @@ public final class PlexClient {
     }
 
     public void transcode(QueueTrack track, Path output, int bitrate) throws IOException, InterruptedException {
+        if (track.durationMs() > MAX_TRACK_DURATION_MS) {
+            throw new PlexException(PlexException.Kind.INVALID_RESPONSE, "Plex track exceeds the three-hour safety limit");
+        }
         Path plexOutput = Files.createTempFile(output.toAbsolutePath().getParent(), "pamp-plex-", ".mp3");
         try {
             downloadTranscode(track, plexOutput, bitrate);
@@ -115,6 +151,9 @@ public final class PlexClient {
                 Files.move(plexOutput, output, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             } else {
                 Mp3CbrNormalizer.normalize(plexOutput, output, bitrate);
+            }
+            if (Files.size(output) > maxTranscodeBytes) {
+                throw new PlexException(PlexException.Kind.INVALID_RESPONSE, "Normalized Plex audio exceeds the configured safety limit");
             }
             Mp3FrameIndex.Info normalized = Mp3FrameIndex.inspect(Files.readAllBytes(output));
             if (!normalized.constantBitrate() || normalized.bitrateKbps() != bitrate || normalized.channels() != 2) {
@@ -156,7 +195,25 @@ public final class PlexClient {
                     : response.statusCode() == 404 ? PlexException.Kind.NOT_FOUND : PlexException.Kind.TRANSCODE;
             throw new PlexException(kind, "Plex transcode returned HTTP " + response.statusCode());
         }
-        try (InputStream in = response.body(); var out = Files.newOutputStream(output, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) { in.transferTo(out); }
+        long declaredLength = response.headers().firstValueAsLong("Content-Length").orElse(-1);
+        if (declaredLength > maxTranscodeBytes) {
+            response.body().close();
+            throw new PlexException(PlexException.Kind.INVALID_RESPONSE, "Plex transcode exceeds the configured safety limit");
+        }
+        AtomicBoolean timedOut = new AtomicBoolean();
+        InputStream body = response.body();
+        ScheduledFuture<?> timeout = READ_TIMEOUTS.schedule(() -> {
+            timedOut.set(true);
+            try { body.close(); } catch (IOException ignored) {}
+        }, transcodeReadTimeout.toMillis(), TimeUnit.MILLISECONDS);
+        try (InputStream in = body; var out = Files.newOutputStream(output, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
+            copyLimited(in, out, maxTranscodeBytes, "Plex transcode exceeds the configured safety limit");
+        } catch (IOException failure) {
+            if (timedOut.get()) throw new PlexException(PlexException.Kind.OFFLINE, "Plex transcode body timed out", failure);
+            throw failure;
+        } finally {
+            timeout.cancel(false);
+        }
         if (Files.size(output) < 1024) throw new PlexException(PlexException.Kind.INVALID_RESPONSE, "Plex returned an empty audio stream");
     }
 
@@ -177,18 +234,51 @@ public final class PlexClient {
 
     private void ensureLibrary() throws IOException, InterruptedException { if (libraryKey == null) validate(); }
     private JsonObject getJson(String path, String query) throws IOException, InterruptedException {
-        HttpResponse<String> response;
-        try { response = http.send(request(path, query).timeout(requestTimeout).GET().build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8)); }
+        HttpResponse<InputStream> response;
+        try { response = http.send(request(path, query).timeout(requestTimeout).GET().build(), HttpResponse.BodyHandlers.ofInputStream()); }
         catch (HttpTimeoutException e) { throw new PlexException(PlexException.Kind.OFFLINE, "Plex request timed out", e); }
-        if (response.statusCode() == 401 || response.statusCode() == 403) throw new PlexException(PlexException.Kind.AUTHENTICATION, "Plex rejected the configured token");
-        if (response.statusCode() == 404) throw new PlexException(PlexException.Kind.NOT_FOUND, "Plex item was not found");
-        if (response.statusCode() / 100 != 2) throw new PlexException(PlexException.Kind.OFFLINE, "Plex returned HTTP " + response.statusCode());
-        try {
-            JsonElement parsed = JsonParser.parseString(response.body());
+        try (InputStream body = response.body()) {
+            if (response.statusCode() == 401 || response.statusCode() == 403) throw new PlexException(PlexException.Kind.AUTHENTICATION, "Plex rejected the configured token");
+            if (response.statusCode() == 404) throw new PlexException(PlexException.Kind.NOT_FOUND, "Plex item was not found");
+            if (response.statusCode() / 100 != 2) throw new PlexException(PlexException.Kind.OFFLINE, "Plex returned HTTP " + response.statusCode());
+            long declaredLength = response.headers().firstValueAsLong("Content-Length").orElse(-1);
+            if (declaredLength > maxJsonBytes) throw new PlexException(PlexException.Kind.INVALID_RESPONSE, "Plex metadata response exceeds the safety limit");
+            AtomicBoolean timedOut = new AtomicBoolean();
+            ScheduledFuture<?> timeout = READ_TIMEOUTS.schedule(() -> {
+                timedOut.set(true);
+                try { body.close(); } catch (IOException ignored) {}
+            }, requestTimeout.toMillis(), TimeUnit.MILLISECONDS);
+            byte[] bytes;
+            try {
+                bytes = readLimited(body, maxJsonBytes, "Plex metadata response exceeds the safety limit");
+            } catch (IOException failure) {
+                if (timedOut.get()) throw new PlexException(PlexException.Kind.OFFLINE, "Plex metadata body timed out", failure);
+                throw failure;
+            } finally {
+                timeout.cancel(false);
+            }
+            JsonElement parsed = JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8));
             if (!parsed.isJsonObject()) throw new IllegalStateException("root is not an object");
             return parsed.getAsJsonObject();
         } catch (RuntimeException malformed) {
             throw new PlexException(PlexException.Kind.INVALID_RESPONSE, "Plex returned malformed JSON", malformed);
+        }
+    }
+
+    private static byte[] readLimited(InputStream input, int maximumBytes, String message) throws IOException {
+        byte[] bytes = input.readNBytes(maximumBytes + 1);
+        if (bytes.length > maximumBytes) throw new PlexException(PlexException.Kind.INVALID_RESPONSE, message);
+        return bytes;
+    }
+
+    private static void copyLimited(InputStream input, java.io.OutputStream output, long maximumBytes, String message) throws IOException {
+        byte[] buffer = new byte[16 * 1024];
+        long total = 0;
+        for (int read; (read = input.read(buffer)) >= 0;) {
+            if (read == 0) continue;
+            total += read;
+            if (total > maximumBytes) throw new PlexException(PlexException.Kind.INVALID_RESPONSE, message);
+            output.write(buffer, 0, read);
         }
     }
     private HttpRequest.Builder request(String path, String query) {

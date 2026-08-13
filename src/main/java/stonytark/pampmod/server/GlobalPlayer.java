@@ -43,7 +43,9 @@ public final class GlobalPlayer implements AutoCloseable {
     private final SlidingWindowRateLimiter queueLimits = new SlidingWindowRateLimiter();
     private final SlidingWindowRateLimiter chunkLimits = new SlidingWindowRateLimiter();
     private final SlidingWindowRateLimiter acknowledgementLimits = new SlidingWindowRateLimiter();
-    private final Map<UUID, TransferState> transfers = new HashMap<>();
+    private final SlidingWindowRateLimiter manifestLimits = new SlidingWindowRateLimiter();
+    private final Map<UUID, ChunkTransferPolicy.State> transfers = new HashMap<>();
+    private final RetryGate preparationRetry = new RetryGate();
 
     private AudioAsset asset;
     private PreparedAsset prefetched;
@@ -87,6 +89,7 @@ public final class GlobalPlayer implements AutoCloseable {
             if (error == null) {
                 plexHealth = PlexHealth.ONLINE;
                 plexDiagnostic = "Connected to the configured Plex music library";
+                preparationRetry.clear();
                 Pampmod.LOGGER.info("PAmpMod connected to the configured Plex music library");
                 prepareCurrent();
             } else {
@@ -105,7 +108,7 @@ public final class GlobalPlayer implements AutoCloseable {
         } else if (EmptyServerPausePolicy.shouldResume(autoPaused, empty)) {
             resumeInternal();
         }
-        if (asset == null && !saved.queue().isEmpty()) prepareCurrent();
+        if (asset == null && !saved.queue().isEmpty() && preparationRetry.ready(now)) prepareCurrent();
         if (timeline.ended()) skipInternal();
         if (plexHealth == PlexHealth.OFFLINE && now >= nextPlexValidation) validatePlex();
         if (now - lastCheckpoint >= 5_000) {
@@ -116,7 +119,7 @@ public final class GlobalPlayer implements AutoCloseable {
             broadcastState();
             lastStateBroadcast = now;
         }
-        transfers.entrySet().removeIf(entry -> now - entry.getValue().lastSeenMs > 30_000);
+        transfers.entrySet().removeIf(entry -> now - entry.getValue().lastSeenMs() > 30_000);
     }
 
     public void hello(ServerPlayer player) {
@@ -156,8 +159,13 @@ public final class GlobalPlayer implements AutoCloseable {
 
     public void queue(ServerPlayer player, PampPayloads.QueueRequest request) {
         if (!allow(queueLimits, player, 4) || !requirePlex(player)) return;
+        int available = PampConfig.QUEUE_LIMIT.get() - saved.queue().size();
+        if (available <= 0) {
+            sendError(player, PampPayloads.ErrorCode.QUEUE_FULL, "The global queue is full");
+            return;
+        }
         CompletableFuture.supplyAsync(() -> {
-            try { return plex.expand(request.kind(), request.key()); }
+            try { return plex.expand(request.kind(), request.key(), available); }
             catch (Exception e) { throw new RuntimeException(e); }
         }, io).whenComplete((tracks, error) -> server.execute(() -> {
             if (error != null) {
@@ -220,11 +228,16 @@ public final class GlobalPlayer implements AutoCloseable {
 
     public void chunks(ServerPlayer player, PampPayloads.ChunkRequest request) {
         if (asset == null || sessionId == null || !sessionId.equals(request.sessionId())) return;
-        if (!allow(chunkLimits, player, 80)) return;
-        int start = Math.max(0, request.startIndex());
-        int count = Math.max(1, Math.min(request.count(), 8));
-        int end = Math.min(asset.chunks().size(), start + count);
-        transfers.put(player.getUUID(), new TransferState(sessionId, request.requestId(), start, end - 1, -1, 0, System.currentTimeMillis()));
+        if (!allow(chunkLimits, player, 4)) return;
+        long now = System.currentTimeMillis();
+        ChunkTransferPolicy.State previous = transfers.get(player.getUUID());
+        if (!ChunkTransferPolicy.acceptsRequest(previous, sessionId, request.requestId(), request.startIndex(), request.count(), asset.chunks().size(), now)) return;
+        int start = request.startIndex();
+        if (!ChunkTransferPolicy.withinPlaybackLead(asset.chunks().get(start).startMs(), positionMs(),
+                TRACK_START_DELAY_MS + ChunkTransferPolicy.MAX_BUFFERED_MS)) return;
+        int count = request.count();
+        int end = start + count;
+        transfers.put(player.getUUID(), ChunkTransferPolicy.begin(sessionId, request.requestId(), start, count, now));
         for (int i = start; i < end; i++) {
             Mp3FrameIndex.Chunk chunk = asset.chunks().get(i);
             PacketDistributor.sendToPlayer(player, new PampPayloads.AudioChunk(sessionId, request.requestId(), chunk.index(), chunk.startMs(), chunk.sha256(), chunk.data()));
@@ -232,17 +245,22 @@ public final class GlobalPlayer implements AutoCloseable {
     }
 
     public void acknowledge(ServerPlayer player, PampPayloads.ChunkAcknowledgement acknowledgement) {
-        if (!allow(acknowledgementLimits, player, 80)) return;
-        TransferState state = transfers.get(player.getUUID());
-        if (state == null || !state.sessionId.equals(acknowledgement.sessionId()) || state.requestId != acknowledgement.requestId()) return;
-        transfers.put(player.getUUID(), new TransferState(state.sessionId, state.requestId, state.startIndex, state.endIndex,
-                Math.min(state.endIndex, acknowledgement.receivedThroughIndex()), Math.max(0, acknowledgement.bufferedMs()), System.currentTimeMillis()));
+        if (!allow(acknowledgementLimits, player, 8)) return;
+        ChunkTransferPolicy.acknowledge(transfers.get(player.getUUID()), acknowledgement.sessionId(), acknowledgement.requestId(),
+                acknowledgement.receivedThroughIndex(), acknowledgement.bufferedMs(), System.currentTimeMillis())
+                .ifPresent(state -> transfers.put(player.getUUID(), state));
     }
 
     public void playerJoined(ServerPlayer player) { sendState(player); if (asset != null) sendManifest(player); }
+    public void sync(ServerPlayer player) {
+        if (!allow(manifestLimits, player, 2)) return;
+        sendState(player);
+        if (asset != null) sendManifest(player);
+    }
     public void playerLeft(ServerPlayer player) {
         transfers.remove(player.getUUID());
-        browseLimits.remove(player.getUUID()); queueLimits.remove(player.getUUID()); chunkLimits.remove(player.getUUID()); acknowledgementLimits.remove(player.getUUID());
+        browseLimits.remove(player.getUUID()); queueLimits.remove(player.getUUID()); chunkLimits.remove(player.getUUID());
+        acknowledgementLimits.remove(player.getUUID()); manifestLimits.remove(player.getUUID());
     }
     public long cacheSize() { return cache.size(); }
     public String status() {
@@ -276,6 +294,7 @@ public final class GlobalPlayer implements AutoCloseable {
             if (error != null) {
                 if (TrackFailurePolicy.action(error) == TrackFailurePolicy.Action.WAIT_FOR_PLEX) {
                     markPlexFailure(error);
+                    preparationRetry.deferUntil(nextPlexValidation);
                     broadcastState();
                     return;
                 }
@@ -415,6 +434,7 @@ public final class GlobalPlayer implements AutoCloseable {
         long now = System.currentTimeMillis();
         long target = timeline.paused() ? timeline.pausedPositionMs() : (now < timeline.startedAtMs() ? 0 : positionMs() + TRACK_START_DELAY_MS);
         int firstChunk = Mp3FrameIndex.chunkAt(asset.chunks(), Math.min(target, Math.max(0, durationMs() - 1)));
+        transfers.put(player.getUUID(), ChunkTransferPolicy.initial(sessionId, firstChunk, now));
         PacketDistributor.sendToPlayer(player, new PampPayloads.AudioManifest(sessionId, track.title(), track.artist(), asset.chunks().size(), firstChunk,
                 durationMs(), timeline.startedAtMs(), timeline.paused(), timeline.pausedPositionMs(), asset.sha256()));
     }
@@ -473,8 +493,6 @@ public final class GlobalPlayer implements AutoCloseable {
     private static Throwable root(Throwable error) { Throwable value = error; while (value.getCause() != null) value = value.getCause(); return value; }
 
     private record PreparedAsset(QueueTrack track, AudioAsset asset) {}
-    private record TransferState(UUID sessionId, long requestId, int startIndex, int endIndex, int acknowledgedThrough, long bufferedMs, long lastSeenMs) {}
-
     @Override public void close() {
         saved.update(positionMs(), timeline.paused());
         stopAudio();
