@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
 public final class JammarrClientState {
+    private static final int BROWSE_PAGE_SIZE = 20;
     public static final JammarrClientState INSTANCE = new JammarrClientState();
     private final ClockSynchronizer clock = new ClockSynchronizer();
     private final JammarrAudioPlayer audio = new JammarrAudioPlayer(clock);
@@ -35,7 +36,11 @@ public final class JammarrClientState {
         } else if (payload instanceof JammarrPayloads.PlaybackState value) {
             playback = value;
             if (value.serverEpochMs() > 0 && !clock.initialized()) clock.accept(System.currentTimeMillis(), value.serverEpochMs(), System.currentTimeMillis());
-            if (minecraft.screen instanceof JammarrScreen screen) screen.playbackChanged();
+            boolean queueBrowseChanged = refreshQueueBrowse();
+            if (minecraft.screen instanceof JammarrScreen screen) {
+                screen.playbackChanged();
+                if (queueBrowseChanged) screen.queueChanged();
+            }
         } else if (payload instanceof JammarrPayloads.AudioManifest value) {
             audio.manifest(value);
         } else if (payload instanceof JammarrPayloads.AudioChunk value) {
@@ -56,6 +61,21 @@ public final class JammarrClientState {
     public void clearNotice() { notice = ""; }
     public void clearBrowse(JammarrPayloads.BrowseKind kind, String query) {
         browse = new JammarrPayloads.BrowseResults(kind, query, 0, false, List.of());
+    }
+
+    private boolean refreshQueueBrowse() {
+        if (browse.kind() != JammarrPayloads.BrowseKind.QUEUE) return false;
+        int page = browse.page();
+        if ((long)page * BROWSE_PAGE_SIZE >= playback.queue().size() && page > 0) page = 0;
+        int start = page * BROWSE_PAGE_SIZE;
+        int end = Math.min(playback.queue().size(), start + BROWSE_PAGE_SIZE);
+        List<JammarrPayloads.MediaItem> items = playback.queue().subList(start, end).stream()
+                .map(entry -> new JammarrPayloads.MediaItem(JammarrPayloads.ItemKind.TRACK, entry.key(), entry.title(), entry.artist(), entry.durationMs()))
+                .toList();
+        JammarrPayloads.BrowseResults updated = new JammarrPayloads.BrowseResults(JammarrPayloads.BrowseKind.QUEUE, "", page, end < playback.queue().size(), items);
+        if (browse.equals(updated)) return false;
+        browse = updated;
+        return true;
     }
     public void tick() {
         long now = System.currentTimeMillis();

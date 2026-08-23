@@ -213,6 +213,12 @@ public final class JammarrScreen extends Screen {
         rebuildWidgets();
     }
 
+    void queueChanged() {
+        if (view == View.QUEUE && minecraft != null) {
+            rebuildWidgets();
+        }
+    }
+
     @Override public boolean keyPressed(int key, int scanCode, int modifiers) {
         if (key == 257 && search != null && search.isFocused()) { request(0); return true; }
         return super.keyPressed(key, scanCode, modifiers);
