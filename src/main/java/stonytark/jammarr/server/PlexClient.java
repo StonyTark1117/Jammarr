@@ -74,6 +74,7 @@ public final class PlexClient {
     public void validate() throws IOException, InterruptedException {
         String token = token();
         if (token.isBlank()) throw new PlexException(PlexException.Kind.CONFIGURATION, "Plex token is not configured");
+        validateBaseUrl();
         if (baseUrl().startsWith("http://")) LOGGER.log(System.Logger.Level.WARNING, "Jammarr Plex connection uses unencrypted HTTP; use this only on a trusted private network");
         JsonObject root = getJson("/library/sections", "");
         JsonArray directories = array(container(root), "Directory");
@@ -302,5 +303,16 @@ public final class PlexClient {
     private static String encode(String value) { return URLEncoder.encode(value, StandardCharsets.UTF_8); }
     private static String encodePath(String value) { return encode(value).replace("+", "%20"); }
     private String baseUrl() { String value = configuredUrl.get().trim(); return value.endsWith("/") ? value.substring(0, value.length() - 1) : value; }
-    private String token() { return configuredToken.get(); }
+    private void validateBaseUrl() throws PlexException {
+        String value = baseUrl();
+        try {
+            URI uri = URI.create(value);
+            if (!("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme())) || uri.getHost() == null || uri.getHost().isBlank()) {
+                throw new IllegalArgumentException("unsupported scheme or missing host");
+            }
+        } catch (IllegalArgumentException invalid) {
+            throw new PlexException(PlexException.Kind.CONFIGURATION, "Plex URL must be an http(s) URL with a host", invalid);
+        }
+    }
+    private String token() { return configuredToken.get().trim(); }
 }

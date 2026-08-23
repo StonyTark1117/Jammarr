@@ -43,6 +43,17 @@ class AudioCacheTest {
         assertDoesNotThrow(() -> cache.load(file, 160));
     }
 
+    @Test void exposesCacheValidationAndInstallCounters() throws Exception {
+        AudioCache cache = new AudioCache(directory, 10_000);
+        Path target = cache.target("stats", 160);
+        cache.install(temp("stats"), target, Set.of(target));
+        cache.load(target, 160);
+        AudioCache.CacheStats stats = cache.stats();
+        assertEquals(2, stats.loads());
+        assertEquals(1, stats.installs());
+        assertEquals(0, stats.invalidEntries());
+    }
+
     private Path temp(String name) throws Exception { Path path = directory.resolve(name + ".part"); Files.write(path, stream()); return path; }
     private static byte[] stream() {
         byte[] frame = new byte[417]; frame[0] = (byte)0xff; frame[1] = (byte)0xfb; frame[2] = (byte)0x90; frame[3] = 0;

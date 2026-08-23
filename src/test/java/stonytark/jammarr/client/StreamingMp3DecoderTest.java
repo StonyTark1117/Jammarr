@@ -13,6 +13,20 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class StreamingMp3DecoderTest {
     @Test
+    void pcmStreamKeepsOpenAudioAliveWhileTheFirstChunkIsStillArriving() {
+        StreamingMp3Decoder decoder = new StreamingMp3Decoder(0, 1);
+        try {
+            PcmAudioStream stream = new PcmAudioStream(decoder);
+            ByteBuffer silence = stream.read(256);
+            assertNotNull(silence);
+            assertEquals(256, silence.remaining());
+            stream.close();
+        } finally {
+            decoder.close();
+        }
+    }
+
+    @Test
     void decodesTheServerChunkFormatIntoPcm() throws Exception {
         var chunks = Mp3FrameIndex.split(encodeTestTrack());
         assertTrue(chunks.size() > 1);

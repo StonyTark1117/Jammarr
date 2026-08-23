@@ -3,6 +3,7 @@
   "key.categories.jammarr": "Jammarr",
   "jammarr.screen.title": "Jammarr - Plex Music",
   "jammarr.screen.search": "Search tracks...",
+  "jammarr.screen.search_tab": "Search",
   "jammarr.screen.now_playing": "Now Playing",
   "jammarr.screen.queue": "Queue",
   "jammarr.screen.artists": "Artists",
@@ -10,5 +11,14 @@
   "jammarr.screen.playlists": "Playlists",
   "jammarr.screen.mute": "Mute",
   "jammarr.screen.unmute": "Listen",
-  "jammarr.screen.empty": "No results"
+  "jammarr.screen.empty": "No results",
+  "jammarr.screen.go": "Go",
+  "jammarr.screen.clear": "Clear",
+  "jammarr.screen.confirm": "Confirm",
+  "jammarr.screen.pause": "Pause",
+  "jammarr.screen.resume": "Resume",
+  "jammarr.screen.skip": "Skip",
+  "jammarr.screen.retry_audio": "Retry audio",
+  "jammarr.screen.confirm_clear_notice": "Press Confirm to clear the queue",
+  "jammarr.screen.volume": "Volume %s%%"
 }

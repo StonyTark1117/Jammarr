@@ -49,6 +49,13 @@ class PlexClientTest {
         assertFalse(error.getMessage().contains("secret"));
     }
 
+    @Test void rejectsInvalidPlexUrlBeforeOpeningAConnection() {
+        PlexException error = assertThrows(PlexException.class,
+                () -> new PlexClient("ftp://plex.example", "secret", "Music", Duration.ofSeconds(2)).validate());
+        assertEquals(PlexException.Kind.CONFIGURATION, error.kind());
+        assertEquals("Plex URL must be an http(s) URL with a host", error.getMessage());
+    }
+
     @Test void paginatesSearchAndFiltersMalformedMetadataEntries() throws Exception {
         client.validate();
         PlexClient.Page page = client.browse(JammarrPayloads.BrowseKind.SEARCH, "A&B", 2, 2);

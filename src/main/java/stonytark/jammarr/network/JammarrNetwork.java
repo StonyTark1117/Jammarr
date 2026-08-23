@@ -7,7 +7,7 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import stonytark.jammarr.server.JammarrServer;
 
 public final class JammarrNetwork {
-    public static final int PROTOCOL = 2;
+    public static final int PROTOCOL = 3;
     public static final String VERSION = Integer.toString(PROTOCOL);
 
     public static void register(RegisterPayloadHandlersEvent event) {

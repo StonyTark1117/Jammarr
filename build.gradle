@@ -110,6 +110,20 @@ tasks.named('jar', Jar) {
     }
 }
 
+def releaseArchive = tasks.named('jar', Jar).flatMap { it.archiveFile }
+def releaseEntries = ['META-INF/jarjar/jlayer-1.0.1.jar', 'META-INF/jarjar/jump3r-1.0.5.jar',
+                      'META-INF/LICENSE-Jammarr-CC0-1.0.txt', 'META-INF/LICENSE-LGPL-2.1-or-later.txt',
+                      'META-INF/THIRD_PARTY_NOTICES.md']
+tasks.register('verifyRelease') {
+    dependsOn(tasks.named('test'), tasks.named('jar'))
+    doLast {
+        def found = new java.util.zip.ZipFile(releaseArchive.get().asFile).withCloseable { zip -> zip.entries().collect { it.name } as Set }
+        releaseEntries.each { entry ->
+            if (!found.contains(entry)) throw new org.gradle.api.GradleException("Release archive is missing ${entry}")
+        }
+    }
+}
+
 var generateModMetadata = tasks.register('generateModMetadata', ProcessResources) {
     var replaceProperties = [minecraft_version      : minecraft_version,
                              minecraft_version_range: minecraft_version_range,

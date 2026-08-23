@@ -41,6 +41,7 @@ Plain HTTP is allowed for trusted private networks and emits a warning. HTTPS us
 - Every player may browse and append tracks, albums, artists, or audio playlists.
 - Permission-level 2 operators may pause, resume, skip, clear, remove, and reorder queue entries.
 - Each player may independently mute Jammarr and set a persistent local volume. Local opt-out never changes the global queue.
+- The Now Playing screen reports both server playback and local audio state. Decoder or transfer recovery is bounded and can be retried from the screen after a final local audio error.
 - Master, Music, and Jammarr volume controls all apply. Vanilla background music is suppressed while the Jammarr stream is active and restored afterward.
 
 Commands:
@@ -52,7 +53,7 @@ Commands:
 | `/jammarr pause`, `resume`, `skip`, `clear` | Operator | Control global playback |
 | `/jammarr cache` | Operator | Show cache usage |
 | `/jammarr reload` | Operator | Revalidate Plex and the selected library |
-| `/jammarr diagnostics` | Operator | Show sanitized Plex/cache/transfer state |
+| `/jammarr diagnostics` | Operator | Show sanitized Plex/cache/transfer state, preparation status, and transfer counters |
 
 ## Playback and failure behavior
 
@@ -61,8 +62,9 @@ Commands:
 - MP3 data is split only on frame boundaries into payloads no larger than 16 KiB. Clients pull one server-authorized window at a time, validate SHA-256 hashes, acknowledge complete windows, and retry only the outstanding window. The server rejects out-of-order, unacknowledged, over-buffered, and excessive requests.
 - A new track is scheduled five seconds ahead using a filtered client/server clock estimate. Late joiners begin near the authoritative position. More than 500 ms of drift causes a local rebuffer rather than delaying every listener.
 - A preparation failure retries three times with backoff. Missing or permanently invalid items are skipped; authentication, configuration, and outage failures wait for the 30-second Plex recovery check instead of retrying from every server tick. Cached playback continues during a temporary Plex outage.
+- Client audio recovery retries three times per playback session. A fourth failure stops retrying automatically and exposes a `Retry audio` action instead of leaving a silent stream running indefinitely.
 - The queue and five-second playback checkpoints live in world saved data. A graceful shutdown records the current position for `RESUME_POSITION`.
-- Unmodded clients and clients with an incompatible Jammarr network protocol are rejected during payload negotiation.
+- Unmodded clients and clients with an incompatible Jammarr network protocol are rejected during payload negotiation. Queue mutations include an expected track key so stale operator screens cannot modify the wrong entry.
 
 ## Security and privacy
 
@@ -78,6 +80,7 @@ Commands:
 ./gradlew runGameTestServer
 ./gradlew runServer
 ./gradlew build
+./gradlew verifyRelease
 ```
 
 The opt-in live Plex test reads credentials only from its process environment:

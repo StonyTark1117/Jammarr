@@ -12,10 +12,14 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class AudioCache {
     private final Path directory;
     private final long maxBytes;
+    private final AtomicLong loads = new AtomicLong();
+    private final AtomicLong invalidEntries = new AtomicLong();
+    private final AtomicLong installs = new AtomicLong();
 
     public AudioCache(Path directory, long maxBytes) throws IOException {
         this.directory = directory; this.maxBytes = maxBytes; Files.createDirectories(directory);
@@ -35,8 +39,10 @@ public final class AudioCache {
             if (info.channels() != 2) {
                 throw new IllegalArgumentException("Plex audio must be stereo MP3 format");
             }
+            loads.incrementAndGet();
             return new AudioAsset(path, Hashing.sha256(bytes), Mp3FrameIndex.split(bytes), bytes.length, info.durationMs());
         } catch (IllegalArgumentException invalid) {
+            invalidEntries.incrementAndGet();
             throw new IOException("Cached Plex audio is not a valid Layer III MP3", invalid);
         }
     }
@@ -54,6 +60,7 @@ public final class AudioCache {
         }
         AudioAsset result = new AudioAsset(target, validated.sha256(), validated.chunks(), validated.size(), validated.durationMs());
         Files.setLastModifiedTime(target, java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis()));
+        installs.incrementAndGet();
         trim(pinned); return result;
     }
 
@@ -75,6 +82,10 @@ public final class AudioCache {
             }
         } catch (IOException e) { Jammarr.LOGGER.warn("Unable to trim Jammarr audio cache", e); }
     }
+
+    public CacheStats stats() { return new CacheStats(loads.get(), invalidEntries.get(), installs.get()); }
+
+    public record CacheStats(long loads, long invalidEntries, long installs) {}
 
     private static boolean isCacheFile(Path path) { return Files.isRegularFile(path) && path.getFileName().toString().endsWith(".mp3"); }
 

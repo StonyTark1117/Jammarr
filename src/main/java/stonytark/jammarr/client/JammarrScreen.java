@@ -14,8 +14,8 @@ import java.util.List;
 
 public final class JammarrScreen extends Screen {
     private enum View {
-        NOW("Now Playing", null), SEARCH("Search", JammarrPayloads.BrowseKind.SEARCH), ARTISTS("Artists", JammarrPayloads.BrowseKind.ARTISTS),
-        ALBUMS("Albums", JammarrPayloads.BrowseKind.ALBUMS), PLAYLISTS("Playlists", JammarrPayloads.BrowseKind.PLAYLISTS), QUEUE("Queue", JammarrPayloads.BrowseKind.QUEUE);
+        NOW("jammarr.screen.now_playing", null), SEARCH("jammarr.screen.search_tab", JammarrPayloads.BrowseKind.SEARCH), ARTISTS("jammarr.screen.artists", JammarrPayloads.BrowseKind.ARTISTS),
+        ALBUMS("jammarr.screen.albums", JammarrPayloads.BrowseKind.ALBUMS), PLAYLISTS("jammarr.screen.playlists", JammarrPayloads.BrowseKind.PLAYLISTS), QUEUE("jammarr.screen.queue", JammarrPayloads.BrowseKind.QUEUE);
         final String label; final JammarrPayloads.BrowseKind browseKind;
         View(String label, JammarrPayloads.BrowseKind browseKind) { this.label = label; this.browseKind = browseKind; }
     }
@@ -59,14 +59,16 @@ public final class JammarrScreen extends Screen {
             search.setMaxLength(128); search.setHint(Component.translatable("jammarr.screen.search"));
             search.setValue(searchQuery);
             search.setResponder(value -> searchQuery = value);
-            Button go = Button.builder(Component.literal("Go"), b -> request(0)).bounds(left + panelWidth - 122, contentTop, 58, 20).build();
+            Button go = Button.builder(Component.translatable("jammarr.screen.go"), b -> request(0)).bounds(left + panelWidth - 122, contentTop, 58, 20).build();
             go.active = !requestPending;
             addRenderableWidget(go);
-            addRenderableWidget(Button.builder(Component.literal("Clear"), b -> {
+            Button clearSearch = Button.builder(Component.translatable("jammarr.screen.clear"), b -> {
                 searchQuery = "";
                 search.setValue("");
                 request(0);
-            }).bounds(left + panelWidth - 60, contentTop, 60, 20).build());
+            }).bounds(left + panelWidth - 60, contentTop, 60, 20).build();
+            clearSearch.active = !requestPending;
+            addRenderableWidget(clearSearch);
             contentTop += 27;
         }
 
@@ -74,29 +76,37 @@ public final class JammarrScreen extends Screen {
         else addResults(left, contentTop, panelWidth);
 
         int bottom = height - 27;
-        addRenderableWidget(Button.builder(Component.literal(JammarrConfig.ENABLED.get() ? "Mute" : "Listen"), b -> {
+        addRenderableWidget(Button.builder(Component.translatable(JammarrConfig.ENABLED.get() ? "jammarr.screen.mute" : "jammarr.screen.unmute"), b -> {
             JammarrConfig.ENABLED.set(!JammarrConfig.ENABLED.get()); JammarrConfig.ENABLED.save(); state.listeningChanged(); rebuildWidgets();
         }).bounds(left, bottom, 68, 20).build());
         addRenderableWidget(new VolumeSlider(left + 74, bottom, 130, 20));
         if (state.playback().operator()) {
-            addRenderableWidget(Button.builder(Component.literal(state.playback().paused() ? "Resume" : "Pause"), b -> control(state.playback().paused() ? JammarrPayloads.ControlAction.RESUME : JammarrPayloads.ControlAction.PAUSE, -1)).bounds(left + 210, bottom, 72, 20).build());
-            addRenderableWidget(Button.builder(Component.literal("Skip"), b -> control(JammarrPayloads.ControlAction.SKIP, -1)).bounds(left + 288, bottom, 58, 20).build());
+            addRenderableWidget(Button.builder(Component.translatable(state.playback().paused() ? "jammarr.screen.resume" : "jammarr.screen.pause"), b -> control(state.playback().paused() ? JammarrPayloads.ControlAction.RESUME : JammarrPayloads.ControlAction.PAUSE, -1)).bounds(left + 210, bottom, 72, 20).build());
+            addRenderableWidget(Button.builder(Component.translatable("jammarr.screen.skip"), b -> control(JammarrPayloads.ControlAction.SKIP, -1)).bounds(left + 288, bottom, 58, 20).build());
             boolean armed = System.currentTimeMillis() < clearArmedUntil;
-            addRenderableWidget(Button.builder(Component.literal(armed ? "Confirm" : "Clear"), b -> {
+            addRenderableWidget(Button.builder(Component.translatable(armed ? "jammarr.screen.confirm" : "jammarr.screen.clear"), b -> {
                 if (System.currentTimeMillis() < clearArmedUntil) {
                     clearArmedUntil = 0;
                     control(JammarrPayloads.ControlAction.CLEAR, -1);
                 } else {
                     clearArmedUntil = System.currentTimeMillis() + 5_000;
-                    screenNotice = "Press Confirm to clear the queue";
+                    screenNotice = Component.translatable("jammarr.screen.confirm_clear_notice").getString();
                     rebuildWidgets();
                 }
             }).bounds(left + 352, bottom, 72, 20).build());
         }
         JammarrPayloads.BrowseResults results = state.browse();
         if (view.browseKind != null && results.kind() == view.browseKind) {
-            if (results.page() > 0) addRenderableWidget(Button.builder(Component.literal("<"), b -> request(results.page() - 1)).bounds(left + panelWidth - 70, bottom, 32, 20).build());
-            if (results.hasMore()) addRenderableWidget(Button.builder(Component.literal(">"), b -> request(results.page() + 1)).bounds(left + panelWidth - 34, bottom, 32, 20).build());
+            if (results.page() > 0) {
+                Button previous = Button.builder(Component.literal("<"), b -> request(results.page() - 1)).bounds(left + panelWidth - 70, bottom, 32, 20).build();
+                previous.active = !requestPending;
+                addRenderableWidget(previous);
+            }
+            if (results.hasMore()) {
+                Button next = Button.builder(Component.literal(">"), b -> request(results.page() + 1)).bounds(left + panelWidth - 34, bottom, 32, 20).build();
+                next.active = !requestPending;
+                addRenderableWidget(next);
+            }
         }
         setInitialFocus(view == View.SEARCH ? search : searchTab);
     }
@@ -108,7 +118,7 @@ public final class JammarrScreen extends Screen {
         addRenderableWidget(Button.builder(Component.literal(trim(title, panelWidth - 20)), b -> {}).bounds(left, top + 18, panelWidth, 20).build()).active = false;
         if (!artist.isBlank()) addRenderableWidget(Button.builder(Component.literal(trim(artist, panelWidth - 20)), b -> {}).bounds(left, top + 42, panelWidth, 20).build()).active = false;
         if (state.audioState() == AudioPlaybackState.ERROR) {
-            addRenderableWidget(Button.builder(Component.literal("Retry audio"), b -> state.retryAudio()).bounds(left + panelWidth / 2 - 48, top + 66, 96, 20).build());
+            addRenderableWidget(Button.builder(Component.translatable("jammarr.screen.retry_audio"), b -> state.retryAudio()).bounds(left + panelWidth / 2 - 48, top + 66, 96, 20).build());
         }
     }
 
@@ -134,11 +144,11 @@ public final class JammarrScreen extends Screen {
             addRenderableWidget(itemButton);
             if (view == View.QUEUE && state.playback().operator()) {
                 int x = left + panelWidth - 88;
-                Button up = Button.builder(Component.literal("↑"), b -> control(JammarrPayloads.ControlAction.MOVE_UP, queueIndex)).bounds(x, y, 28, 20).build();
-                Button down = Button.builder(Component.literal("↓"), b -> control(JammarrPayloads.ControlAction.MOVE_DOWN, queueIndex)).bounds(x + 30, y, 28, 20).build();
+                Button up = Button.builder(Component.literal("↑"), b -> control(JammarrPayloads.ControlAction.MOVE_UP, queueIndex, item.key())).bounds(x, y, 28, 20).build();
+                Button down = Button.builder(Component.literal("↓"), b -> control(JammarrPayloads.ControlAction.MOVE_DOWN, queueIndex, item.key())).bounds(x + 30, y, 28, 20).build();
                 up.active = queueIndex > 1; down.active = queueIndex > 0 && queueIndex < state.playback().queue().size() - 1;
                 addRenderableWidget(up); addRenderableWidget(down);
-                addRenderableWidget(Button.builder(Component.literal("×"), b -> control(JammarrPayloads.ControlAction.REMOVE, queueIndex)).bounds(x + 60, y, 28, 20).build());
+                addRenderableWidget(Button.builder(Component.literal("×"), b -> control(JammarrPayloads.ControlAction.REMOVE, queueIndex, item.key())).bounds(x + 60, y, 28, 20).build());
             } else if (view != View.QUEUE) {
                 addRenderableWidget(Button.builder(Component.literal("+"), b -> activate(item)).bounds(left + panelWidth - 48, y, 48, 20).build());
             }
@@ -146,14 +156,15 @@ public final class JammarrScreen extends Screen {
     }
 
     private void addTab(int x, int y, int width, View candidate) {
-        Button button = Button.builder(Component.literal(candidate.label), b -> {
-            view = candidate; rowOffset = 0; state.clearNotice(); if (candidate.browseKind != null) request(0); rebuildWidgets();
+        Button button = Button.builder(Component.translatable(candidate.label), b -> {
+            view = candidate; rowOffset = 0; requestPending = false; screenNotice = ""; state.clearNotice(); if (candidate.browseKind != null) request(0); rebuildWidgets();
         }).bounds(x, y, width, 20).build();
         if (candidate == View.SEARCH) searchTab = button;
         button.active = view != candidate; addRenderableWidget(button);
     }
     private void activate(JammarrPayloads.MediaItem item) { PacketDistributor.sendToServer(new JammarrPayloads.QueueRequest(item.kind(), item.key())); }
-    private void control(JammarrPayloads.ControlAction action, int index) { PacketDistributor.sendToServer(new JammarrPayloads.ControlRequest(action, index)); }
+    private void control(JammarrPayloads.ControlAction action, int index) { control(action, index, ""); }
+    private void control(JammarrPayloads.ControlAction action, int index, String expectedKey) { PacketDistributor.sendToServer(new JammarrPayloads.ControlRequest(action, index, expectedKey)); }
     private void request(int page) {
         if (view.browseKind == null) return;
         if (requestPending) return;
@@ -200,7 +211,7 @@ public final class JammarrScreen extends Screen {
 
     private final class VolumeSlider extends AbstractSliderButton {
         private VolumeSlider(int x, int y, int width, int height) { super(x, y, width, height, Component.empty(), JammarrConfig.VOLUME.get()); updateMessage(); }
-        @Override protected void updateMessage() { setMessage(Component.literal("Volume " + Math.round(value * 100) + "%")); }
+        @Override protected void updateMessage() { setMessage(Component.translatable("jammarr.screen.volume", Math.round(value * 100))); }
         @Override protected void applyValue() { JammarrConfig.VOLUME.set(value); JammarrConfig.VOLUME.save(); }
     }
 }

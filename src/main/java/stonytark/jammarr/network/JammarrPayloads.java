@@ -108,11 +108,12 @@ public final class JammarrPayloads {
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
-    public record ControlRequest(ControlAction action, int index) implements CustomPacketPayload {
+    public record ControlRequest(ControlAction action, int index, String expectedKey) implements CustomPacketPayload {
         public static final Type<ControlRequest> TYPE = genericType("control_request");
         public static final StreamCodec<RegistryFriendlyByteBuf, ControlRequest> CODEC = StreamCodec.ofMember(ControlRequest::write, ControlRequest::read);
-        private static ControlRequest read(RegistryFriendlyByteBuf b) { return new ControlRequest(b.readEnum(ControlAction.class), b.readVarInt()); }
-        private void write(RegistryFriendlyByteBuf b) { b.writeEnum(action); b.writeVarInt(index); }
+        public ControlRequest(ControlAction action, int index) { this(action, index, ""); }
+        private static ControlRequest read(RegistryFriendlyByteBuf b) { return new ControlRequest(b.readEnum(ControlAction.class), b.readVarInt(), b.readUtf(256)); }
+        private void write(RegistryFriendlyByteBuf b) { b.writeEnum(action); b.writeVarInt(index); b.writeUtf(expectedKey, 256); }
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 

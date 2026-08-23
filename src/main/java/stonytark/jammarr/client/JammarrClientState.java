@@ -61,7 +61,7 @@ public final class JammarrClientState {
     public void hello() { PacketDistributor.sendToServer(new JammarrPayloads.ClientHello(JammarrNetwork.PROTOCOL)); requestTimeSync(); }
     public void ensureAudio() { audio.ensureStarted(); }
     public void listeningChanged() { audio.listeningChanged(); }
-    public void retryAudio() { audio.retry(); }
+    public void retryAudio() { audio.retry(); refreshScreen(Minecraft.getInstance()); }
     public void audioEngineReloaded() { audio.audioEngineReloaded(); }
     public void stop() {
         audio.stop(); clock.reset(); notice = ""; lastTimeSync = 0;
