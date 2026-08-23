@@ -29,6 +29,7 @@ Important server options and defaults:
 | `queueLimit` | `500` | Maximum global queue length; hard-capped at 500 |
 | `audioBitrateKbps` | `160` | Exact constant-bitrate MP3 transport target |
 | `cacheSizeMiB` | `1024` | LRU audio-cache limit; current and next tracks remain pinned |
+| `stationMetadataFallbackEnabled` | `false` | Allow lower-quality metadata/random fallback when Plex sonic analysis is unavailable |
 
 Plex metadata responses are capped at 4 MiB, expanded albums/artists/playlists are capped to the remaining queue capacity, individual transcodes are capped at three hours and 256 MiB, and stalled transcode bodies are aborted after three minutes.
 
@@ -40,10 +41,13 @@ Client listening and volume settings are separate from the server file. Open the
 ## In-game use
 
 - Press `P` or run `/jammarr` to open the music screen.
-- The screen includes Now Playing, Search, Artists, Albums, Playlists, and Queue views with server-side pagination.
+- The screen includes Now Playing, Search, Artists, Albums, Playlists, Stations, Adventure, and Queue views with server-side pagination.
 - Every player may browse and append tracks, albums, artists, or audio playlists.
 - Permission-level 2 operators may pause, resume, skip, clear, remove, and reorder queue entries.
 - Each player may independently mute Jammarr and set a persistent local volume. Local opt-out never changes the global queue.
+- Operators can run one shared endless source: Sonic Autoplay, Library Shuffle, Track Radio, Artist Radio, Album Radio, or a 2–5 seed Sonic Mix. Track, artist, and album browse rows expose radio/mix actions.
+- **Adventure is a separate tab.** Operators build an ordered route of 2–5 track waypoints, preview Plex's sonic path, and start it normally or immediately. After the final waypoint, Jammarr continues with Track Radio from that track.
+- Manual requests always play before generated station tracks after the current song. The Queue view marks generated preview entries as read-only; they do not consume the manual queue limit.
 - The Now Playing screen reports both server playback and local audio state. Decoder or transfer recovery is bounded and can be retried from the screen after a final local audio error.
 - Search reports short-query, searching, Plex-unavailable, and empty-result states; queue actions report progress and completion, and long titles expose their full text as tooltips.
 - Master, Music, and Jammarr volume controls all apply. Vanilla background music is suppressed while the Jammarr stream is active and restored afterward.
@@ -58,6 +62,17 @@ Commands:
 | `/jammarr cache` | Operator | Show cache usage |
 | `/jammarr reload` | Operator | Revalidate Plex and the selected library |
 | `/jammarr diagnostics` | Operator | Show sanitized Plex/cache/transfer state, preparation status, and transfer counters |
+| `/jammarr station status` | Operator | Show active station, generated lookahead, and sonic capability |
+| `/jammarr station stop` | Operator | Stop future station generation after the current track |
+| `/jammarr station library-shuffle` | Operator | Start endless library shuffle after pending manual requests |
+| `/jammarr autoplay on`, `off` | Operator | Enable or disable sonic continuation from the five most recent tracks |
+| `/jammarr adventure status`, `stop` | Operator | Inspect or stop the shared Adventure source |
+
+## Plex sonic setup
+
+Sonic stations require an active Plex Pass for the server owner and completed sonic analysis for the selected music library. Enable **Analyze audio tracks for sonic features** in the Plex server Library settings and **Sonic Analysis** in the music library's Advanced settings, then allow the analysis task to finish.
+
+The Stations and Adventure tabs report whether Plex Pass is unavailable, library/seed analysis is incomplete, the server lacks the operation, validation is still running, or Plex is offline. Metadata fallback is deliberately off by default and never substitutes for Sonic Adventure.
 
 ## Playback and failure behavior
 
@@ -68,6 +83,7 @@ Commands:
 - A preparation failure retries three times with backoff. Missing or permanently invalid items are skipped; authentication, configuration, and outage failures wait for the 30-second Plex recovery check instead of retrying from every server tick. Cached playback continues during a temporary Plex outage.
 - Client audio recovery retries three times per playback session. A fourth failure stops retrying automatically and exposes a `Retry audio` action instead of leaving a silent stream running indefinitely.
 - The queue and five-second playback checkpoints live in world saved data. A graceful shutdown records the current position for `RESUME_POSITION`.
+- The active station, autoplay toggle, seed/waypoint definition, current source, and the last 100 tracks used for repeat suppression also live in world saved data. Generated lookahead is rebuilt after restart. `RESTART_TRACK` and `RESUME_POSITION` retain the source; `CLEAR` removes it.
 - Unmodded clients and clients with an incompatible Jammarr network protocol are rejected during payload negotiation. Queue mutations include an expected track key so stale operator screens cannot modify the wrong entry.
 - The server diagnostics command reports Plex validation time, cache hit/miss/install/invalid counters, current and next-track cache state, active listener transfer counters, and client-reported recovery/underrun/buffer health.
 

@@ -14,9 +14,14 @@ import stonytark.jammarr.server.QueueOperations;
 import stonytark.jammarr.server.QueueTrack;
 import stonytark.jammarr.server.RetryGate;
 import stonytark.jammarr.server.SlidingWindowRateLimiter;
+import stonytark.jammarr.server.StationDefinition;
+import stonytark.jammarr.server.StationSelection;
+import stonytark.jammarr.server.StationGenerator;
+import stonytark.jammarr.network.JammarrPayloads;
 
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.List;
 
 @GameTestHolder(Jammarr.MODID)
 @PrefixGameTestTemplate(false)
@@ -84,6 +89,25 @@ public final class JammarrGameTests {
         timeline.resume();
         clock.set(19_000);
         helper.assertTrue(timeline.positionMs() > paused, "Resume did not advance the authoritative position");
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 20)
+    public static void stationPersistenceAndAdventureOrderingRoundTrip(GameTestHelper helper) {
+        JammarrSavedData data = new JammarrSavedData();
+        var start = new JammarrPayloads.StationSeed(JammarrPayloads.ItemKind.TRACK, "1", "Start", "Artist A");
+        var end = new JammarrPayloads.StationSeed(JammarrPayloads.ItemKind.TRACK, "3", "End", "Artist B");
+        try { StationGenerator.validate(new StationDefinition(JammarrPayloads.StationType.SONIC_ADVENTURE, "Adventure", List.of(start, end), 4)); }
+        catch (Exception failure) { helper.fail("Valid Adventure definition was rejected: " + failure.getMessage()); return; }
+        data.station(new StationDefinition(JammarrPayloads.StationType.SONIC_ADVENTURE, "Adventure", List.of(start, end), 4));
+        data.current(new QueueTrack("1", "Start", "Artist A", "Album", 1_000), JammarrPayloads.PlaybackOrigin.ADVENTURE);
+        JammarrSavedData restored = JammarrSavedData.load(data.save(new CompoundTag(), null), null);
+        helper.assertTrue(restored.station().type() == JammarrPayloads.StationType.SONIC_ADVENTURE && restored.station().seeds().size() == 2,
+                "Adventure state did not survive world-data serialization");
+        List<QueueTrack> path = StationSelection.deduplicatePath(List.of(
+                List.of(new QueueTrack("1", "Start", "A", "", 1), new QueueTrack("2", "Middle", "B", "", 1)),
+                List.of(new QueueTrack("2", "Middle", "B", "", 1), new QueueTrack("3", "End", "C", "", 1))), 100);
+        helper.assertTrue(path.stream().map(QueueTrack::key).toList().equals(List.of("1", "2", "3")), "Adventure segment join duplicated or reordered a waypoint");
         helper.succeed();
     }
     private JammarrGameTests() {}

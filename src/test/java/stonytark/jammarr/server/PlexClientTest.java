@@ -15,17 +15,19 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class PlexClientTest {
-    private enum Mode { NORMAL, UNAUTHORIZED, MALFORMED, TIMEOUT, TRANSCODE_FAILURE, CHUNKED_OVERSIZE, STALLED_BODY }
+    private enum Mode { NORMAL, UNAUTHORIZED, MALFORMED, TIMEOUT, TRANSCODE_FAILURE, CHUNKED_OVERSIZE, STALLED_BODY, STALLED_POST, NO_PASS, UNANALYZED, OLD_SERVER }
     private HttpServer server;
     private PlexClient client;
     private final AtomicReference<Mode> mode = new AtomicReference<>(Mode.NORMAL);
     private final AtomicReference<String> lastPath = new AtomicReference<>();
+    private final AtomicReference<String> lastMethod = new AtomicReference<>();
     private final AtomicReference<Map<String, String>> lastQuery = new AtomicReference<>(Map.of());
 
     @BeforeEach void start() throws IOException {
@@ -75,6 +77,48 @@ class PlexClientTest {
         QueueTrack track = client.expand(JammarrPayloads.ItemKind.PLAYLIST, "88", 2).getFirst();
         assertEquals("2", lastQuery.get().get("X-Plex-Container-Size"));
         assertEquals("Song", track.title()); assertEquals("Artist", track.artist()); assertEquals("Album", track.album());
+    }
+
+    @Test void detectsSonicCapabilityAndReadsNearestTracksAndPaths() throws Exception {
+        client.validate();
+        PlexClient.SonicStatus status = client.sonicStatus();
+        assertEquals(JammarrPayloads.SonicCapability.READY, status.capability());
+        List<QueueTrack> nearest = client.nearestTracks("42", 10, 0.25);
+        assertEquals(List.of("43", "44"), nearest.stream().map(QueueTrack::key).toList());
+        assertEquals("0.25", lastQuery.get().get("maxDistance"));
+        List<QueueTrack> path = client.sonicPath("42", "44", 100);
+        assertEquals(List.of("42", "43", "44"), path.stream().map(QueueTrack::key).toList());
+        assertEquals("42", lastQuery.get().get("startID")); assertEquals("44", lastQuery.get().get("endID"));
+    }
+
+    @Test void reportsDistinctPlexPassAnalysisAndServerCapabilityFailures() throws Exception {
+        client.validate(); mode.set(Mode.NO_PASS); assertEquals(JammarrPayloads.SonicCapability.NO_PLEX_PASS, client.sonicStatus().capability());
+        mode.set(Mode.UNANALYZED); assertEquals(JammarrPayloads.SonicCapability.ANALYSIS_INCOMPLETE, client.sonicStatus().capability());
+        mode.set(Mode.OLD_SERVER); assertEquals(JammarrPayloads.SonicCapability.UNSUPPORTED, client.sonicStatus().capability());
+    }
+
+    @Test void randomTracksExcludeRecentHistory() throws Exception {
+        client.validate();
+        List<QueueTrack> tracks = client.randomTracks(2, java.util.Set.of("42"));
+        assertEquals(List.of("43", "44"), tracks.stream().map(QueueTrack::key).toList());
+        assertEquals("random", lastQuery.get().get("sort"));
+    }
+
+    @Test void usesAnAdvertisedNativeArtistRadioPlayQueue() throws Exception {
+        client.validate(); client.sonicStatus();
+        List<QueueTrack> tracks = client.nativeRadioTracks(new JammarrPayloads.StationSeed(JammarrPayloads.ItemKind.ARTIST, "77", "Artist", ""), 10);
+        assertEquals(List.of("43", "44"), tracks.stream().map(QueueTrack::key).toList());
+        assertEquals("POST", lastMethod.get()); assertEquals("audio", lastQuery.get().get("type"));
+        assertEquals("1", lastQuery.get().get("continuous")); assertTrue(lastQuery.get().get("uri").contains("/library/metadata/77/station/native"));
+    }
+
+    @Test void boundsNativeStationBodyReadTimeoutsAfterHeadersArrive() throws Exception {
+        PlexClient bounded = client(Duration.ofMillis(50));
+        bounded.validate(); bounded.sonicStatus(); mode.set(Mode.STALLED_POST);
+        PlexException error = assertThrows(PlexException.class, () -> bounded.nativeRadioTracks(
+                new JammarrPayloads.StationSeed(JammarrPayloads.ItemKind.ARTIST, "77", "Artist", ""), 10));
+        assertEquals(PlexException.Kind.OFFLINE, error.kind());
+        assertEquals("Plex station body timed out", error.getMessage());
     }
 
     @Test void reportsMalformedJsonWithoutLeakingResponseDetails() {
@@ -154,6 +198,7 @@ class PlexClientTest {
 
     private void respond(HttpExchange exchange) throws IOException {
         lastPath.set(exchange.getRequestURI().getPath());
+        lastMethod.set(exchange.getRequestMethod());
         lastQuery.set(query(exchange.getRequestURI().getRawQuery()));
         Mode current = mode.get();
         if (current == Mode.TIMEOUT) {
@@ -185,11 +230,26 @@ class PlexClientTest {
         }
         assertEquals("secret", exchange.getRequestHeaders().getFirst("X-Plex-Token"));
         String path = exchange.getRequestURI().getPath();
+        if (current == Mode.STALLED_POST && path.equals("/playQueues")) {
+            exchange.sendResponseHeaders(200, 0);
+            exchange.getResponseBody().write("{\"MediaContainer\":".getBytes(StandardCharsets.UTF_8));
+            exchange.getResponseBody().flush();
+            try { Thread.sleep(250); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            exchange.close(); return;
+        }
         String body = switch (path) {
+            case "/" -> current == Mode.NO_PASS ? "{\"MediaContainer\":{\"myPlexSubscription\":false,\"version\":\"1.41.0\"}}"
+                    : current == Mode.OLD_SERVER ? "{\"MediaContainer\":{\"myPlexSubscription\":true,\"version\":\"1.23.9\"}}"
+                    : "{\"MediaContainer\":{\"myPlexSubscription\":true,\"version\":\"1.41.0\",\"machineIdentifier\":\"machine\"}}";
             case "/library/sections" -> "{\"MediaContainer\":{\"Directory\":[{\"type\":\"movie\",\"key\":\"9\",\"title\":\"Films\"},{\"type\":\"artist\",\"key\":\"1\",\"title\":\"Music\"}]}}";
-            case "/library/sections/1/all" -> "{\"MediaContainer\":{\"Metadata\":[{\"type\":\"track\",\"ratingKey\":\"42\",\"title\":\"Song\",\"grandparentTitle\":\"Artist\",\"duration\":123000},{\"type\":\"track\",\"title\":\"Missing key\"},\"bad\",{\"type\":\"track\",\"ratingKey\":\"43\",\"title\":\"Song 2\"},{\"type\":\"track\",\"ratingKey\":\"44\",\"title\":\"Overflow\"}]}}";
+            case "/library/sections/1/all" -> current == Mode.UNANALYZED ? "{\"MediaContainer\":{\"Metadata\":[]}}"
+                    : "{\"MediaContainer\":{\"Metadata\":[{\"type\":\"track\",\"ratingKey\":\"42\",\"title\":\"Song\",\"grandparentTitle\":\"Artist\",\"duration\":123000,\"musicAnalysisVersion\":1},{\"type\":\"track\",\"title\":\"Missing key\"},\"bad\",{\"type\":\"track\",\"ratingKey\":\"43\",\"title\":\"Song 2\",\"grandparentTitle\":\"Artist 2\",\"duration\":124000},{\"type\":\"track\",\"ratingKey\":\"44\",\"title\":\"Overflow\",\"grandparentTitle\":\"Artist 3\",\"duration\":125000}]}}";
+            case "/library/metadata/42/nearest" -> "{\"MediaContainer\":{\"Metadata\":[{\"type\":\"track\",\"ratingKey\":\"42\",\"title\":\"Seed\"},{\"type\":\"track\",\"ratingKey\":\"43\",\"title\":\"Near\",\"grandparentTitle\":\"Artist 2\",\"duration\":124000,\"distance\":0.1},{\"type\":\"track\",\"ratingKey\":\"44\",\"title\":\"Farther\",\"grandparentTitle\":\"Artist 3\",\"duration\":125000,\"distance\":0.2}]}}";
+            case "/library/sections/1/computePath" -> "{\"MediaContainer\":{\"Metadata\":[{\"type\":\"track\",\"ratingKey\":\"42\",\"title\":\"Start\",\"duration\":1000},{\"type\":\"track\",\"ratingKey\":\"43\",\"title\":\"Middle\",\"duration\":1000},{\"type\":\"track\",\"ratingKey\":\"44\",\"title\":\"End\",\"duration\":1000}]}}";
+            case "/library/metadata/77" -> "{\"MediaContainer\":{\"Metadata\":[{\"type\":\"artist\",\"ratingKey\":\"77\",\"title\":\"Artist\",\"musicAnalysisVersion\":1,\"Stations\":{\"Metadata\":[{\"key\":\"/library/metadata/77/station/native?type=10\"}]}}]}}";
+            case "/playQueues" -> "{\"MediaContainer\":{\"playQueueID\":1,\"Metadata\":[{\"type\":\"track\",\"ratingKey\":\"43\",\"title\":\"Native 1\",\"grandparentTitle\":\"Artist 2\",\"duration\":124000},{\"type\":\"track\",\"ratingKey\":\"44\",\"title\":\"Native 2\",\"grandparentTitle\":\"Artist 3\",\"duration\":125000}]}}";
             case "/playlists" -> "{\"MediaContainer\":{\"Metadata\":[{\"type\":\"playlist\",\"ratingKey\":\"88\",\"title\":\"Road Trip\"}]}}";
-            case "/playlists/88/items", "/library/metadata/42" -> "{\"MediaContainer\":{\"Metadata\":[{\"type\":\"track\",\"ratingKey\":\"42\",\"title\":\"Song\",\"grandparentTitle\":\"Artist\",\"parentTitle\":\"Album\",\"duration\":123000}]}}";
+            case "/playlists/88/items", "/library/metadata/42" -> "{\"MediaContainer\":{\"Metadata\":[{\"type\":\"track\",\"ratingKey\":\"42\",\"title\":\"Song\",\"grandparentTitle\":\"Artist\",\"parentTitle\":\"Album\",\"duration\":123000,\"musicAnalysisVersion\":1}]}}";
             default -> "{\"MediaContainer\":{}}";
         };
         send(exchange, 200, body);

@@ -29,6 +29,9 @@ public final class JammarrConfig {
             .defineInRange("audioBitrateKbps", 160, 64, 320);
     public static final ModConfigSpec.LongValue CACHE_MIB = SERVER_BUILDER
             .defineInRange("cacheSizeMiB", 1024L, 64L, 16384L);
+    public static final ModConfigSpec.BooleanValue STATION_METADATA_FALLBACK = SERVER_BUILDER
+            .comment("Allow metadata/random fallback when Plex sonic analysis is unavailable. Disabled by default because sonic matching is higher quality.")
+            .define("stationMetadataFallbackEnabled", false);
     public static final ModConfigSpec SERVER_SPEC = SERVER_BUILDER.build();
 
     private static final ModConfigSpec.Builder CLIENT_BUILDER = new ModConfigSpec.Builder();

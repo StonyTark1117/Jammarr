@@ -17,8 +17,11 @@ class PlexLiveSmokeTest {
     void browsesAndTranscodesRealPlexMusic() throws Exception {
         String url = required("JAMMARR_PLEX_URL");
         String token = required("JAMMARR_PLEX_TOKEN");
-        PlexClient plex = new PlexClient(url, token, "");
+        String library = System.getenv().getOrDefault("JAMMARR_PLEX_LIBRARY", "");
+        PlexClient plex = new PlexClient(url, token, library);
         plex.validate();
+        PlexClient.SonicStatus sonic = plex.sonicStatus();
+        assertEquals(JammarrPayloads.SonicCapability.READY, sonic.capability(), sonic.message());
 
         PlexClient.Page albums = plex.browse(JammarrPayloads.BrowseKind.ALBUMS, "", 0, 20);
         assertFalse(albums.items().isEmpty(), "The Plex music library has no albums");
@@ -27,6 +30,49 @@ class PlexLiveSmokeTest {
         QueueTrack track = tracks.getFirst();
         PlexClient.Page search = plex.browse(JammarrPayloads.BrowseKind.SEARCH, track.title(), 0, 20);
         assertTrue(search.items().stream().anyMatch(item -> item.key().equals(track.key())), "Plex track search did not find an exact title");
+
+        List<QueueTrack> randomTracks = plex.analyzedTracks(10);
+        assertTrue(randomTracks.size() >= 2, "The Plex library did not return two sonically analyzed tracks");
+        List<QueueTrack> nearest = plex.nearestTracks(randomTracks.getFirst().key(), 25, 0.40);
+        assertFalse(nearest.isEmpty(), "Track Radio seed had no sonic neighbours");
+        List<QueueTrack> path = plex.sonicPath(randomTracks.getFirst().key(), randomTracks.get(1).key(), 100);
+        assertTrue(path.size() >= 2, "Plex could not produce a Sonic Adventure between live-library tracks");
+
+        StationGenerator generator = new StationGenerator(plex);
+        long generation = 1;
+        JammarrPayloads.StationSeed first = seed(randomTracks.getFirst());
+        JammarrPayloads.StationSeed second = seed(randomTracks.get(1));
+        assertFalse(generator.generate(new StationDefinition(JammarrPayloads.StationType.TRACK_RADIO, "Track Radio", List.of(first), generation++),
+                List.of(), sonic.capability(), false).tracks().isEmpty());
+        assertFalse(generator.generate(new StationDefinition(JammarrPayloads.StationType.LIBRARY_SHUFFLE, "Library Shuffle", List.of(), generation++),
+                List.of(), sonic.capability(), false).tracks().isEmpty());
+        PlexClient.Page artists = plex.browse(JammarrPayloads.BrowseKind.ARTISTS, "", 0, 20);
+        JammarrPayloads.MediaItem artist = artists.items().stream().filter(item -> item.kind() == JammarrPayloads.ItemKind.ARTIST).findFirst().orElseThrow();
+        assertFalse(generator.generate(new StationDefinition(JammarrPayloads.StationType.ARTIST_RADIO, "Artist Radio", List.of(
+                        new JammarrPayloads.StationSeed(artist.kind(), artist.key(), artist.title(), artist.subtitle())), generation++),
+                List.of(), sonic.capability(), false).tracks().isEmpty());
+        assertFalse(generator.generate(new StationDefinition(JammarrPayloads.StationType.ALBUM_RADIO, "Album Radio", List.of(
+                        new JammarrPayloads.StationSeed(album.kind(), album.key(), album.title(), album.subtitle())), generation++),
+                List.of(), sonic.capability(), false).tracks().isEmpty());
+        assertFalse(generator.generate(new StationDefinition(JammarrPayloads.StationType.SONIC_MIX, "Sonic Mix", List.of(first, second), generation++),
+                List.of(), sonic.capability(), false).tracks().isEmpty());
+        assertTrue(generator.generate(new StationDefinition(JammarrPayloads.StationType.SONIC_ADVENTURE, "Adventure", List.of(first, second), generation++),
+                List.of(), sonic.capability(), false).adventurePath());
+
+        StationDefinition fallbackRadio = new StationDefinition(JammarrPayloads.StationType.TRACK_RADIO, "Fallback Radio", List.of(first), generation++);
+        assertThrows(PlexException.class, () -> generator.generate(fallbackRadio, List.of(), JammarrPayloads.SonicCapability.ANALYSIS_INCOMPLETE, false));
+        assertFalse(generator.generate(fallbackRadio, List.of(), JammarrPayloads.SonicCapability.ANALYSIS_INCOMPLETE, true).tracks().isEmpty(),
+                "Enabled metadata fallback returned no live-library tracks");
+
+        java.util.ArrayList<QueueTrack> continuousHistory = new java.util.ArrayList<>(randomTracks.subList(0, Math.min(5, randomTracks.size())));
+        for (int transition = 0; transition < 30; transition++) {
+            StationGenerator.GeneratedBatch batch = generator.generate(new StationDefinition(JammarrPayloads.StationType.AUTOPLAY, "Autoplay", List.of(), generation++),
+                    continuousHistory, sonic.capability(), false);
+            QueueTrack selected = batch.tracks().getFirst();
+            assertTrue(continuousHistory.stream().noneMatch(previous -> previous.key().equals(selected.key())), "Autoplay repeated a recent track at transition " + transition);
+            continuousHistory.add(selected);
+            while (continuousHistory.size() > StationGenerator.TRACK_HISTORY_LIMIT) continuousHistory.removeFirst();
+        }
 
         Path output = Files.createTempFile("jammarr-live-", ".mp3");
         try {
@@ -55,5 +101,9 @@ class PlexLiveSmokeTest {
         String value = System.getenv(name);
         if (value == null || value.isBlank()) throw new IllegalStateException(name + " is required for the live smoke test");
         return value;
+    }
+
+    private static JammarrPayloads.StationSeed seed(QueueTrack track) {
+        return new JammarrPayloads.StationSeed(JammarrPayloads.ItemKind.TRACK, track.key(), track.title(), track.artist());
     }
 }

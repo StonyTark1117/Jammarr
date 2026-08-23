@@ -16,6 +16,9 @@ public final class JammarrClientState {
     private final JammarrAudioPlayer audio = new JammarrAudioPlayer(clock);
     private final AtomicLong timeNonce = new AtomicLong();
     private JammarrPayloads.PlaybackState playback = new JammarrPayloads.PlaybackState(JammarrPayloads.PlaybackStatus.IDLE, "", "", "", true, 0, 0, 0, false, List.of());
+    private JammarrPayloads.StationState station = new JammarrPayloads.StationState(JammarrPayloads.StationType.NONE, false, false, 0,
+            JammarrPayloads.SonicCapability.CHECKING, "Checking Plex sonic capability", "", List.of(), List.of());
+    private JammarrPayloads.AdventurePreview adventurePreview = new JammarrPayloads.AdventurePreview(0, "", List.of());
     private JammarrPayloads.BrowseResults browse = new JammarrPayloads.BrowseResults(JammarrPayloads.BrowseKind.SEARCH, "", 0, false, List.of());
     private long lastTimeSync;
     private String notice = "";
@@ -41,6 +44,12 @@ public final class JammarrClientState {
                 screen.playbackChanged();
                 if (queueBrowseChanged) screen.queueChanged();
             }
+        } else if (payload instanceof JammarrPayloads.StationState value) {
+            station = value;
+            if (minecraft.screen instanceof JammarrScreen screen) screen.stationChanged();
+        } else if (payload instanceof JammarrPayloads.AdventurePreview value) {
+            adventurePreview = value;
+            if (minecraft.screen instanceof JammarrScreen screen) screen.adventurePreviewChanged();
         } else if (payload instanceof JammarrPayloads.AudioManifest value) {
             audio.manifest(value);
         } else if (payload instanceof JammarrPayloads.AudioChunk value) {
@@ -55,6 +64,8 @@ public final class JammarrClientState {
 
     public JammarrPayloads.PlaybackState playback() { return playback; }
     public JammarrPayloads.BrowseResults browse() { return browse; }
+    public JammarrPayloads.StationState station() { return station; }
+    public JammarrPayloads.AdventurePreview adventurePreview() { return adventurePreview; }
     public String notice() { return notice; }
     public String audioStatus() { return audio.status(); }
     public AudioPlaybackState audioState() { return audio.state(); }
@@ -90,6 +101,9 @@ public final class JammarrClientState {
     public void stop() {
         audio.stop(); clock.reset(); notice = ""; lastTimeSync = 0;
         playback = new JammarrPayloads.PlaybackState(JammarrPayloads.PlaybackStatus.IDLE, "", "", "", true, 0, 0, 0, false, List.of());
+        station = new JammarrPayloads.StationState(JammarrPayloads.StationType.NONE, false, false, 0,
+                JammarrPayloads.SonicCapability.CHECKING, "Checking Plex sonic capability", "", List.of(), List.of());
+        adventurePreview = new JammarrPayloads.AdventurePreview(0, "", List.of());
     }
 
     private void requestTimeSync() {

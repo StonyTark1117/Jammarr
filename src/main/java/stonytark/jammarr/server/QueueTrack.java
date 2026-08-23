@@ -5,6 +5,9 @@ import stonytark.jammarr.network.JammarrPayloads;
 
 public record QueueTrack(String key, String title, String artist, String album, long durationMs) {
     public JammarrPayloads.QueueEntry networkEntry() { return new JammarrPayloads.QueueEntry(key, title, artist, durationMs); }
+    public JammarrPayloads.QueueEntry networkEntry(JammarrPayloads.PlaybackOrigin source, boolean editable) {
+        return new JammarrPayloads.QueueEntry(key, title, artist, durationMs, source, editable);
+    }
 
     public CompoundTag save() {
         CompoundTag tag = new CompoundTag();

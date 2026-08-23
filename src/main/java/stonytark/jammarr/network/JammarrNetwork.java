@@ -7,8 +7,8 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import stonytark.jammarr.server.JammarrServer;
 
 public final class JammarrNetwork {
-    /** Bumped for the AudioHealth listener telemetry payload. */
-    public static final int PROTOCOL = 4;
+    /** Bumped for source-aware queues, stations, and Sonic Adventure payloads. */
+    public static final int PROTOCOL = 5;
     public static final String VERSION = Integer.toString(PROTOCOL);
 
     public static boolean protocolMatches(int offered) { return offered == PROTOCOL; }
@@ -22,6 +22,8 @@ public final class JammarrNetwork {
         registrar.playToClient(JammarrPayloads.AudioManifest.TYPE, JammarrPayloads.AudioManifest.CODEC, JammarrNetwork::client);
         registrar.playToClient(JammarrPayloads.AudioChunk.TYPE, JammarrPayloads.AudioChunk.CODEC, JammarrNetwork::client);
         registrar.playToClient(JammarrPayloads.PlaybackState.TYPE, JammarrPayloads.PlaybackState.CODEC, JammarrNetwork::client);
+        registrar.playToClient(JammarrPayloads.StationState.TYPE, JammarrPayloads.StationState.CODEC, JammarrNetwork::client);
+        registrar.playToClient(JammarrPayloads.AdventurePreview.TYPE, JammarrPayloads.AdventurePreview.CODEC, JammarrNetwork::client);
         registrar.playToClient(JammarrPayloads.ErrorMessage.TYPE, JammarrPayloads.ErrorMessage.CODEC, JammarrNetwork::client);
         registrar.playToServer(JammarrPayloads.ClientHello.TYPE, JammarrPayloads.ClientHello.CODEC, (payload, context) -> {
             if (!protocolMatches(payload.protocolVersion())) {
@@ -38,6 +40,8 @@ public final class JammarrNetwork {
                 (p, c) -> c.enqueueWork(() -> JammarrServer.instance().queue((ServerPlayer)c.player(), p)));
         registrar.playToServer(JammarrPayloads.ControlRequest.TYPE, JammarrPayloads.ControlRequest.CODEC,
                 (p, c) -> c.enqueueWork(() -> JammarrServer.instance().control((ServerPlayer)c.player(), p)));
+        registrar.playToServer(JammarrPayloads.StationRequest.TYPE, JammarrPayloads.StationRequest.CODEC,
+                (p, c) -> c.enqueueWork(() -> JammarrServer.instance().station((ServerPlayer)c.player(), p)));
         registrar.playToServer(JammarrPayloads.ChunkRequest.TYPE, JammarrPayloads.ChunkRequest.CODEC,
                 (p, c) -> c.enqueueWork(() -> JammarrServer.instance().chunks((ServerPlayer)c.player(), p)));
         registrar.playToServer(JammarrPayloads.ChunkAcknowledgement.TYPE, JammarrPayloads.ChunkAcknowledgement.CODEC,

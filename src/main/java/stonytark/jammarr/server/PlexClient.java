@@ -21,7 +21,9 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -30,7 +32,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
-public final class PlexClient {
+public final class PlexClient implements StationCatalog {
     private static final System.Logger LOGGER = System.getLogger(PlexClient.class.getName());
     private static final String CLIENT_ID = "f0b09ec2674d42f4a802c5cc9a57d774";
     static final int MAX_EXPANDED_TRACKS = 500;
@@ -41,6 +43,8 @@ public final class PlexClient {
     private static final ScheduledExecutorService READ_TIMEOUTS = Executors.newSingleThreadScheduledExecutor(
             Thread.ofPlatform().daemon(true).name("jammarr-http-timeouts").factory());
     public record Page(List<JammarrPayloads.MediaItem> items, boolean hasMore) {}
+    public record SonicStatus(JammarrPayloads.SonicCapability capability, String message) {}
+    public record SonicResult(JammarrPayloads.MediaItem item, double distance) {}
     private final HttpClient http;
     private final Duration requestTimeout;
     private final Supplier<String> configuredUrl;
@@ -50,6 +54,7 @@ public final class PlexClient {
     private final long maxTranscodeBytes;
     private final Duration transcodeReadTimeout;
     private volatile String libraryKey;
+    private volatile String machineIdentifier;
 
     public PlexClient() { this(() -> JammarrConfig.PLEX_URL.get(), JammarrConfig::plexToken, () -> JammarrConfig.MUSIC_LIBRARY.get(), Duration.ofSeconds(15)); }
     PlexClient(String url, String token, String library) { this(() -> url, () -> token, () -> library, Duration.ofSeconds(15)); }
@@ -87,6 +92,171 @@ public final class PlexClient {
             }
         }
         throw new PlexException(PlexException.Kind.CONFIGURATION, "No matching Plex music library was found");
+    }
+
+    public SonicStatus sonicStatus() throws IOException, InterruptedException {
+        ensureLibrary();
+        JsonObject identity = container(getJson("/", ""));
+        machineIdentifier = text(identity, "machineIdentifier");
+        if (!supportsSonic(text(identity, "version"))) {
+            return new SonicStatus(JammarrPayloads.SonicCapability.UNSUPPORTED,
+                    "Plex Media Server 1.24.0 or newer is required for sonic stations");
+        }
+        JsonElement subscription = identity.get("myPlexSubscription");
+        if (subscription != null && !subscription.isJsonNull() && !subscription.getAsBoolean()) {
+            return new SonicStatus(JammarrPayloads.SonicCapability.NO_PLEX_PASS,
+                    "Plex Pass is not active for the configured server account");
+        }
+        String params = "type=10&musicAnalysisVersion=1&sort=random&X-Plex-Container-Start=0&X-Plex-Container-Size=1";
+        JsonArray metadata = array(container(getJson("/library/sections/" + libraryKey + "/all", params)), "Metadata");
+        if (metadata.isEmpty() || !metadata.get(0).isJsonObject()) {
+            return new SonicStatus(JammarrPayloads.SonicCapability.ANALYSIS_INCOMPLETE,
+                    "The Plex music library has no analyzed tracks");
+        }
+        long analysisVersion = number(metadata.get(0).getAsJsonObject(), "musicAnalysisVersion");
+        if (analysisVersion < 1) {
+            return new SonicStatus(JammarrPayloads.SonicCapability.ANALYSIS_INCOMPLETE,
+                    "Plex sonic analysis is disabled, incomplete, or missing for this library");
+        }
+        return new SonicStatus(JammarrPayloads.SonicCapability.READY, "Plex sonic analysis is ready");
+    }
+
+    public List<QueueTrack> nativeRadioTracks(JammarrPayloads.StationSeed seed, int limit) throws IOException, InterruptedException {
+        if (seed.kind() == JammarrPayloads.ItemKind.PLAYLIST) return List.of();
+        JsonArray metadata = array(container(getJson("/library/metadata/" + encodePath(seed.key()), "includeStations=1")), "Metadata");
+        if (metadata.isEmpty() || !metadata.get(0).isJsonObject()) return List.of();
+        JsonObject item = metadata.get(0).getAsJsonObject(); JsonElement stationsElement = item.get("Stations");
+        if (stationsElement == null || !stationsElement.isJsonObject()) return List.of();
+        JsonArray stations = array(stationsElement.getAsJsonObject(), "Metadata");
+        if (stations.isEmpty() || !stations.get(0).isJsonObject()) return List.of();
+        String stationKey = text(stations.get(0).getAsJsonObject(), "key"); if (stationKey.isBlank()) return List.of();
+        String machine = machineIdentifier;
+        if (machine == null || machine.isBlank()) {
+            machine = text(container(getJson("/", "")), "machineIdentifier"); machineIdentifier = machine;
+        }
+        if (machine.isBlank()) return List.of();
+        String uri = "server://" + machine + "/com.plexapp.plugins.library" + stationKey;
+        JsonArray queue = array(container(postJson("/playQueues", "type=audio&includeRelated=1&continuous=1&uri=" + encode(uri))), "Metadata");
+        List<QueueTrack> tracks = new ArrayList<>();
+        for (JsonElement element : queue) { QueueTrack track = queueTrack(element); if (track != null) tracks.add(track); if (tracks.size() >= Math.max(1, Math.min(limit, 100))) break; }
+        return List.copyOf(tracks);
+    }
+
+    public boolean hasSonicAnalysis(String key) throws IOException, InterruptedException {
+        JsonArray metadata = array(container(getJson("/library/metadata/" + encodePath(key), "")), "Metadata");
+        return !metadata.isEmpty() && metadata.get(0).isJsonObject() && number(metadata.get(0).getAsJsonObject(), "musicAnalysisVersion") >= 1;
+    }
+
+    public List<QueueTrack> analyzedTracks(int limit) throws IOException, InterruptedException {
+        ensureLibrary(); int bounded = Math.max(1, Math.min(limit, 100));
+        String params = "type=10&musicAnalysisVersion=1&sort=random&X-Plex-Container-Start=0&X-Plex-Container-Size=" + bounded;
+        JsonArray metadata = array(container(getJson("/library/sections/" + libraryKey + "/all", params)), "Metadata");
+        List<QueueTrack> results = new ArrayList<>();
+        for (JsonElement element : metadata) { QueueTrack track = queueTrack(element); if (track != null) results.add(track); }
+        return List.copyOf(results);
+    }
+
+    public List<SonicResult> nearest(JammarrPayloads.ItemKind kind, String key, int limit, double maxDistance)
+            throws IOException, InterruptedException {
+        if (kind == JammarrPayloads.ItemKind.PLAYLIST) throw new PlexException(PlexException.Kind.INVALID_RESPONSE, "Playlists cannot be sonic seeds");
+        int bounded = Math.max(1, Math.min(limit, 100));
+        double distance = Math.max(0.0, Math.min(maxDistance, 1.0));
+        JsonArray metadata = array(container(getJson("/library/metadata/" + encodePath(key) + "/nearest",
+                "limit=" + bounded + "&maxDistance=" + distance)), "Metadata");
+        List<SonicResult> results = new ArrayList<>();
+        for (JsonElement element : metadata) {
+            JammarrPayloads.MediaItem item = mediaItem(element);
+            if (item == null || item.kind() != kind || item.key().equals(key)) continue;
+            JsonObject value = element.getAsJsonObject();
+            results.add(new SonicResult(item, decimal(value, "distance")));
+        }
+        return List.copyOf(results);
+    }
+
+    public List<QueueTrack> nearestTracks(String key, int limit, double maxDistance) throws IOException, InterruptedException {
+        int bounded = Math.max(1, Math.min(limit, 100));
+        JsonArray metadata = array(container(getJson("/library/metadata/" + encodePath(key) + "/nearest",
+                "limit=" + bounded + "&maxDistance=" + Math.max(0.0, Math.min(maxDistance, 1.0)))), "Metadata");
+        List<QueueTrack> results = new ArrayList<>();
+        for (JsonElement element : metadata) {
+            QueueTrack track = queueTrack(element);
+            if (track != null && !track.key().equals(key)) results.add(track);
+        }
+        return List.copyOf(results);
+    }
+
+    public List<QueueTrack> sonicPath(String startKey, String endKey, int limit) throws IOException, InterruptedException {
+        ensureLibrary(); int bounded = Math.max(2, Math.min(limit, 100));
+        JsonArray metadata = array(container(getJson("/library/sections/" + libraryKey + "/computePath",
+                "startID=" + encode(startKey) + "&endID=" + encode(endKey))), "Metadata");
+        List<QueueTrack> results = new ArrayList<>();
+        for (JsonElement element : metadata) {
+            QueueTrack track = queueTrack(element);
+            if (track != null) results.add(track);
+            if (results.size() >= bounded) break;
+        }
+        return List.copyOf(results);
+    }
+
+    public List<QueueTrack> randomTracks(int limit, Set<String> excluded) throws IOException, InterruptedException {
+        ensureLibrary(); int bounded = Math.max(1, Math.min(limit, 100));
+        String params = "type=10&sort=random&X-Plex-Container-Start=0&X-Plex-Container-Size=" + Math.min(100, bounded * 4);
+        JsonArray metadata = array(container(getJson("/library/sections/" + libraryKey + "/all", params)), "Metadata");
+        List<QueueTrack> results = new ArrayList<>();
+        for (JsonElement element : metadata) {
+            QueueTrack track = queueTrack(element);
+            if (track != null && !excluded.contains(track.key())) results.add(track);
+            if (results.size() >= bounded) break;
+        }
+        return List.copyOf(results);
+    }
+
+    public List<QueueTrack> metadataFallback(List<JammarrPayloads.StationSeed> seeds, int limit, Set<String> excluded)
+            throws IOException, InterruptedException {
+        LinkedHashSet<QueueTrack> results = new LinkedHashSet<>();
+        for (JammarrPayloads.StationSeed seed : seeds) {
+            if (seed.kind() == JammarrPayloads.ItemKind.PLAYLIST) continue;
+            for (QueueTrack track : metadataRelated(seed, Math.max(1, limit))) {
+                if (!excluded.contains(track.key())) results.add(track);
+                if (results.size() >= limit) return List.copyOf(results);
+            }
+        }
+        results.addAll(randomTracks(Math.max(1, limit - results.size()), excluded));
+        return List.copyOf(results).stream().limit(limit).toList();
+    }
+
+    private List<QueueTrack> metadataRelated(JammarrPayloads.StationSeed seed, int limit) throws IOException, InterruptedException {
+        JsonArray metadata = array(container(getJson("/library/metadata/" + encodePath(seed.key()), "")), "Metadata");
+        if (metadata.isEmpty() || !metadata.get(0).isJsonObject()) return List.of();
+        JsonObject item = metadata.get(0).getAsJsonObject(); LinkedHashSet<String> genres = tags(item, "Genre"), styles = tags(item, "Style");
+        if (seed.kind() == JammarrPayloads.ItemKind.TRACK && genres.isEmpty() && styles.isEmpty()) {
+            String parent = text(item, "parentRatingKey"), artist = text(item, "grandparentRatingKey");
+            for (String related : List.of(parent, artist)) {
+                if (related.isBlank()) continue;
+                JsonArray relatedMetadata = array(container(getJson("/library/metadata/" + encodePath(related), "")), "Metadata");
+                if (!relatedMetadata.isEmpty() && relatedMetadata.get(0).isJsonObject()) {
+                    genres.addAll(tags(relatedMetadata.get(0).getAsJsonObject(), "Genre")); styles.addAll(tags(relatedMetadata.get(0).getAsJsonObject(), "Style"));
+                }
+            }
+        }
+        List<QueueTrack> results = new ArrayList<>();
+        for (String genre : genres) appendMetadataMatches(results, "genre", genre, limit);
+        for (String style : styles) appendMetadataMatches(results, "style", style, limit);
+        if (results.isEmpty()) results.addAll(expand(seed.kind(), seed.key(), limit));
+        return results.stream().distinct().limit(limit).toList();
+    }
+
+    private void appendMetadataMatches(List<QueueTrack> output, String field, String value, int limit) throws IOException, InterruptedException {
+        if (output.size() >= limit) return;
+        String params = "type=10&" + field + "=" + encode(value) + "&sort=userRating:desc,ratingCount:desc&X-Plex-Container-Start=0&X-Plex-Container-Size=" + Math.min(100, limit * 2);
+        JsonArray metadata = array(container(getJson("/library/sections/" + libraryKey + "/all", params)), "Metadata");
+        for (JsonElement element : metadata) { QueueTrack track = queueTrack(element); if (track != null && output.stream().noneMatch(existing -> existing.key().equals(track.key()))) output.add(track); if (output.size() >= limit) break; }
+    }
+
+    private static LinkedHashSet<String> tags(JsonObject object, String key) {
+        LinkedHashSet<String> values = new LinkedHashSet<>();
+        for (JsonElement element : array(object, key)) if (element.isJsonObject()) { String value = text(element.getAsJsonObject(), "tag"); if (!value.isBlank()) values.add(value); }
+        return values;
     }
 
     public Page browse(JammarrPayloads.BrowseKind kind, String query, int page, int pageSize) throws IOException, InterruptedException {
@@ -241,6 +411,15 @@ public final class PlexClient {
         return new JammarrPayloads.MediaItem(kind, key, title, subtitle, number(value, "duration"));
     }
 
+    private QueueTrack queueTrack(JsonElement element) {
+        if (!element.isJsonObject()) return null;
+        JsonObject value = element.getAsJsonObject();
+        if (!"track".equals(text(value, "type"))) return null;
+        String key = text(value, "ratingKey"), title = text(value, "title");
+        if (key.isBlank() || title.isBlank()) return null;
+        return new QueueTrack(key, title, text(value, "grandparentTitle"), text(value, "parentTitle"), number(value, "duration"));
+    }
+
     private void ensureLibrary() throws IOException, InterruptedException { if (libraryKey == null) validate(); }
     private JsonObject getJson(String path, String query) throws IOException, InterruptedException {
         HttpResponse<InputStream> response;
@@ -274,6 +453,36 @@ public final class PlexClient {
         }
     }
 
+    private JsonObject postJson(String path, String query) throws IOException, InterruptedException {
+        HttpResponse<InputStream> response;
+        try { response = http.send(request(path, query).timeout(requestTimeout).POST(HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofInputStream()); }
+        catch (HttpTimeoutException e) { throw new PlexException(PlexException.Kind.OFFLINE, "Plex request timed out", e); }
+        try (InputStream body = response.body()) {
+            if (response.statusCode() == 401 || response.statusCode() == 403) throw new PlexException(PlexException.Kind.AUTHENTICATION, "Plex rejected the configured token");
+            if (response.statusCode() == 404) return new JsonObject();
+            if (response.statusCode() / 100 != 2) throw new PlexException(PlexException.Kind.INVALID_RESPONSE, "Plex station request returned HTTP " + response.statusCode());
+            long declaredLength = response.headers().firstValueAsLong("Content-Length").orElse(-1);
+            if (declaredLength > maxJsonBytes) throw new PlexException(PlexException.Kind.INVALID_RESPONSE, "Plex station response exceeds the safety limit");
+            AtomicBoolean timedOut = new AtomicBoolean();
+            ScheduledFuture<?> timeout = READ_TIMEOUTS.schedule(() -> {
+                timedOut.set(true);
+                try { body.close(); } catch (IOException ignored) {}
+            }, requestTimeout.toMillis(), TimeUnit.MILLISECONDS);
+            byte[] bytes;
+            try {
+                bytes = readLimited(body, maxJsonBytes, "Plex station response exceeds the safety limit");
+            } catch (IOException failure) {
+                if (timedOut.get()) throw new PlexException(PlexException.Kind.OFFLINE, "Plex station body timed out", failure);
+                throw failure;
+            } finally {
+                timeout.cancel(false);
+            }
+            JsonElement parsed = JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8));
+            if (!parsed.isJsonObject()) throw new IllegalStateException("root is not an object");
+            return parsed.getAsJsonObject();
+        } catch (RuntimeException malformed) { throw new PlexException(PlexException.Kind.INVALID_RESPONSE, "Plex returned malformed station JSON", malformed); }
+    }
+
     private static byte[] readLimited(InputStream input, int maximumBytes, String message) throws IOException {
         byte[] bytes = input.readNBytes(maximumBytes + 1);
         if (bytes.length > maximumBytes) throw new PlexException(PlexException.Kind.INVALID_RESPONSE, message);
@@ -300,8 +509,15 @@ public final class PlexClient {
     private static JsonArray array(JsonObject object, String key) { JsonElement e = object.get(key); return e == null || !e.isJsonArray() ? new JsonArray() : e.getAsJsonArray(); }
     private static String text(JsonObject object, String key) { JsonElement e = object.get(key); return e == null || e.isJsonNull() ? "" : e.getAsString(); }
     private static long number(JsonObject object, String key) { JsonElement e = object.get(key); return e == null || e.isJsonNull() ? 0 : e.getAsLong(); }
+    private static double decimal(JsonObject object, String key) { JsonElement e = object.get(key); return e == null || e.isJsonNull() ? 0 : e.getAsDouble(); }
     private static String encode(String value) { return URLEncoder.encode(value, StandardCharsets.UTF_8); }
     private static String encodePath(String value) { return encode(value).replace("+", "%20"); }
+    private static boolean supportsSonic(String version) {
+        if (version == null || version.isBlank()) return true;
+        String[] parts = version.split("\\.");
+        try { int major = Integer.parseInt(parts[0]), minor = parts.length > 1 ? Integer.parseInt(parts[1]) : 0; return major > 1 || major == 1 && minor >= 24; }
+        catch (NumberFormatException ignored) { return true; }
+    }
     private String baseUrl() { String value = configuredUrl.get().trim(); return value.endsWith("/") ? value.substring(0, value.length() - 1) : value; }
     private void validateBaseUrl() throws PlexException {
         String value = baseUrl();
