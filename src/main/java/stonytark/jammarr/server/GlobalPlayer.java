@@ -98,12 +98,12 @@ public final class GlobalPlayer implements AutoCloseable {
 
     GlobalPlayer(MinecraftServer server, PlexClient plex) throws IOException {
         this.server = server; this.plex = plex; this.stationGenerator = new StationGenerator(plex);
-        this.cache = new AudioCache(server.getServerDirectory().resolve("jammarr-cache"), JammarrSettings.cacheSizeMiB() * 1024L * 1024L,
+        this.cache = new AudioCache(java.nio.file.Paths.get(server.getServerDirectory().toString()).resolve("jammarr-cache"), JammarrSettings.cacheSizeMiB() * 1024L * 1024L,
                 new CoreLogger() {
                     @Override public void info(String message) { Jammarr.LOGGER.info(message); }
                     @Override public void warn(String message, Throwable error) { Jammarr.LOGGER.warn(message, error); }
                 });
-        this.saved = server.overworld().getDataStorage().computeIfAbsent(JammarrSavedData.FACTORY, "jammarr_global_queue");
+        this.saved = JammarrSavedData.get(server);
         RestartPolicy.Restoration restoration = RestartPolicy.restore(JammarrSettings.restartMode(), saved.checkpointMs(), saved.paused());
         if (restoration.clearQueue()) saved.clearAll();
         restorePositionMs = restoration.positionMs(); restorePaused = restoration.paused();

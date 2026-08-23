@@ -3,7 +3,6 @@ package stonytark.jammarr.server;
 import stonytark.jammarr.core.model.QueueTrack;
 
 
-import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
@@ -15,10 +14,9 @@ import java.util.List;
 public final class JammarrSavedData extends SavedData {
     public static final int SCHEMA_VERSION = 4;
     // Jammarr owns schema migration; a vanilla DataFixTypes transform must not rewrite this custom payload.
-    public static final Factory<JammarrSavedData> FACTORY = new Factory<>(JammarrSavedData::new, JammarrSavedData::load, null);
-
     public static JammarrSavedData get(MinecraftServer server) {
-        return server.overworld().getDataStorage().computeIfAbsent(FACTORY, "jammarr_global_queue");
+        return server.overworld().getDataStorage().computeIfAbsent(
+                JammarrSavedData::load, JammarrSavedData::new, "jammarr_global_queue");
     }
     private final List<QueueTrack> queue = new ArrayList<>();
     private final List<QueueTrack> history = new ArrayList<>();
@@ -63,7 +61,7 @@ public final class JammarrSavedData extends SavedData {
     }
     public void update(long checkpointMs, boolean paused) { this.checkpointMs = Math.max(0, checkpointMs); this.paused = paused; setDirty(); }
 
-    @Override public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
+    @Override public CompoundTag save(CompoundTag tag) {
         tag.putInt("schemaVersion", SCHEMA_VERSION);
         ListTag list = new ListTag(); queue.forEach(track -> list.add(QueueTrackCodec.save(track)));
         tag.put("queue", list);
@@ -74,7 +72,7 @@ public final class JammarrSavedData extends SavedData {
         tag.putLong("checkpointMs", checkpointMs); tag.putBoolean("paused", paused); return tag;
     }
 
-    public static JammarrSavedData load(CompoundTag tag, HolderLookup.Provider registries) {
+    public static JammarrSavedData load(CompoundTag tag) {
         JammarrSavedData data = new JammarrSavedData();
         ListTag list = tag.getList("queue", Tag.TAG_COMPOUND);
         for (int i = 0; i < list.size(); i++) data.queue.add(QueueTrackCodec.load(list.getCompound(i)));

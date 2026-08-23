@@ -165,16 +165,45 @@ def verifyForge1211 = tasks.register('verifyForge1211', Exec) {
     mustRunAfter(verifyFabric1211)
 }
 
+def verifyFabric1201 = tasks.register('verifyFabric1201', Exec) {
+    group = 'verification'
+    description = 'Runs the isolated Minecraft 1.20.1 Fabric release gate.'
+    workingDir(layout.projectDirectory.dir('platforms/mc1.20.1/fabric'))
+    commandLine('./gradlew', 'verifyRelease', '--no-daemon', '--max-workers=1')
+}
+
+def verifyForge1201 = tasks.register('verifyForge1201', Exec) {
+    group = 'verification'
+    description = 'Runs the isolated Minecraft 1.20.1 Forge release gate.'
+    workingDir(layout.projectDirectory.dir('platforms/mc1.20.1/forge'))
+    commandLine('./gradlew', 'verifyRelease', '--no-daemon', '--max-workers=1', '--no-configuration-cache')
+    mustRunAfter(verifyFabric1201)
+}
+
+def verifyNeoForge1201 = tasks.register('verifyNeoForge1201', Exec) {
+    group = 'verification'
+    description = 'Runs the isolated Minecraft 1.20.1 transitional NeoForge release gate.'
+    workingDir(layout.projectDirectory.dir('platforms/mc1.20.1/neoforge'))
+    commandLine('./gradlew', 'verifyRelease', '--no-daemon', '--max-workers=1', '--no-configuration-cache')
+    mustRunAfter(verifyForge1201)
+}
+
 tasks.register('verify1211Family') {
     group = 'verification'
     description = 'Builds and verifies the NeoForge, Fabric, and Forge Minecraft 1.21.1 artifacts.'
     dependsOn(':core:test', tasks.named('test'), tasks.named('verifyRelease'), verifyFabric1211, verifyForge1211)
 }
 
+tasks.register('verify1201Family') {
+    group = 'verification'
+    description = 'Builds and verifies the Fabric, Forge, and transitional NeoForge Minecraft 1.20.1 artifacts.'
+    dependsOn(verifyFabric1201, verifyForge1201, verifyNeoForge1201)
+}
+
 tasks.register('verifyAllTargets') {
     group = 'verification'
     description = 'Builds and verifies every currently registered Jammarr target.'
-    dependsOn(tasks.named('verify1211Family'), tasks.named('runGameTestServer'))
+    dependsOn(tasks.named('verify1201Family'), tasks.named('verify1211Family'), tasks.named('runGameTestServer'))
 }
 
 var generateModMetadata = tasks.register('generateModMetadata', ProcessResources) {
