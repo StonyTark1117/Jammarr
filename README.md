@@ -35,6 +35,8 @@ Plex metadata responses are capped at 4 MiB, expanded albums/artists/playlists a
 Plain HTTP is allowed for trusted private networks and emits a warning. HTTPS uses normal Java certificate validation.
 Bitrate is constrained to 64–320 kbps and cache size to 64–16384 MiB; invalid values are rejected by NeoForge's config validation and reported during startup.
 
+Client listening and volume settings are separate from the server file. Open the **Mods** list from the main menu, select Jammarr, and use **Config** to change them before joining a world.
+
 ## In-game use
 
 - Press `P` or run `/jammarr` to open the music screen.

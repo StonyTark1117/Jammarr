@@ -5,7 +5,9 @@ import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
+import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.InputEvent;
@@ -23,9 +25,10 @@ public final class JammarrClient {
     private static final KeyMapping OPEN = new KeyMapping("key.jammarr.open", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_P, "key.categories.jammarr");
     private boolean openOnNextTick;
 
-    public JammarrClient(IEventBus modBus) {
+    public JammarrClient(IEventBus modBus, ModContainer container) {
         modBus.addListener(this::keys);
         modBus.addListener(this::soundEngineLoaded);
+        container.registerExtensionPoint(IConfigScreenFactory.class, (mod, parent) -> new JammarrClientConfigScreen(parent));
         NeoForge.EVENT_BUS.register(this);
         ClientPayloadBridge.install(JammarrClientState.INSTANCE::accept);
     }

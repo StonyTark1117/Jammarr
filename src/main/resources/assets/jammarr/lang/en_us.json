@@ -32,5 +32,11 @@
   "jammarr.status.playing": "Now playing",
   "jammarr.status.paused": "Paused",
   "jammarr.status.plex_offline": "Plex offline",
-  "jammarr.screen.volume": "Volume %s%%"
+  "jammarr.screen.volume": "Volume %s%%",
+  "jammarr.config.title": "Jammarr Client Settings",
+  "jammarr.config.local_only": "These settings affect only this Minecraft client",
+  "jammarr.config.listening": "Listening: %s",
+  "jammarr.config.on": "On",
+  "jammarr.config.off": "Off",
+  "jammarr.config.done": "Done"
 }
