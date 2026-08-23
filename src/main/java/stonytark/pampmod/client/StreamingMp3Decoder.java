@@ -19,9 +19,11 @@ final class StreamingMp3Decoder implements AutoCloseable {
     private final Queue<byte[]> pcm = new ConcurrentLinkedQueue<>();
     private final AtomicLong bufferedBytes = new AtomicLong();
     private final Object flowControl = new Object();
+    private final Object pcmAvailable = new Object();
     private final Thread thread;
     private volatile AudioFormat format;
     private volatile boolean closed;
+    private volatile boolean finished;
 
     StreamingMp3Decoder(int firstChunk, int totalChunks) {
         input = new ChunkInputStream(firstChunk, totalChunks);
@@ -35,6 +37,16 @@ final class StreamingMp3Decoder implements AutoCloseable {
     }
     byte[] poll() {
         byte[] value = pcm.poll();
+        if (value == null && !finished && !closed) {
+            synchronized (pcmAvailable) {
+                value = pcm.poll();
+                if (value == null && !finished && !closed) {
+                    try { pcmAvailable.wait(500); }
+                    catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+                    value = pcm.poll();
+                }
+            }
+        }
         if (value != null) {
             bufferedBytes.addAndGet(-value.length);
             synchronized (flowControl) { flowControl.notifyAll(); }
@@ -55,15 +67,23 @@ final class StreamingMp3Decoder implements AutoCloseable {
                 if (format == null) format = new AudioFormat(samples.getSampleFrequency(), 16, samples.getChannelCount(), true, false);
                 int length = samples.getBufferLength(); ByteBuffer bytes = ByteBuffer.allocate(length * 2).order(ByteOrder.LITTLE_ENDIAN);
                 short[] values = samples.getBuffer(); for (int i = 0; i < length; i++) bytes.putShort(values[i]);
-                byte[] result = bytes.array(); pcm.add(result); bufferedBytes.addAndGet(result.length); stream.closeFrame();
+                byte[] result = bytes.array();
+                pcm.add(result); bufferedBytes.addAndGet(result.length);
+                synchronized (pcmAvailable) { pcmAvailable.notifyAll(); }
+                stream.closeFrame();
             }
         } catch (Exception e) {
             if (!closed) Pampmod.LOGGER.warn("PAmpMod MP3 decoder stopped: {}", e.getMessage());
-        } finally { try { stream.close(); } catch (Exception ignored) {} }
+        } finally {
+            finished = true;
+            synchronized (pcmAvailable) { pcmAvailable.notifyAll(); }
+            try { stream.close(); } catch (Exception ignored) {}
+        }
     }
     @Override public void close() {
         closed = true; input.close();
         synchronized (flowControl) { flowControl.notifyAll(); }
+        synchronized (pcmAvailable) { pcmAvailable.notifyAll(); }
         thread.interrupt(); pcm.clear(); bufferedBytes.set(0);
     }
 }

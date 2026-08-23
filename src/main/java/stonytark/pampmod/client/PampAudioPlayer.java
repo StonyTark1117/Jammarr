@@ -42,6 +42,7 @@ public final class PampAudioPlayer {
             boolean timelineChanged = value.firstChunk() != manifest.firstChunk() || Math.abs(value.startedAtEpochMs() - manifest.startedAtEpochMs()) > DRIFT_REBUFFER_MS;
             manifest = value;
             if (timelineChanged && PampConfig.ENABLED.get()) rebuffer();
+            else if (decoder == null && PampConfig.ENABLED.get()) beginStreaming();
         }
         if (channel != null) channel.execute(c -> { if (value.paused()) c.pause(); else c.unpause(); });
     }

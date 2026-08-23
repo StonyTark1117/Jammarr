@@ -24,9 +24,14 @@ public final class PampScreen extends Screen {
     private final PampClientState state;
     private View view = View.NOW;
     private EditBox search;
+    private String searchQuery = "";
     private int rowOffset;
 
-    public PampScreen(PampClientState state) { super(Component.translatable("pampmod.screen.title")); this.state = state; }
+    public PampScreen(PampClientState state) {
+        super(Component.translatable("pampmod.screen.title"));
+        this.state = state;
+        if (state.browse().kind() == PampPayloads.BrowseKind.SEARCH) searchQuery = state.browse().query();
+    }
 
     @Override protected void init() {
         clearWidgets();
@@ -44,7 +49,8 @@ public final class PampScreen extends Screen {
         if (view == View.SEARCH) {
             search = addRenderableWidget(new EditBox(font, left, contentTop, panelWidth - 72, 20, Component.translatable("pampmod.screen.search")));
             search.setMaxLength(128); search.setHint(Component.translatable("pampmod.screen.search"));
-            if (state.browse().kind() == PampPayloads.BrowseKind.SEARCH) search.setValue(state.browse().query());
+            search.setValue(searchQuery);
+            search.setResponder(value -> searchQuery = value);
             addRenderableWidget(Button.builder(Component.literal("Go"), b -> request(0)).bounds(left + panelWidth - 66, contentTop, 66, 20).build());
             contentTop += 27;
         }
@@ -115,7 +121,11 @@ public final class PampScreen extends Screen {
     }
     private void activate(PampPayloads.MediaItem item) { PacketDistributor.sendToServer(new PampPayloads.QueueRequest(item.kind(), item.key())); }
     private void control(PampPayloads.ControlAction action, int index) { PacketDistributor.sendToServer(new PampPayloads.ControlRequest(action, index)); }
-    private void request(int page) { if (view.browseKind != null) PacketDistributor.sendToServer(new PampPayloads.BrowseRequest(view.browseKind, search == null ? "" : search.getValue(), page)); }
+    private void request(int page) {
+        if (view.browseKind == null) return;
+        if (search != null) searchQuery = search.getValue();
+        PacketDistributor.sendToServer(new PampPayloads.BrowseRequest(view.browseKind, searchQuery, page));
+    }
     void resultsChanged() { if (minecraft != null) rebuildWidgets(); }
 
     @Override public boolean keyPressed(int key, int scanCode, int modifiers) {
