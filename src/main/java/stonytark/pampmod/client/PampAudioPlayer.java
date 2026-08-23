@@ -5,6 +5,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.sounds.ChannelAccess;
 import net.minecraft.sounds.SoundSource;
 import net.neoforged.neoforge.network.PacketDistributor;
+import stonytark.pampmod.Pampmod;
 import stonytark.pampmod.config.PampConfig;
 import stonytark.pampmod.mixin.client.SoundEngineAccessor;
 import stonytark.pampmod.mixin.client.SoundManagerAccessor;
@@ -28,6 +29,8 @@ public final class PampAudioPlayer {
     private long channelStartedPositionMs;
     private long lastAudioDataMs;
     private long lastCorrectionMs;
+    private long lastRecoveryMs;
+    private int receivedChunks;
     private boolean started;
     private final AsyncStartGuard channelStarts = new AsyncStartGuard();
 
@@ -58,6 +61,7 @@ public final class PampAudioPlayer {
             window.reject(value.requestId());
             return;
         }
+        if (receivedChunks++ == 0) Pampmod.LOGGER.info("PAmpMod received the first audio chunk");
         lastAudioDataMs = System.currentTimeMillis();
         window.received(value.requestId(), value.index()).ifPresent(ack -> PacketDistributor.sendToServer(
                 new PampPayloads.ChunkAcknowledgement(manifest.sessionId(), ack.requestId(), ack.receivedThroughIndex(), decoder.bufferedMillis())));
@@ -66,8 +70,15 @@ public final class PampAudioPlayer {
     public void tick() {
         if (manifest == null || decoder == null || window == null) return;
         long now = System.currentTimeMillis();
-        window.request(now, decoder.bufferedMillis(), StreamingMp3Decoder.MAX_BUFFERED_MS).ifPresent(request -> PacketDistributor.sendToServer(
-                new PampPayloads.ChunkRequest(manifest.sessionId(), request.id(), request.startIndex(), request.count())));
+        if (decoder.failure() != null && decoder.format() == null && now - lastRecoveryMs >= 2_000) {
+            Pampmod.LOGGER.warn("PAmpMod received audio chunks but could not decode them; requesting a fresh stream");
+            requestRebuffer();
+            return;
+        }
+        window.request(now, decoder.bufferedMillis(), StreamingMp3Decoder.MAX_BUFFERED_MS).ifPresent(request -> {
+            if (request.id() == 1) Pampmod.LOGGER.info("PAmpMod requested the initial audio chunk window");
+            PacketDistributor.sendToServer(new PampPayloads.ChunkRequest(manifest.sessionId(), request.id(), request.startIndex(), request.count()));
+        });
         Minecraft minecraft = Minecraft.getInstance();
         if (PampConfig.ENABLED.get()) minecraft.getMusicManager().stopPlaying();
         long localStart = clock.toLocalTime(manifest.startedAtEpochMs() + Math.max(0, firstChunkStartMs));
@@ -98,6 +109,7 @@ public final class PampAudioPlayer {
         if (!PampConfig.ENABLED.get()) return "Listening disabled locally";
         if (manifest == null) return "No active audio stream";
         if (manifest.paused()) return "Paused";
+        if (decoder != null && decoder.failure() != null && decoder.format() == null) return "Audio decode error";
         if (!started) return "Buffering " + (decoder == null ? 0 : Math.min(100, decoder.bufferedMillis() * 100 / START_BUFFER_MS)) + "%";
         return "Playing";
     }
@@ -107,6 +119,8 @@ public final class PampAudioPlayer {
         decoder = new StreamingMp3Decoder(manifest.firstChunk(), manifest.totalChunks());
         window = new ChunkWindowTracker(manifest.firstChunk(), manifest.totalChunks(), 8, 1_500);
         lastAudioDataMs = System.currentTimeMillis();
+        lastRecoveryMs = 0;
+        receivedChunks = 0;
     }
 
     private void startChannel(long now) {
@@ -142,6 +156,7 @@ public final class PampAudioPlayer {
     }
 
     private void requestRebuffer() {
+        lastRecoveryMs = System.currentTimeMillis();
         resetAudio();
         PacketDistributor.sendToServer(new PampPayloads.ManifestRequest(true));
     }

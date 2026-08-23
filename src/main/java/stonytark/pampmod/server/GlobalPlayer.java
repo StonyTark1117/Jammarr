@@ -238,6 +238,7 @@ public final class GlobalPlayer implements AutoCloseable {
         int count = request.count();
         int end = start + count;
         transfers.put(player.getUUID(), ChunkTransferPolicy.begin(sessionId, request.requestId(), start, count, now));
+        if (request.requestId() == 1) Pampmod.LOGGER.info("PAmpMod sent the initial audio chunk window to {}", player.getUUID());
         for (int i = start; i < end; i++) {
             Mp3FrameIndex.Chunk chunk = asset.chunks().get(i);
             PacketDistributor.sendToPlayer(player, new PampPayloads.AudioChunk(sessionId, request.requestId(), chunk.index(), chunk.startMs(), chunk.sha256(), chunk.data()));

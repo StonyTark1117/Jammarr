@@ -24,6 +24,7 @@ final class StreamingMp3Decoder implements AutoCloseable {
     private volatile AudioFormat format;
     private volatile boolean closed;
     private volatile boolean finished;
+    private volatile String failure;
 
     StreamingMp3Decoder(int firstChunk, int totalChunks) {
         input = new ChunkInputStream(firstChunk, totalChunks);
@@ -31,6 +32,7 @@ final class StreamingMp3Decoder implements AutoCloseable {
     }
     boolean offer(int index, byte[] bytes) { return input.offer(index, bytes); }
     AudioFormat format() { return format; }
+    String failure() { return failure; }
     long bufferedMillis() {
         AudioFormat value = format; if (value == null) return 0;
         return bufferedBytes.get() * 1000L / Math.max(1, (long)value.getSampleRate() * value.getChannels() * 2L);
@@ -73,7 +75,10 @@ final class StreamingMp3Decoder implements AutoCloseable {
                 stream.closeFrame();
             }
         } catch (Exception e) {
-            if (!closed) Pampmod.LOGGER.warn("PAmpMod MP3 decoder stopped: {}", e.getMessage());
+            if (!closed) {
+                failure = e.getClass().getSimpleName() + (e.getMessage() == null ? "" : ": " + e.getMessage());
+                Pampmod.LOGGER.warn("PAmpMod MP3 decoder stopped", e);
+            }
         } finally {
             finished = true;
             synchronized (pcmAvailable) { pcmAvailable.notifyAll(); }
