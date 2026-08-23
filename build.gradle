@@ -70,7 +70,7 @@ var generateGameTestTemplate = tasks.register('generateGameTestTemplate') {
     outputs.dir(emptyGameTestOutput)
     doLast {
         def inputFile = inputs.files.singleFile
-        def outputFile = new File(outputs.files.singleFile, 'data/pampmod/structure/empty.nbt')
+        def outputFile = new File(outputs.files.singleFile, 'data/jammarr/structure/empty.nbt')
         outputFile.parentFile.mkdirs()
         outputFile.bytes = java.util.Base64.getDecoder().decode(inputFile.text.trim())
     }
@@ -91,9 +91,9 @@ dependencies {
 
 tasks.withType(Test).configureEach {
     useJUnitPlatform()
-    inputs.property('pampmodLiveTestEnabled', providers.environmentVariable('PAMPMOD_LIVE_TEST').orElse('false'))
+    inputs.property('jammarrLiveTestEnabled', providers.environmentVariable('JAMMARR_LIVE_TEST').orElse('false'))
     outputs.cacheIf('credentialed Plex integration tests must execute live') {
-        System.getenv('PAMPMOD_LIVE_TEST') != 'true'
+        System.getenv('JAMMARR_LIVE_TEST') != 'true'
     }
 }
 
@@ -103,7 +103,7 @@ tasks.named('jar', Jar) {
     }
     from('LICENSE') {
         into('META-INF')
-        rename { 'LICENSE-PAmpMod-CC0-1.0.txt' }
+        rename { 'LICENSE-Jammarr-CC0-1.0.txt' }
     }
     from('LICENSE-LGPL-2.1-or-later.txt') {
         into('META-INF')

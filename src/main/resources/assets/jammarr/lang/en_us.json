@@ -1,0 +1,14 @@
+{
+  "key.jammarr.open": "Open Jammarr",
+  "key.categories.jammarr": "Jammarr",
+  "jammarr.screen.title": "Jammarr - Plex Music",
+  "jammarr.screen.search": "Search tracks...",
+  "jammarr.screen.now_playing": "Now Playing",
+  "jammarr.screen.queue": "Queue",
+  "jammarr.screen.artists": "Artists",
+  "jammarr.screen.albums": "Albums",
+  "jammarr.screen.playlists": "Playlists",
+  "jammarr.screen.mute": "Mute",
+  "jammarr.screen.unmute": "Listen",
+  "jammarr.screen.empty": "No results"
+}
