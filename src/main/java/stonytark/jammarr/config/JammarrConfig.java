@@ -2,6 +2,7 @@ package stonytark.jammarr.config;
 
 import net.neoforged.neoforge.common.ModConfigSpec;
 import stonytark.jammarr.core.model.RestartMode;
+import stonytark.jammarr.core.platform.JammarrSettings;
 
 public final class JammarrConfig {
     private static final ModConfigSpec.Builder SERVER_BUILDER = new ModConfigSpec.Builder();
@@ -42,10 +43,30 @@ public final class JammarrConfig {
             .defineInRange("volume", 1.0, 0.0, 1.0);
     public static final ModConfigSpec CLIENT_SPEC = CLIENT_BUILDER.build();
 
+    private static final JammarrSettings.ServerValues SERVER_VALUES = new JammarrSettings.ServerValues() {
+        @Override public String plexUrl() { return PLEX_URL.get(); }
+        @Override public String plexToken() { return PLEX_TOKEN.get(); }
+        @Override public String musicLibrary() { return MUSIC_LIBRARY.get(); }
+        @Override public RestartMode restartMode() { return RESTART_MODE.get(); }
+        @Override public boolean pauseWhenEmpty() { return PAUSE_WHEN_EMPTY.get(); }
+        @Override public int operatorPermissionLevel() { return OP_PERMISSION.get(); }
+        @Override public int queueLimit() { return QUEUE_LIMIT.get(); }
+        @Override public int audioBitrateKbps() { return BITRATE.get(); }
+        @Override public long cacheSizeMiB() { return CACHE_MIB.get(); }
+        @Override public boolean stationMetadataFallbackEnabled() { return STATION_METADATA_FALLBACK.get(); }
+    };
+
+    private static final JammarrSettings.ClientValues CLIENT_VALUES = new JammarrSettings.ClientValues() {
+        @Override public boolean enabled() { return ENABLED.get(); }
+        @Override public void enabled(boolean value) { ENABLED.set(value); }
+        @Override public void saveEnabled() { ENABLED.save(); }
+        @Override public double volume() { return VOLUME.get(); }
+        @Override public void volume(double value) { VOLUME.set(value); }
+        @Override public void saveVolume() { VOLUME.save(); }
+    };
+
     private JammarrConfig() {}
 
-    public static String plexToken() {
-        String environment = System.getenv("JAMMARR_PLEX_TOKEN");
-        return environment == null || environment.isBlank() ? PLEX_TOKEN.get() : environment.trim();
-    }
+    public static JammarrSettings.ServerValues serverValues() { return SERVER_VALUES; }
+    public static JammarrSettings.ClientValues clientValues() { return CLIENT_VALUES; }
 }

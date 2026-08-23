@@ -38,6 +38,38 @@ class JammarrNetworkTest {
         assertEquals("00112233445566778899aabbccddeeffac021108", hex(encoded));
     }
 
+    @Test void neoForgeStationAdapterMatchesTheSharedProtocolFiveGoldenVector() {
+        RegistryFriendlyByteBuf buffer = buffer();
+        JammarrPayloads.StationRequest.CODEC.encode(buffer, new JammarrPayloads.StationRequest(
+                JammarrPayloads.StationAction.START_NOW, JammarrPayloads.StationType.SONIC_ADVENTURE,
+                false, 12, List.of(new JammarrPayloads.StationSeed(
+                        JammarrPayloads.ItemKind.TRACK, "42", "Song", "Artist"))));
+        byte[] encoded = new byte[buffer.readableBytes()];
+        buffer.getBytes(0, encoded);
+        assertEquals("0107000c010002343204536f6e6706417274697374", hex(encoded));
+    }
+
+    @Test void neoForgeBrowseAdapterMatchesTheSharedProtocolFiveGoldenVector() {
+        RegistryFriendlyByteBuf buffer = buffer();
+        JammarrPayloads.BrowseRequest.CODEC.encode(buffer,
+                new JammarrPayloads.BrowseRequest(JammarrPayloads.BrowseKind.SEARCH, "A&B", 2));
+        byte[] encoded = new byte[buffer.readableBytes()];
+        buffer.getBytes(0, encoded);
+        assertEquals("000341264202", hex(encoded));
+    }
+
+    @Test void neoForgeStateAdapterMatchesTheSharedProtocolFiveGoldenVector() {
+        RegistryFriendlyByteBuf buffer = buffer();
+        JammarrPayloads.QueueEntry entry = new JammarrPayloads.QueueEntry("1", "T", "A", 1_000,
+                JammarrPayloads.PlaybackOrigin.ADVENTURE, false);
+        // QueueEntry is embedded unchanged in PlaybackState, StationState, and AdventurePreview.
+        JammarrPayloads.AdventurePreview.CODEC.encode(buffer,
+                new JammarrPayloads.AdventurePreview(0, "", List.of(entry)));
+        byte[] encoded = new byte[buffer.readableBytes()];
+        buffer.getBytes(0, encoded);
+        assertEquals("000001013101540141e8070300", hex(encoded));
+    }
+
     @Test void stationStateCodecPreservesCapabilitySourceAndPreview() {
         var preview = new JammarrPayloads.QueueEntry("1", "Track", "Artist", 1000, JammarrPayloads.PlaybackOrigin.ADVENTURE, false);
         var state = new JammarrPayloads.StationState(JammarrPayloads.StationType.SONIC_ADVENTURE, true, false, 3,

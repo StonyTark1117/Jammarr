@@ -14,10 +14,10 @@ import net.neoforged.neoforge.client.event.InputEvent;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
 import net.neoforged.neoforge.client.event.sound.SoundEngineLoadEvent;
 import net.neoforged.neoforge.common.NeoForge;
-import net.neoforged.neoforge.network.PacketDistributor;
 import org.lwjgl.glfw.GLFW;
 import stonytark.jammarr.Jammarr;
 import stonytark.jammarr.network.ClientPayloadBridge;
+import stonytark.jammarr.network.JammarrNetwork;
 import stonytark.jammarr.network.JammarrPayloads;
 
 @Mod(value = Jammarr.MODID, dist = net.neoforged.api.distmarker.Dist.CLIENT)
@@ -49,7 +49,7 @@ public final class JammarrClient {
         while (OPEN.consumeClick()) { /* Prevent a duplicate open next tick. */ }
         if (openNow && minecraft.player != null) {
             minecraft.setScreen(new JammarrScreen(JammarrClientState.INSTANCE));
-            PacketDistributor.sendToServer(new JammarrPayloads.BrowseRequest(JammarrPayloads.BrowseKind.SEARCH, "", 0));
+            JammarrNetwork.sendToServer(new JammarrPayloads.BrowseRequest(JammarrPayloads.BrowseKind.SEARCH, "", 0));
         }
         JammarrClientState.INSTANCE.tick();
     }

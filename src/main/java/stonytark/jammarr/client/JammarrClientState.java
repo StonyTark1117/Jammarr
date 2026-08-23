@@ -3,7 +3,6 @@ package stonytark.jammarr.client;
 import stonytark.jammarr.core.client.ClockSynchronizer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.neoforged.neoforge.network.PacketDistributor;
 import stonytark.jammarr.network.JammarrNetwork;
 import stonytark.jammarr.network.JammarrPayloads;
 import java.util.List;
@@ -27,7 +26,7 @@ public final class JammarrClientState {
         Minecraft minecraft = Minecraft.getInstance();
         if (payload instanceof JammarrPayloads.OpenScreen) {
             minecraft.setScreen(new JammarrScreen(this));
-            PacketDistributor.sendToServer(new JammarrPayloads.BrowseRequest(JammarrPayloads.BrowseKind.SEARCH, "", 0));
+            JammarrNetwork.sendToServer(new JammarrPayloads.BrowseRequest(JammarrPayloads.BrowseKind.SEARCH, "", 0));
         } else if (payload instanceof JammarrPayloads.ServerHello value) {
             if (!JammarrNetwork.protocolMatches(value.protocolVersion()) && minecraft.getConnection() != null) {
                 minecraft.getConnection().getConnection().disconnect(net.minecraft.network.chat.Component.literal("Jammarr protocol mismatch"));
@@ -93,7 +92,7 @@ public final class JammarrClientState {
         if (now - lastTimeSync >= 10_000) requestTimeSync();
         audio.tick();
     }
-    public void hello() { PacketDistributor.sendToServer(new JammarrPayloads.ClientHello(JammarrNetwork.PROTOCOL)); requestTimeSync(); }
+    public void hello() { JammarrNetwork.sendToServer(new JammarrPayloads.ClientHello(JammarrNetwork.PROTOCOL)); requestTimeSync(); }
     public void ensureAudio() { audio.ensureStarted(); }
     public void listeningChanged() { audio.listeningChanged(); }
     public void retryAudio() { audio.retry(); refreshScreen(Minecraft.getInstance()); }
@@ -109,7 +108,7 @@ public final class JammarrClientState {
     private void requestTimeSync() {
         if (Minecraft.getInstance().getConnection() == null) return;
         long now = System.currentTimeMillis();
-        PacketDistributor.sendToServer(new JammarrPayloads.TimeSyncRequest(timeNonce.incrementAndGet(), now));
+        JammarrNetwork.sendToServer(new JammarrPayloads.TimeSyncRequest(timeNonce.incrementAndGet(), now));
         lastTimeSync = now;
     }
     private static void refreshScreen(Minecraft minecraft) { if (minecraft.screen instanceof JammarrScreen screen) screen.resultsChanged(); }

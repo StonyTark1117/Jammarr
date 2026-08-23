@@ -13,7 +13,8 @@ import java.util.List;
 
 public final class JammarrSavedData extends SavedData {
     public static final int SCHEMA_VERSION = 4;
-    public static final Factory<JammarrSavedData> FACTORY = new Factory<>(JammarrSavedData::new, JammarrSavedData::load);
+    // Jammarr owns schema migration; a vanilla DataFixTypes transform must not rewrite this custom payload.
+    public static final Factory<JammarrSavedData> FACTORY = new Factory<>(JammarrSavedData::new, JammarrSavedData::load, null);
     private final List<QueueTrack> queue = new ArrayList<>();
     private final List<QueueTrack> history = new ArrayList<>();
     private QueueTrack current;

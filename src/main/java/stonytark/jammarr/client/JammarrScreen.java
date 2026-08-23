@@ -7,9 +7,9 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
-import net.neoforged.neoforge.network.PacketDistributor;
-import stonytark.jammarr.config.JammarrConfig;
+import stonytark.jammarr.core.platform.JammarrSettings;
 import stonytark.jammarr.network.JammarrPayloads;
+import stonytark.jammarr.network.JammarrNetwork;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -208,8 +208,8 @@ public final class JammarrScreen extends Screen {
 
     private void addBottomControls(int left, int panelWidth) {
         int bottom = height - 27;
-        addRenderableWidget(Button.builder(Component.translatable(JammarrConfig.ENABLED.get() ? "jammarr.screen.mute" : "jammarr.screen.unmute"), b -> {
-            JammarrConfig.ENABLED.set(!JammarrConfig.ENABLED.get()); JammarrConfig.ENABLED.save(); state.listeningChanged(); rebuildWidgets();
+        addRenderableWidget(Button.builder(Component.translatable(JammarrSettings.enabled() ? "jammarr.screen.mute" : "jammarr.screen.unmute"), b -> {
+            JammarrSettings.enabled(!JammarrSettings.enabled()); JammarrSettings.saveEnabled(); state.listeningChanged(); rebuildWidgets();
         }).bounds(left, bottom, 68, 20).build()); addRenderableWidget(new VolumeSlider(left + 74, bottom, 130, 20));
         if (state.playback().operator()) {
             addRenderableWidget(Button.builder(Component.translatable(state.playback().paused() ? "jammarr.screen.resume" : "jammarr.screen.pause"), b ->
@@ -236,7 +236,7 @@ public final class JammarrScreen extends Screen {
     }
     private void activate(JammarrPayloads.MediaItem item) {
         if (queuePending) return; queuePending = true; pendingQueueKey = item.key(); screenNotice = Component.translatable("jammarr.screen.queuing").getString();
-        PacketDistributor.sendToServer(new JammarrPayloads.QueueRequest(item.kind(), item.key())); rebuildWidgets();
+        JammarrNetwork.sendToServer(new JammarrPayloads.QueueRequest(item.kind(), item.key())); rebuildWidgets();
     }
     private void startRadio(JammarrPayloads.MediaItem item) {
         JammarrPayloads.StationType type = switch (item.kind()) { case TRACK -> JammarrPayloads.StationType.TRACK_RADIO; case ARTIST -> JammarrPayloads.StationType.ARTIST_RADIO; case ALBUM -> JammarrPayloads.StationType.ALBUM_RADIO; case PLAYLIST -> JammarrPayloads.StationType.NONE; };
@@ -255,14 +255,14 @@ public final class JammarrScreen extends Screen {
     private void moveWaypoint(int index, int delta) { int target = index + delta; if (target < 0 || target >= adventureWaypoints.size()) return; JammarrPayloads.StationSeed value = adventureWaypoints.remove(index); adventureWaypoints.add(target, value); rebuildWidgets(); }
     private static JammarrPayloads.StationSeed seed(JammarrPayloads.MediaItem item) { return new JammarrPayloads.StationSeed(item.kind(), item.key(), item.title(), item.subtitle()); }
     private void stationRequest(JammarrPayloads.StationAction action, JammarrPayloads.StationType type, boolean enabled, List<JammarrPayloads.StationSeed> seeds) {
-        PacketDistributor.sendToServer(new JammarrPayloads.StationRequest(action, type, enabled, state.station().generation(), List.copyOf(seeds))); screenNotice = "Updating shared playback source…";
+        JammarrNetwork.sendToServer(new JammarrPayloads.StationRequest(action, type, enabled, state.station().generation(), List.copyOf(seeds))); screenNotice = "Updating shared playback source…";
     }
     private void confirmStartNow(JammarrPayloads.StationType type, List<JammarrPayloads.StationSeed> seeds) {
         if (System.currentTimeMillis() < startNowArmedUntil) { startNowArmedUntil = 0; stationRequest(JammarrPayloads.StationAction.START_NOW, type, false, seeds); }
         else { startNowArmedUntil = System.currentTimeMillis() + 5_000; screenNotice = "Press Start Now again to clear manual requests and replace current playback"; rebuildWidgets(); }
     }
     private void control(JammarrPayloads.ControlAction action, int index) { control(action, index, ""); }
-    private void control(JammarrPayloads.ControlAction action, int index, String expectedKey) { PacketDistributor.sendToServer(new JammarrPayloads.ControlRequest(action, index, expectedKey)); }
+    private void control(JammarrPayloads.ControlAction action, int index, String expectedKey) { JammarrNetwork.sendToServer(new JammarrPayloads.ControlRequest(action, index, expectedKey)); }
 
     private void request(int page) {
         if (view.browseKind == null || requestPending) return; if (search != null) searchQuery = search.getValue(); searchQuery = searchQuery.trim();
@@ -271,7 +271,7 @@ public final class JammarrScreen extends Screen {
         }
         String requestQuery = browseQuery(view.browseKind, searchQuery);
         requestPending = true; pendingKind = view.browseKind; pendingQuery = requestQuery; pendingPage = page;
-        PacketDistributor.sendToServer(new JammarrPayloads.BrowseRequest(view.browseKind, requestQuery, page)); rebuildWidgets();
+        JammarrNetwork.sendToServer(new JammarrPayloads.BrowseRequest(view.browseKind, requestQuery, page)); rebuildWidgets();
     }
     static String browseQuery(JammarrPayloads.BrowseKind kind, String searchQuery) {
         return kind == JammarrPayloads.BrowseKind.SEARCH ? searchQuery.trim() : "";
@@ -306,8 +306,8 @@ public final class JammarrScreen extends Screen {
     @Override public boolean isPauseScreen() { return false; }
 
     private final class VolumeSlider extends AbstractSliderButton {
-        private VolumeSlider(int x, int y, int width, int height) { super(x, y, width, height, Component.empty(), JammarrConfig.VOLUME.get()); updateMessage(); }
+        private VolumeSlider(int x, int y, int width, int height) { super(x, y, width, height, Component.empty(), JammarrSettings.volume()); updateMessage(); }
         @Override protected void updateMessage() { setMessage(Component.translatable("jammarr.screen.volume", Math.round(value * 100))); }
-        @Override protected void applyValue() { JammarrConfig.VOLUME.set(value); JammarrConfig.VOLUME.save(); }
+        @Override protected void applyValue() { JammarrSettings.volume(value); JammarrSettings.saveVolume(); }
     }
 }

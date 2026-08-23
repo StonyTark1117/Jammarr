@@ -1,7 +1,9 @@
 package stonytark.jammarr.network;
 
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.server.level.ServerPlayer;
+import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import stonytark.jammarr.server.JammarrServer;
@@ -13,6 +15,10 @@ public final class JammarrNetwork {
     public static final String VERSION = Integer.toString(PROTOCOL);
 
     public static boolean protocolMatches(int offered) { return offered == PROTOCOL; }
+
+    public static void sendToServer(CustomPacketPayload payload) { PacketDistributor.sendToServer(payload); }
+    public static void sendToPlayer(ServerPlayer player, CustomPacketPayload payload) { PacketDistributor.sendToPlayer(player, payload); }
+    public static void sendToAllPlayers(CustomPacketPayload payload) { PacketDistributor.sendToAllPlayers(payload); }
 
     public static void register(RegisterPayloadHandlersEvent event) {
         PayloadRegistrar registrar = event.registrar(VERSION);

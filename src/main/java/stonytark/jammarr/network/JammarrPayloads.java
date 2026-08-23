@@ -6,19 +6,16 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import io.netty.handler.codec.DecoderException;
 import stonytark.jammarr.Jammarr;
-import stonytark.jammarr.core.protocol.ProtocolLimits;
+import stonytark.jammarr.core.model.StationModels;
+import stonytark.jammarr.core.protocol.ControlPackets;
+import stonytark.jammarr.core.protocol.ProtocolException;
+import stonytark.jammarr.core.protocol.StatePackets;
 import stonytark.jammarr.core.protocol.TransportPackets;
-import java.util.ArrayList;
+import stonytark.jammarr.core.protocol.WireCodec;
 import java.util.List;
 import java.util.UUID;
 
 public final class JammarrPayloads {
-    private static final int MAX_BROWSE_RESULTS = ProtocolLimits.MAX_BROWSE_RESULTS;
-    private static final int MAX_STATION_SEEDS = ProtocolLimits.MAX_STATION_SEEDS;
-    // One generated current track, the 500-entry manual queue, and three preview rows.
-    private static final int MAX_PLAYBACK_ENTRIES = ProtocolLimits.MAX_PLAYBACK_ENTRIES;
-    private static final int MAX_STATION_PREVIEW = ProtocolLimits.MAX_STATION_PREVIEW;
-    private static final int MAX_ADVENTURE_PATH = ProtocolLimits.MAX_ADVENTURE_PATH;
     public enum BrowseKind { SEARCH, ARTISTS, ALBUMS, PLAYLISTS, QUEUE }
     public enum ItemKind { TRACK, ARTIST, ALBUM, PLAYLIST }
     public enum ControlAction { PAUSE, RESUME, SKIP, CLEAR, REMOVE, MOVE_UP, MOVE_DOWN }
@@ -31,10 +28,12 @@ public final class JammarrPayloads {
 
     public record MediaItem(ItemKind kind, String key, String title, String subtitle, long durationMs) {
         static MediaItem read(RegistryFriendlyByteBuf buf) {
-            return new MediaItem(buf.readEnum(ItemKind.class), buf.readUtf(256), buf.readUtf(256), buf.readUtf(256), buf.readVarLong());
+            StationModels.MediaItem value = decode(ControlPackets.MEDIA_ITEM, buf);
+            return new MediaItem(enumValue(ItemKind.class, value.kind()), value.key(), value.title(), value.subtitle(), value.durationMs());
         }
         void write(RegistryFriendlyByteBuf buf) {
-            buf.writeEnum(kind); buf.writeUtf(key, 256); buf.writeUtf(title, 256); buf.writeUtf(subtitle, 256); buf.writeVarLong(durationMs);
+            ControlPackets.MEDIA_ITEM.encode(new MinecraftWireOutput(buf), new StationModels.MediaItem(
+                    enumValue(StationModels.ItemKind.class, kind), key, title, subtitle, durationMs));
         }
     }
 
@@ -43,19 +42,21 @@ public final class JammarrPayloads {
             this(key, title, artist, durationMs, PlaybackOrigin.MANUAL, true);
         }
         static QueueEntry read(RegistryFriendlyByteBuf buf) {
-            return new QueueEntry(buf.readUtf(256), buf.readUtf(256), buf.readUtf(256), buf.readVarLong(), buf.readEnum(PlaybackOrigin.class), buf.readBoolean());
+            return toPayload(decode(StatePackets.QUEUE_ENTRY, buf));
         }
         void write(RegistryFriendlyByteBuf buf) {
-            buf.writeUtf(key, 256); buf.writeUtf(title, 256); buf.writeUtf(artist, 256); buf.writeVarLong(durationMs); buf.writeEnum(source); buf.writeBoolean(editable);
+            StatePackets.QUEUE_ENTRY.encode(new MinecraftWireOutput(buf), toCore(this));
         }
     }
 
     public record StationSeed(ItemKind kind, String key, String title, String subtitle) {
         static StationSeed read(RegistryFriendlyByteBuf buf) {
-            return new StationSeed(buf.readEnum(ItemKind.class), buf.readUtf(256), buf.readUtf(256), buf.readUtf(256));
+            StationModels.StationSeed value = decode(ControlPackets.STATION_SEED, buf);
+            return new StationSeed(enumValue(ItemKind.class, value.kind()), value.key(), value.title(), value.subtitle());
         }
         void write(RegistryFriendlyByteBuf buf) {
-            buf.writeEnum(kind); buf.writeUtf(key, 256); buf.writeUtf(title, 256); buf.writeUtf(subtitle, 256);
+            ControlPackets.STATION_SEED.encode(new MinecraftWireOutput(buf), new StationModels.StationSeed(
+                    enumValue(StationModels.ItemKind.class, kind), key, title, subtitle));
         }
     }
 
@@ -72,40 +73,65 @@ public final class JammarrPayloads {
     public record ClientHello(int protocolVersion) implements CustomPacketPayload {
         public static final Type<ClientHello> TYPE = genericType("client_hello");
         public static final StreamCodec<RegistryFriendlyByteBuf, ClientHello> CODEC = StreamCodec.ofMember(ClientHello::write, ClientHello::read);
-        private static ClientHello read(RegistryFriendlyByteBuf b) { return new ClientHello(b.readVarInt()); }
-        private void write(RegistryFriendlyByteBuf b) { b.writeVarInt(protocolVersion); }
+        private static ClientHello read(RegistryFriendlyByteBuf b) {
+            return new ClientHello(decode(ControlPackets.CLIENT_HELLO, b).protocolVersion());
+        }
+        private void write(RegistryFriendlyByteBuf b) {
+            ControlPackets.CLIENT_HELLO.encode(new MinecraftWireOutput(b), new ControlPackets.ClientHello(protocolVersion));
+        }
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
     public record ServerHello(int protocolVersion, long serverEpochMs) implements CustomPacketPayload {
         public static final Type<ServerHello> TYPE = genericType("server_hello");
         public static final StreamCodec<RegistryFriendlyByteBuf, ServerHello> CODEC = StreamCodec.ofMember(ServerHello::write, ServerHello::read);
-        private static ServerHello read(RegistryFriendlyByteBuf b) { return new ServerHello(b.readVarInt(), b.readLong()); }
-        private void write(RegistryFriendlyByteBuf b) { b.writeVarInt(protocolVersion); b.writeLong(serverEpochMs); }
+        private static ServerHello read(RegistryFriendlyByteBuf b) {
+            ControlPackets.ServerHello value = decode(ControlPackets.SERVER_HELLO, b);
+            return new ServerHello(value.protocolVersion(), value.serverEpochMs());
+        }
+        private void write(RegistryFriendlyByteBuf b) {
+            ControlPackets.SERVER_HELLO.encode(new MinecraftWireOutput(b), new ControlPackets.ServerHello(protocolVersion, serverEpochMs));
+        }
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
     public record TimeSyncRequest(long nonce, long clientSentEpochMs) implements CustomPacketPayload {
         public static final Type<TimeSyncRequest> TYPE = genericType("time_sync_request");
         public static final StreamCodec<RegistryFriendlyByteBuf, TimeSyncRequest> CODEC = StreamCodec.ofMember(TimeSyncRequest::write, TimeSyncRequest::read);
-        private static TimeSyncRequest read(RegistryFriendlyByteBuf b) { return new TimeSyncRequest(b.readVarLong(), b.readLong()); }
-        private void write(RegistryFriendlyByteBuf b) { b.writeVarLong(nonce); b.writeLong(clientSentEpochMs); }
+        private static TimeSyncRequest read(RegistryFriendlyByteBuf b) {
+            ControlPackets.TimeSyncRequest value = decode(ControlPackets.TIME_SYNC_REQUEST, b);
+            return new TimeSyncRequest(value.nonce(), value.clientSentEpochMs());
+        }
+        private void write(RegistryFriendlyByteBuf b) {
+            ControlPackets.TIME_SYNC_REQUEST.encode(new MinecraftWireOutput(b), new ControlPackets.TimeSyncRequest(nonce, clientSentEpochMs));
+        }
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
     public record TimeSyncResponse(long nonce, long clientSentEpochMs, long serverEpochMs) implements CustomPacketPayload {
         public static final Type<TimeSyncResponse> TYPE = genericType("time_sync_response");
         public static final StreamCodec<RegistryFriendlyByteBuf, TimeSyncResponse> CODEC = StreamCodec.ofMember(TimeSyncResponse::write, TimeSyncResponse::read);
-        private static TimeSyncResponse read(RegistryFriendlyByteBuf b) { return new TimeSyncResponse(b.readVarLong(), b.readLong(), b.readLong()); }
-        private void write(RegistryFriendlyByteBuf b) { b.writeVarLong(nonce); b.writeLong(clientSentEpochMs); b.writeLong(serverEpochMs); }
+        private static TimeSyncResponse read(RegistryFriendlyByteBuf b) {
+            ControlPackets.TimeSyncResponse value = decode(ControlPackets.TIME_SYNC_RESPONSE, b);
+            return new TimeSyncResponse(value.nonce(), value.clientSentEpochMs(), value.serverEpochMs());
+        }
+        private void write(RegistryFriendlyByteBuf b) {
+            ControlPackets.TIME_SYNC_RESPONSE.encode(new MinecraftWireOutput(b), new ControlPackets.TimeSyncResponse(nonce, clientSentEpochMs, serverEpochMs));
+        }
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
     public record BrowseRequest(BrowseKind kind, String query, int page) implements CustomPacketPayload {
         public static final Type<BrowseRequest> TYPE = genericType("browse_request");
         public static final StreamCodec<RegistryFriendlyByteBuf, BrowseRequest> CODEC = StreamCodec.ofMember(BrowseRequest::write, BrowseRequest::read);
-        private static BrowseRequest read(RegistryFriendlyByteBuf b) { return new BrowseRequest(b.readEnum(BrowseKind.class), b.readUtf(128), b.readVarInt()); }
-        private void write(RegistryFriendlyByteBuf b) { b.writeEnum(kind); b.writeUtf(query, 128); b.writeVarInt(page); }
+        private static BrowseRequest read(RegistryFriendlyByteBuf b) {
+            ControlPackets.BrowseRequest value = decode(ControlPackets.BROWSE_REQUEST, b);
+            return new BrowseRequest(enumValue(BrowseKind.class, value.kind()), value.query(), value.page());
+        }
+        private void write(RegistryFriendlyByteBuf b) {
+            ControlPackets.BROWSE_REQUEST.encode(new MinecraftWireOutput(b), new ControlPackets.BrowseRequest(
+                    enumValue(ControlPackets.BrowseKind.class, kind), query, page));
+        }
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
@@ -113,14 +139,14 @@ public final class JammarrPayloads {
         public static final Type<BrowseResults> TYPE = genericType("browse_results");
         public static final StreamCodec<RegistryFriendlyByteBuf, BrowseResults> CODEC = StreamCodec.ofMember(BrowseResults::write, BrowseResults::read);
         private static BrowseResults read(RegistryFriendlyByteBuf b) {
-            BrowseKind kind = b.readEnum(BrowseKind.class); String query = b.readUtf(128); int page = b.readVarInt(); boolean more = b.readBoolean();
-            int size = boundedCount(b, MAX_BROWSE_RESULTS, "browse results"); List<MediaItem> items = new ArrayList<>(size);
-            for (int i = 0; i < size; i++) items.add(MediaItem.read(b));
-            return new BrowseResults(kind, query, page, more, List.copyOf(items));
+            ControlPackets.BrowseResults value = decode(ControlPackets.BROWSE_RESULTS, b);
+            List<MediaItem> items = value.items().stream().map(JammarrPayloads::toPayload).toList();
+            return new BrowseResults(enumValue(BrowseKind.class, value.kind()), value.query(), value.page(), value.hasMore(), items);
         }
         private void write(RegistryFriendlyByteBuf b) {
-            b.writeEnum(kind); b.writeUtf(query, 128); b.writeVarInt(page); b.writeBoolean(hasMore);
-            b.writeVarInt(Math.min(MAX_BROWSE_RESULTS, items.size())); items.stream().limit(MAX_BROWSE_RESULTS).forEach(i -> i.write(b));
+            ControlPackets.BROWSE_RESULTS.encode(new MinecraftWireOutput(b), new ControlPackets.BrowseResults(
+                    enumValue(ControlPackets.BrowseKind.class, kind), query, page, hasMore,
+                    items.stream().map(JammarrPayloads::toCore).toList()));
         }
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
@@ -128,8 +154,14 @@ public final class JammarrPayloads {
     public record QueueRequest(ItemKind kind, String key) implements CustomPacketPayload {
         public static final Type<QueueRequest> TYPE = genericType("queue_request");
         public static final StreamCodec<RegistryFriendlyByteBuf, QueueRequest> CODEC = StreamCodec.ofMember(QueueRequest::write, QueueRequest::read);
-        private static QueueRequest read(RegistryFriendlyByteBuf b) { return new QueueRequest(b.readEnum(ItemKind.class), b.readUtf(256)); }
-        private void write(RegistryFriendlyByteBuf b) { b.writeEnum(kind); b.writeUtf(key, 256); }
+        private static QueueRequest read(RegistryFriendlyByteBuf b) {
+            ControlPackets.QueueRequest value = decode(ControlPackets.QUEUE_REQUEST, b);
+            return new QueueRequest(enumValue(ItemKind.class, value.kind()), value.key());
+        }
+        private void write(RegistryFriendlyByteBuf b) {
+            ControlPackets.QUEUE_REQUEST.encode(new MinecraftWireOutput(b), new ControlPackets.QueueRequest(
+                    enumValue(StationModels.ItemKind.class, kind), key));
+        }
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
@@ -137,8 +169,14 @@ public final class JammarrPayloads {
         public static final Type<ControlRequest> TYPE = genericType("control_request");
         public static final StreamCodec<RegistryFriendlyByteBuf, ControlRequest> CODEC = StreamCodec.ofMember(ControlRequest::write, ControlRequest::read);
         public ControlRequest(ControlAction action, int index) { this(action, index, ""); }
-        private static ControlRequest read(RegistryFriendlyByteBuf b) { return new ControlRequest(b.readEnum(ControlAction.class), b.readVarInt(), b.readUtf(256)); }
-        private void write(RegistryFriendlyByteBuf b) { b.writeEnum(action); b.writeVarInt(index); b.writeUtf(expectedKey, 256); }
+        private static ControlRequest read(RegistryFriendlyByteBuf b) {
+            ControlPackets.ControlRequest value = decode(ControlPackets.CONTROL_REQUEST, b);
+            return new ControlRequest(enumValue(ControlAction.class, value.action()), value.index(), value.expectedKey());
+        }
+        private void write(RegistryFriendlyByteBuf b) {
+            ControlPackets.CONTROL_REQUEST.encode(new MinecraftWireOutput(b), new ControlPackets.ControlRequest(
+                    enumValue(ControlPackets.ControlAction.class, action), index, expectedKey));
+        }
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
@@ -147,15 +185,15 @@ public final class JammarrPayloads {
         public static final Type<StationRequest> TYPE = genericType("station_request");
         public static final StreamCodec<RegistryFriendlyByteBuf, StationRequest> CODEC = StreamCodec.ofMember(StationRequest::write, StationRequest::read);
         private static StationRequest read(RegistryFriendlyByteBuf b) {
-            StationAction action = b.readEnum(StationAction.class); StationType type = b.readEnum(StationType.class);
-            boolean enabled = b.readBoolean(); long generation = b.readVarLong();
-            int count = boundedCount(b, MAX_STATION_SEEDS, "station seeds"); List<StationSeed> seeds = new ArrayList<>(count);
-            for (int i = 0; i < count; i++) seeds.add(StationSeed.read(b));
-            return new StationRequest(action, type, enabled, generation, List.copyOf(seeds));
+            ControlPackets.StationRequest value = decode(ControlPackets.STATION_REQUEST, b);
+            List<StationSeed> seeds = value.seeds().stream().map(JammarrPayloads::toPayload).toList();
+            return new StationRequest(enumValue(StationAction.class, value.action()),
+                    enumValue(StationType.class, value.stationType()), value.enabled(), value.expectedGeneration(), seeds);
         }
         private void write(RegistryFriendlyByteBuf b) {
-            b.writeEnum(action); b.writeEnum(stationType); b.writeBoolean(enabled); b.writeVarLong(expectedGeneration);
-            b.writeVarInt(Math.min(MAX_STATION_SEEDS, seeds.size())); seeds.stream().limit(MAX_STATION_SEEDS).forEach(seed -> seed.write(b));
+            ControlPackets.STATION_REQUEST.encode(new MinecraftWireOutput(b), new ControlPackets.StationRequest(
+                    enumValue(ControlPackets.StationAction.class, action), enumValue(StationModels.StationType.class, stationType),
+                    enabled, expectedGeneration, seeds.stream().map(JammarrPayloads::toCore).toList()));
         }
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
@@ -164,7 +202,7 @@ public final class JammarrPayloads {
         public static final Type<ChunkRequest> TYPE = genericType("chunk_request");
         public static final StreamCodec<RegistryFriendlyByteBuf, ChunkRequest> CODEC = StreamCodec.ofMember(ChunkRequest::write, ChunkRequest::read);
         private static ChunkRequest read(RegistryFriendlyByteBuf b) {
-            TransportPackets.ChunkRequest value = TransportPackets.CHUNK_REQUEST.decode(new MinecraftWireInput(b));
+            TransportPackets.ChunkRequest value = decode(TransportPackets.CHUNK_REQUEST, b);
             return new ChunkRequest(value.sessionId(), value.requestId(), value.startIndex(), value.count());
         }
         private void write(RegistryFriendlyByteBuf b) {
@@ -177,7 +215,7 @@ public final class JammarrPayloads {
         public static final Type<ChunkAcknowledgement> TYPE = genericType("chunk_ack");
         public static final StreamCodec<RegistryFriendlyByteBuf, ChunkAcknowledgement> CODEC = StreamCodec.ofMember(ChunkAcknowledgement::write, ChunkAcknowledgement::read);
         private static ChunkAcknowledgement read(RegistryFriendlyByteBuf b) {
-            TransportPackets.ChunkAcknowledgement value = TransportPackets.CHUNK_ACKNOWLEDGEMENT.decode(new MinecraftWireInput(b));
+            TransportPackets.ChunkAcknowledgement value = decode(TransportPackets.CHUNK_ACKNOWLEDGEMENT, b);
             return new ChunkAcknowledgement(value.sessionId(), value.requestId(), value.receivedThroughIndex(), value.bufferedMs());
         }
         private void write(RegistryFriendlyByteBuf b) {
@@ -191,10 +229,13 @@ public final class JammarrPayloads {
         public static final Type<AudioHealth> TYPE = genericType("audio_health");
         public static final StreamCodec<RegistryFriendlyByteBuf, AudioHealth> CODEC = StreamCodec.ofMember(AudioHealth::write, AudioHealth::read);
         private static AudioHealth read(RegistryFriendlyByteBuf b) {
-            return new AudioHealth(b.readUUID(), b.readUtf(32), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readVarLong());
+            StatePackets.AudioHealth value = decode(StatePackets.AUDIO_HEALTH, b);
+            return new AudioHealth(value.sessionId(), value.state(), value.recoveryAttempts(), value.underruns(),
+                    value.receivedChunks(), value.bufferedMs());
         }
         private void write(RegistryFriendlyByteBuf b) {
-            b.writeUUID(sessionId); b.writeUtf(state, 32); b.writeVarInt(recoveryAttempts); b.writeVarInt(underruns); b.writeVarInt(receivedChunks); b.writeVarLong(bufferedMs);
+            StatePackets.AUDIO_HEALTH.encode(new MinecraftWireOutput(b), new StatePackets.AudioHealth(
+                    sessionId, state, recoveryAttempts, underruns, receivedChunks, bufferedMs));
         }
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
@@ -202,8 +243,12 @@ public final class JammarrPayloads {
     public record ManifestRequest(boolean forceRebuffer) implements CustomPacketPayload {
         public static final Type<ManifestRequest> TYPE = genericType("manifest_request");
         public static final StreamCodec<RegistryFriendlyByteBuf, ManifestRequest> CODEC = StreamCodec.ofMember(ManifestRequest::write, ManifestRequest::read);
-        private static ManifestRequest read(RegistryFriendlyByteBuf b) { return new ManifestRequest(b.readBoolean()); }
-        private void write(RegistryFriendlyByteBuf b) { b.writeBoolean(forceRebuffer); }
+        private static ManifestRequest read(RegistryFriendlyByteBuf b) {
+            return new ManifestRequest(decode(StatePackets.MANIFEST_REQUEST, b).forceRebuffer());
+        }
+        private void write(RegistryFriendlyByteBuf b) {
+            StatePackets.MANIFEST_REQUEST.encode(new MinecraftWireOutput(b), new StatePackets.ManifestRequest(forceRebuffer));
+        }
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
@@ -212,7 +257,7 @@ public final class JammarrPayloads {
         public static final Type<AudioManifest> TYPE = genericType("audio_manifest");
         public static final StreamCodec<RegistryFriendlyByteBuf, AudioManifest> CODEC = StreamCodec.ofMember(AudioManifest::write, AudioManifest::read);
         private static AudioManifest read(RegistryFriendlyByteBuf b) {
-            TransportPackets.AudioManifest value = TransportPackets.AUDIO_MANIFEST.decode(new MinecraftWireInput(b));
+            TransportPackets.AudioManifest value = decode(TransportPackets.AUDIO_MANIFEST, b);
             return new AudioManifest(value.sessionId(), value.title(), value.artist(), value.totalChunks(), value.firstChunk(), value.durationMs(),
                     value.startedAtEpochMs(), value.paused(), value.pausedPositionMs(), value.sha256());
         }
@@ -227,7 +272,7 @@ public final class JammarrPayloads {
         public static final Type<AudioChunk> TYPE = genericType("audio_chunk");
         public static final StreamCodec<RegistryFriendlyByteBuf, AudioChunk> CODEC = StreamCodec.ofMember(AudioChunk::write, AudioChunk::read);
         private static AudioChunk read(RegistryFriendlyByteBuf b) {
-            TransportPackets.AudioChunk value = TransportPackets.AUDIO_CHUNK.decode(new MinecraftWireInput(b));
+            TransportPackets.AudioChunk value = decode(TransportPackets.AUDIO_CHUNK, b);
             return new AudioChunk(value.sessionId(), value.requestId(), value.index(), value.startMs(), value.sha256(), value.data());
         }
         private void write(RegistryFriendlyByteBuf b) {
@@ -251,17 +296,17 @@ public final class JammarrPayloads {
         public static final Type<PlaybackState> TYPE = genericType("playback_state");
         public static final StreamCodec<RegistryFriendlyByteBuf, PlaybackState> CODEC = StreamCodec.ofMember(PlaybackState::write, PlaybackState::read);
         private static PlaybackState read(RegistryFriendlyByteBuf b) {
-            PlaybackStatus status = b.readEnum(PlaybackStatus.class); String statusMessage = b.readUtf(256), title = b.readUtf(256), artist = b.readUtf(256);
-            boolean paused = b.readBoolean(); long pos = b.readVarLong(), duration = b.readVarLong(), serverTime = b.readLong(); boolean op = b.readBoolean();
-            PlaybackOrigin origin = b.readEnum(PlaybackOrigin.class); String sourceName = b.readUtf(256);
-            int size = boundedCount(b, MAX_PLAYBACK_ENTRIES, "playback entries"); List<QueueEntry> queue = new ArrayList<>(size);
-            for (int i = 0; i < size; i++) queue.add(QueueEntry.read(b));
-            return new PlaybackState(status, statusMessage, title, artist, paused, pos, duration, serverTime, op, origin, sourceName, List.copyOf(queue));
+            StatePackets.PlaybackState value = decode(StatePackets.PLAYBACK_STATE, b);
+            return new PlaybackState(enumValue(PlaybackStatus.class, value.status()), value.statusMessage(),
+                    value.title(), value.artist(), value.paused(), value.positionMs(), value.durationMs(),
+                    value.serverEpochMs(), value.operator(), enumValue(PlaybackOrigin.class, value.origin()),
+                    value.sourceName(), value.queue().stream().map(JammarrPayloads::toPayload).toList());
         }
         private void write(RegistryFriendlyByteBuf b) {
-            b.writeEnum(status); b.writeUtf(statusMessage, 256); b.writeUtf(title, 256); b.writeUtf(artist, 256); b.writeBoolean(paused);
-            b.writeVarLong(positionMs); b.writeVarLong(durationMs); b.writeLong(serverEpochMs); b.writeBoolean(operator); b.writeEnum(origin); b.writeUtf(sourceName, 256);
-            b.writeVarInt(Math.min(MAX_PLAYBACK_ENTRIES, queue.size())); queue.stream().limit(MAX_PLAYBACK_ENTRIES).forEach(q -> q.write(b));
+            StatePackets.PLAYBACK_STATE.encode(new MinecraftWireOutput(b), new StatePackets.PlaybackState(
+                    enumValue(StatePackets.PlaybackStatus.class, status), statusMessage, title, artist, paused,
+                    positionMs, durationMs, serverEpochMs, operator, enumValue(StatePackets.PlaybackOrigin.class, origin),
+                    sourceName, queue.stream().map(JammarrPayloads::toCore).toList()));
         }
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
@@ -272,20 +317,18 @@ public final class JammarrPayloads {
         public static final Type<StationState> TYPE = genericType("station_state");
         public static final StreamCodec<RegistryFriendlyByteBuf, StationState> CODEC = StreamCodec.ofMember(StationState::write, StationState::read);
         private static StationState read(RegistryFriendlyByteBuf b) {
-            StationType type = b.readEnum(StationType.class); boolean active = b.readBoolean(); boolean autoplay = b.readBoolean();
-            long generation = b.readVarLong(); SonicCapability capability = b.readEnum(SonicCapability.class);
-            String message = b.readUtf(256), name = b.readUtf(256);
-            int seedCount = boundedCount(b, MAX_STATION_SEEDS, "station seeds"); List<StationSeed> seeds = new ArrayList<>(seedCount);
-            for (int i = 0; i < seedCount; i++) seeds.add(StationSeed.read(b));
-            int previewCount = boundedCount(b, MAX_STATION_PREVIEW, "station preview"); List<QueueEntry> preview = new ArrayList<>(previewCount);
-            for (int i = 0; i < previewCount; i++) preview.add(QueueEntry.read(b));
-            return new StationState(type, active, autoplay, generation, capability, message, name, List.copyOf(seeds), List.copyOf(preview));
+            StatePackets.StationState value = decode(StatePackets.STATION_STATE, b);
+            return new StationState(enumValue(StationType.class, value.stationType()), value.active(),
+                    value.autoplayEnabled(), value.generation(), enumValue(SonicCapability.class, value.capability()),
+                    value.capabilityMessage(), value.name(), value.seeds().stream().map(JammarrPayloads::toPayload).toList(),
+                    value.preview().stream().map(JammarrPayloads::toPayload).toList());
         }
         private void write(RegistryFriendlyByteBuf b) {
-            b.writeEnum(stationType); b.writeBoolean(active); b.writeBoolean(autoplayEnabled); b.writeVarLong(generation);
-            b.writeEnum(capability); b.writeUtf(capabilityMessage, 256); b.writeUtf(name, 256);
-            b.writeVarInt(Math.min(MAX_STATION_SEEDS, seeds.size())); seeds.stream().limit(MAX_STATION_SEEDS).forEach(seed -> seed.write(b));
-            b.writeVarInt(Math.min(MAX_STATION_PREVIEW, preview.size())); preview.stream().limit(MAX_STATION_PREVIEW).forEach(entry -> entry.write(b));
+            StatePackets.STATION_STATE.encode(new MinecraftWireOutput(b), new StatePackets.StationState(
+                    enumValue(StationModels.StationType.class, stationType), active, autoplayEnabled, generation,
+                    enumValue(StationModels.SonicCapability.class, capability), capabilityMessage, name,
+                    seeds.stream().map(JammarrPayloads::toCore).toList(),
+                    preview.stream().map(JammarrPayloads::toCore).toList()));
         }
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
@@ -294,13 +337,13 @@ public final class JammarrPayloads {
         public static final Type<AdventurePreview> TYPE = genericType("adventure_preview");
         public static final StreamCodec<RegistryFriendlyByteBuf, AdventurePreview> CODEC = StreamCodec.ofMember(AdventurePreview::write, AdventurePreview::read);
         private static AdventurePreview read(RegistryFriendlyByteBuf b) {
-            long generation = b.readVarLong(); String message = b.readUtf(256);
-            int count = boundedCount(b, MAX_ADVENTURE_PATH, "Adventure path"); List<QueueEntry> path = new ArrayList<>(count);
-            for (int i = 0; i < count; i++) path.add(QueueEntry.read(b));
-            return new AdventurePreview(generation, message, List.copyOf(path));
+            StatePackets.AdventurePreview value = decode(StatePackets.ADVENTURE_PREVIEW, b);
+            return new AdventurePreview(value.generation(), value.message(),
+                    value.path().stream().map(JammarrPayloads::toPayload).toList());
         }
         private void write(RegistryFriendlyByteBuf b) {
-            b.writeVarLong(generation); b.writeUtf(message, 256); b.writeVarInt(Math.min(MAX_ADVENTURE_PATH, path.size())); path.stream().limit(MAX_ADVENTURE_PATH).forEach(entry -> entry.write(b));
+            StatePackets.ADVENTURE_PREVIEW.encode(new MinecraftWireOutput(b), new StatePackets.AdventurePreview(
+                    generation, message, path.stream().map(JammarrPayloads::toCore).toList()));
         }
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
@@ -308,15 +351,56 @@ public final class JammarrPayloads {
     public record ErrorMessage(ErrorCode code, String message) implements CustomPacketPayload {
         public static final Type<ErrorMessage> TYPE = genericType("error");
         public static final StreamCodec<RegistryFriendlyByteBuf, ErrorMessage> CODEC = StreamCodec.ofMember(ErrorMessage::write, ErrorMessage::read);
-        private static ErrorMessage read(RegistryFriendlyByteBuf b) { return new ErrorMessage(b.readEnum(ErrorCode.class), b.readUtf(512)); }
-        private void write(RegistryFriendlyByteBuf b) { b.writeEnum(code); b.writeUtf(message, 512); }
+        private static ErrorMessage read(RegistryFriendlyByteBuf b) {
+            StatePackets.ErrorMessage value = decode(StatePackets.ERROR_MESSAGE, b);
+            return new ErrorMessage(enumValue(ErrorCode.class, value.code()), value.message());
+        }
+        private void write(RegistryFriendlyByteBuf b) {
+            StatePackets.ERROR_MESSAGE.encode(new MinecraftWireOutput(b), new StatePackets.ErrorMessage(
+                    enumValue(StatePackets.ErrorCode.class, code), message));
+        }
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
-    private static int boundedCount(RegistryFriendlyByteBuf buffer, int maximum, String field) {
-        int count = buffer.readVarInt();
-        if (count < 0 || count > maximum) throw new DecoderException("Jammarr " + field + " count exceeds " + maximum);
-        return count;
+    private static StationModels.MediaItem toCore(MediaItem value) {
+        return new StationModels.MediaItem(enumValue(StationModels.ItemKind.class, value.kind()),
+                value.key(), value.title(), value.subtitle(), value.durationMs());
+    }
+
+    private static MediaItem toPayload(StationModels.MediaItem value) {
+        return new MediaItem(enumValue(ItemKind.class, value.kind()), value.key(), value.title(),
+                value.subtitle(), value.durationMs());
+    }
+
+    private static StationModels.StationSeed toCore(StationSeed value) {
+        return new StationModels.StationSeed(enumValue(StationModels.ItemKind.class, value.kind()),
+                value.key(), value.title(), value.subtitle());
+    }
+
+    private static StationSeed toPayload(StationModels.StationSeed value) {
+        return new StationSeed(enumValue(ItemKind.class, value.kind()), value.key(), value.title(), value.subtitle());
+    }
+
+    private static StatePackets.QueueEntry toCore(QueueEntry value) {
+        return new StatePackets.QueueEntry(value.key(), value.title(), value.artist(), value.durationMs(),
+                enumValue(StatePackets.PlaybackOrigin.class, value.source()), value.editable());
+    }
+
+    private static QueueEntry toPayload(StatePackets.QueueEntry value) {
+        return new QueueEntry(value.key(), value.title(), value.artist(), value.durationMs(),
+                enumValue(PlaybackOrigin.class, value.source()), value.editable());
+    }
+
+    private static <T extends Enum<T>> T enumValue(Class<T> type, Enum<?> value) {
+        return Enum.valueOf(type, value.name());
+    }
+
+    private static <T> T decode(WireCodec<T> codec, RegistryFriendlyByteBuf buffer) {
+        try {
+            return codec.decode(new MinecraftWireInput(buffer));
+        } catch (ProtocolException malformed) {
+            throw new DecoderException(malformed.getMessage(), malformed);
+        }
     }
 
     private JammarrPayloads() {}

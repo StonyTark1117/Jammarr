@@ -20,9 +20,8 @@ import stonytark.jammarr.core.platform.CoreLogger;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
-import net.neoforged.neoforge.network.PacketDistributor;
 import stonytark.jammarr.Jammarr;
-import stonytark.jammarr.config.JammarrConfig;
+import stonytark.jammarr.core.platform.JammarrSettings;
 import stonytark.jammarr.network.JammarrNetwork;
 import stonytark.jammarr.network.JammarrPayloads;
 import java.io.IOException;
@@ -98,13 +97,13 @@ public final class GlobalPlayer implements AutoCloseable {
 
     GlobalPlayer(MinecraftServer server, PlexClient plex) throws IOException {
         this.server = server; this.plex = plex; this.stationGenerator = new StationGenerator(plex);
-        this.cache = new AudioCache(server.getServerDirectory().resolve("jammarr-cache"), JammarrConfig.CACHE_MIB.get() * 1024L * 1024L,
+        this.cache = new AudioCache(server.getServerDirectory().resolve("jammarr-cache"), JammarrSettings.cacheSizeMiB() * 1024L * 1024L,
                 new CoreLogger() {
                     @Override public void info(String message) { Jammarr.LOGGER.info(message); }
                     @Override public void warn(String message, Throwable error) { Jammarr.LOGGER.warn(message, error); }
                 });
         this.saved = server.overworld().getDataStorage().computeIfAbsent(JammarrSavedData.FACTORY, "jammarr_global_queue");
-        RestartPolicy.Restoration restoration = RestartPolicy.restore(JammarrConfig.RESTART_MODE.get(), saved.checkpointMs(), saved.paused());
+        RestartPolicy.Restoration restoration = RestartPolicy.restore(JammarrSettings.restartMode(), saved.checkpointMs(), saved.paused());
         if (restoration.clearQueue()) saved.clearAll();
         restorePositionMs = restoration.positionMs(); restorePaused = restoration.paused();
         saved.update(restorePositionMs, restorePaused);
@@ -135,7 +134,7 @@ public final class GlobalPlayer implements AutoCloseable {
 
     public void tick() {
         long now = System.currentTimeMillis(); boolean empty = server.getPlayerList().getPlayerCount() == 0;
-        if (EmptyServerPausePolicy.shouldPause(JammarrConfig.PAUSE_WHEN_EMPTY.get(), empty, timeline.active(), timeline.paused())) pauseInternal(true);
+        if (EmptyServerPausePolicy.shouldPause(JammarrSettings.pauseWhenEmpty(), empty, timeline.active(), timeline.paused())) pauseInternal(true);
         else if (EmptyServerPausePolicy.shouldResume(autoPaused, empty)) resumeInternal();
         if (asset == null && saved.current() != null && preparationRetry.ready(now)) prepareCurrent();
         if (asset == null && saved.current() == null) ensureCurrent();
@@ -148,7 +147,7 @@ public final class GlobalPlayer implements AutoCloseable {
     }
 
     public void hello(ServerPlayer player) {
-        PacketDistributor.sendToPlayer(player, new JammarrPayloads.ServerHello(JammarrNetwork.PROTOCOL, System.currentTimeMillis())); playerJoined(player);
+        JammarrNetwork.sendToPlayer(player, new JammarrPayloads.ServerHello(JammarrNetwork.PROTOCOL, System.currentTimeMillis())); playerJoined(player);
     }
 
     public void browse(ServerPlayer player, JammarrPayloads.BrowseRequest request) {
@@ -159,25 +158,25 @@ public final class GlobalPlayer implements AutoCloseable {
             List<JammarrPayloads.MediaItem> values = all.stream().skip((long)page * PAGE_SIZE).limit(PAGE_SIZE + 1L)
                     .map(t -> new JammarrPayloads.MediaItem(JammarrPayloads.ItemKind.TRACK, t.key(), t.title(), t.artist(), t.durationMs())).toList();
             boolean more = values.size() > PAGE_SIZE; if (more) values = values.subList(0, PAGE_SIZE);
-            PacketDistributor.sendToPlayer(player, new JammarrPayloads.BrowseResults(request.kind(), "", page, more, values)); return;
+            JammarrNetwork.sendToPlayer(player, new JammarrPayloads.BrowseResults(request.kind(), "", page, more, values)); return;
         }
         if (!requirePlex(player)) return;
         String query = request.query().trim();
         if (request.kind() == JammarrPayloads.BrowseKind.SEARCH && query.length() < 2) {
-            PacketDistributor.sendToPlayer(player, new JammarrPayloads.BrowseResults(request.kind(), query, page, false, List.of())); return;
+            JammarrNetwork.sendToPlayer(player, new JammarrPayloads.BrowseResults(request.kind(), query, page, false, List.of())); return;
         }
         CompletableFuture.supplyAsync(() -> {
             try { return plex.browse(request.kind(), query, page, PAGE_SIZE); }
             catch (Exception e) { throw new RuntimeException(e); }
         }, io).whenComplete((result, error) -> server.execute(() -> {
             if (error != null) { markPlexFailure(error); sendError(player, JammarrPayloads.ErrorCode.PLEX_OFFLINE, "Plex browsing is currently unavailable"); }
-            else PacketDistributor.sendToPlayer(player, new JammarrPayloads.BrowseResults(request.kind(), query, page, result.hasMore(), result.items()));
+            else JammarrNetwork.sendToPlayer(player, new JammarrPayloads.BrowseResults(request.kind(), query, page, result.hasMore(), result.items()));
         }));
     }
 
     public void queue(ServerPlayer player, JammarrPayloads.QueueRequest request) {
         if (!allow(queueLimits, player, 4) || !requirePlex(player)) return;
-        int available = JammarrConfig.QUEUE_LIMIT.get() - manualCount();
+        int available = JammarrSettings.queueLimit() - manualCount();
         if (available <= 0) { sendError(player, JammarrPayloads.ErrorCode.QUEUE_FULL, "The global manual queue is full"); return; }
         CompletableFuture.supplyAsync(() -> {
             try { return plex.expand(request.kind(), request.key(), available); }
@@ -185,7 +184,7 @@ public final class GlobalPlayer implements AutoCloseable {
         }, io).whenComplete((tracks, error) -> server.execute(() -> {
             if (error != null) { markPlexFailure(error); sendError(player, JammarrPayloads.ErrorCode.PLEX_OFFLINE, "Unable to queue that Plex item"); return; }
             if (tracks.isEmpty()) { sendError(player, JammarrPayloads.ErrorCode.INVALID_REQUEST, "That Plex item contains no playable tracks"); return; }
-            QueueOperations.AppendResult append = QueueOperations.append(saved.queue(), tracks, JammarrConfig.QUEUE_LIMIT.get() - (saved.currentOrigin() == JammarrPayloads.PlaybackOrigin.MANUAL ? 1 : 0));
+            QueueOperations.AppendResult append = QueueOperations.append(saved.queue(), tracks, JammarrSettings.queueLimit() - (saved.currentOrigin() == JammarrPayloads.PlaybackOrigin.MANUAL ? 1 : 0));
             if (append.accepted() == 0) { sendError(player, JammarrPayloads.ErrorCode.QUEUE_FULL, "The global manual queue is full"); return; }
             saved.setDirty(); prefetched = null;
             player.sendSystemMessage(Component.literal("Queued " + append.accepted() + (append.accepted() == 1 ? " track" : " tracks")));
@@ -219,7 +218,7 @@ public final class GlobalPlayer implements AutoCloseable {
 
     public void station(ServerPlayer player, JammarrPayloads.StationRequest request) {
         StationControlPolicy.Decision decision = StationControlPolicy.assess(
-                player.hasPermissions(JammarrConfig.OP_PERMISSION.get()), request.expectedGeneration(), saved.station().generation());
+                player.hasPermissions(JammarrSettings.operatorPermissionLevel()), request.expectedGeneration(), saved.station().generation());
         if (decision == StationControlPolicy.Decision.PERMISSION_DENIED) {
             sendError(player, JammarrPayloads.ErrorCode.PERMISSION_DENIED, "Operator permission is required"); return;
         }
@@ -247,7 +246,7 @@ public final class GlobalPlayer implements AutoCloseable {
             sendError(player, JammarrPayloads.ErrorCode.INVALID_REQUEST, "Unsupported station action"); return;
         }
         if (request.stationType() != JammarrPayloads.StationType.LIBRARY_SHUFFLE && sonicCapability != JammarrPayloads.SonicCapability.READY
-                && (!JammarrConfig.STATION_METADATA_FALLBACK.get() || request.stationType() == JammarrPayloads.StationType.SONIC_ADVENTURE)) {
+                && (!JammarrSettings.stationMetadataFallbackEnabled() || request.stationType() == JammarrPayloads.StationType.SONIC_ADVENTURE)) {
             sendError(player, JammarrPayloads.ErrorCode.INVALID_REQUEST, sonicMessage); return;
         }
         if (StationControlPolicy.replacesCurrentPlayback(request.action())) {
@@ -267,7 +266,7 @@ public final class GlobalPlayer implements AutoCloseable {
             if (error != null) { sendError(player, JammarrPayloads.ErrorCode.INVALID_REQUEST, safe(root(error))); return; }
             List<JammarrPayloads.QueueEntry> path = batch.tracks().stream().limit(100)
                     .map(track -> QueueTrackCodec.networkEntry(track, JammarrPayloads.PlaybackOrigin.ADVENTURE, false)).toList();
-            PacketDistributor.sendToPlayer(player, new JammarrPayloads.AdventurePreview(requested.generation(),
+            JammarrNetwork.sendToPlayer(player, new JammarrPayloads.AdventurePreview(requested.generation(),
                     path.size() + (path.size() == 1 ? " track" : " tracks") + " in this Sonic Adventure", path));
         }));
     }
@@ -289,7 +288,7 @@ public final class GlobalPlayer implements AutoCloseable {
         if (request.requestId() == 1) Jammarr.LOGGER.info("Jammarr sent the initial audio chunk window to {}", player.getUUID());
         for (int i = start; i < end; i++) {
             Mp3FrameIndex.Chunk chunk = asset.chunks().get(i);
-            PacketDistributor.sendToPlayer(player, new JammarrPayloads.AudioChunk(sessionId, request.requestId(), chunk.index(), chunk.startMs(), chunk.sha256(), chunk.data()));
+            JammarrNetwork.sendToPlayer(player, new JammarrPayloads.AudioChunk(sessionId, request.requestId(), chunk.index(), chunk.startMs(), chunk.sha256(), chunk.data()));
         }
     }
 
@@ -354,7 +353,7 @@ public final class GlobalPlayer implements AutoCloseable {
         if (prefetched != null && prefetched.track.key().equals(track.key())) {
             PreparedAsset ready = prefetched; prefetched = null; preparing.set(false); activate(track, ready.asset); return;
         }
-        int bitrate = JammarrConfig.BITRATE.get(); Set<Path> pinned = pinnedPaths(cache.target(track.key(), bitrate));
+        int bitrate = JammarrSettings.audioBitrateKbps(); Set<Path> pinned = pinnedPaths(cache.target(track.key(), bitrate));
         CompletableFuture.supplyAsync(() -> prepare(track, bitrate, pinned), io).whenComplete((prepared, error) -> server.execute(() -> {
             preparing.set(false); if (saved.current() == null || !saved.current().key().equals(track.key())) return;
             if (error != null) {
@@ -388,7 +387,7 @@ public final class GlobalPlayer implements AutoCloseable {
     private void activate(QueueTrack track, AudioAsset prepared) {
         asset = prepared; sessionId = UUID.randomUUID(); long duration = asset.durationMs() > 0 ? asset.durationMs() : track.durationMs();
         long restore = Math.min(restorePositionMs, Math.max(0, duration - 1)); boolean initiallyPaused = restorePaused;
-        boolean emptyPause = JammarrConfig.PAUSE_WHEN_EMPTY.get() && server.getPlayerList().getPlayerCount() == 0 && !initiallyPaused;
+        boolean emptyPause = JammarrSettings.pauseWhenEmpty() && server.getPlayerList().getPlayerCount() == 0 && !initiallyPaused;
         timeline.schedule(duration, restore, initiallyPaused || emptyPause, TRACK_START_DELAY_MS); autoPaused = emptyPause;
         restorePositionMs = 0; restorePaused = false; broadcastManifest(); broadcastState(); requestGeneration(); prefetchNext();
     }
@@ -401,7 +400,7 @@ public final class GlobalPlayer implements AutoCloseable {
                 || !generating.compareAndSet(false, true)) return;
         long generation = definition.generation(); List<QueueTrack> history = List.copyOf(saved.history());
         CompletableFuture.supplyAsync(() -> {
-            try { return stationGenerator.generate(definition, history, sonicCapability, JammarrConfig.STATION_METADATA_FALLBACK.get()); }
+            try { return stationGenerator.generate(definition, history, sonicCapability, JammarrSettings.stationMetadataFallbackEnabled()); }
             catch (Exception e) { throw new RuntimeException(e); }
         }, io).whenComplete((batch, error) -> server.execute(() -> {
             generating.set(false); if (activeDefinition().generation() != generation || activeDefinition().type() != definition.type()) return;
@@ -426,7 +425,7 @@ public final class GlobalPlayer implements AutoCloseable {
         if (asset == null || track == null || prefetching.get()) return;
         if (prefetched != null && prefetched.track.key().equals(track.key())) return;
         if (!prefetching.compareAndSet(false, true)) return;
-        int bitrate = JammarrConfig.BITRATE.get(); Set<Path> pinned = pinnedPaths(cache.target(track.key(), bitrate));
+        int bitrate = JammarrSettings.audioBitrateKbps(); Set<Path> pinned = pinnedPaths(cache.target(track.key(), bitrate));
         CompletableFuture.supplyAsync(() -> prepare(track, bitrate, pinned), io).whenComplete((prepared, error) -> server.execute(() -> {
             prefetching.set(false); QueueTrack expected = nextTrack();
             if (expected == null || !expected.key().equals(track.key())) { prefetchNext(); return; }
@@ -457,7 +456,7 @@ public final class GlobalPlayer implements AutoCloseable {
 
     private void pauseInternal(boolean automatic) { if (!timeline.active() || timeline.paused()) return; timeline.pause(); autoPaused = automatic; saved.update(positionMs(), true); broadcastManifest(); }
     private void resumeInternal() { if (!timeline.active() || !timeline.paused()) return; timeline.resume(); autoPaused = false; saved.update(positionMs(), false); broadcastManifest(); }
-    private void stopAudio() { asset = null; sessionId = null; timeline.stop(); transfers.clear(); PacketDistributor.sendToAllPlayers(emptyManifest()); }
+    private void stopAudio() { asset = null; sessionId = null; timeline.stop(); transfers.clear(); JammarrNetwork.sendToAllPlayers(emptyManifest()); }
 
     private void movePending(int visibleIndex, int delta) {
         if (!PlaybackSourcePolicy.canMove(visibleQueue(), visibleIndex, delta)) return;
@@ -491,7 +490,7 @@ public final class GlobalPlayer implements AutoCloseable {
         long now = System.currentTimeMillis(); long target = timeline.paused() ? timeline.pausedPositionMs() : (now < timeline.startedAtMs() ? 0 : positionMs() + TRACK_START_DELAY_MS);
         int firstChunk = Mp3FrameIndex.chunkAt(asset.chunks(), Math.min(target, Math.max(0, durationMs() - 1)));
         transfers.put(player.getUUID(), ChunkTransferPolicy.initial(sessionId, firstChunk, now));
-        PacketDistributor.sendToPlayer(player, new JammarrPayloads.AudioManifest(sessionId, track.title(), track.artist(), asset.chunks().size(), firstChunk,
+        JammarrNetwork.sendToPlayer(player, new JammarrPayloads.AudioManifest(sessionId, track.title(), track.artist(), asset.chunks().size(), firstChunk,
                 durationMs(), timeline.startedAtMs(), timeline.paused(), timeline.pausedPositionMs(), asset.sha256()));
     }
     private JammarrPayloads.AudioManifest emptyManifest() { return new JammarrPayloads.AudioManifest(new UUID(0, 0), "", "", 0, 0, 0, 0, true, 0, ""); }
@@ -501,12 +500,12 @@ public final class GlobalPlayer implements AutoCloseable {
     private void sendState(ServerPlayer player, String notice) {
         QueueTrack current = saved.current(); JammarrPayloads.PlaybackStatus status = playbackStatus();
         String detail = notice.isBlank() ? (status == JammarrPayloads.PlaybackStatus.PLEX_OFFLINE ? "Plex is currently unavailable" : playbackDetail()) : notice;
-        if (player.hasPermissions(JammarrConfig.OP_PERMISSION.get())) detail += " | " + plexDiagnostic;
-        PacketDistributor.sendToPlayer(player, new JammarrPayloads.PlaybackState(status, detail, current == null ? "" : current.title(), current == null ? "" : current.artist(),
-                timeline.paused(), positionMs(), durationMs(), System.currentTimeMillis(), player.hasPermissions(JammarrConfig.OP_PERMISSION.get()),
+        if (player.hasPermissions(JammarrSettings.operatorPermissionLevel())) detail += " | " + plexDiagnostic;
+        JammarrNetwork.sendToPlayer(player, new JammarrPayloads.PlaybackState(status, detail, current == null ? "" : current.title(), current == null ? "" : current.artist(),
+                timeline.paused(), positionMs(), durationMs(), System.currentTimeMillis(), player.hasPermissions(JammarrSettings.operatorPermissionLevel()),
                 saved.currentOrigin(), saved.currentSourceName(), visibleQueue()));
         StationDefinition active = activeDefinition();
-        PacketDistributor.sendToPlayer(player, new JammarrPayloads.StationState(active.type(), active.active(), saved.autoplayEnabled(), active.generation(),
+        JammarrNetwork.sendToPlayer(player, new JammarrPayloads.StationState(active.type(), active.active(), saved.autoplayEnabled(), active.generation(),
                 sonicCapability, sonicMessage, active.name(), active.seeds(), generated.stream().limit(GENERATED_PREVIEW_SIZE)
                 .map(track -> QueueTrackCodec.networkEntry(track, active.adventure() ? JammarrPayloads.PlaybackOrigin.ADVENTURE : JammarrPayloads.PlaybackOrigin.STATION, false)).toList()));
     }
@@ -541,7 +540,7 @@ public final class GlobalPlayer implements AutoCloseable {
         sendError(player, JammarrPayloads.ErrorCode.PLEX_OFFLINE, plexHealth == PlexHealth.VALIDATING ? "Plex validation is still in progress" : "Plex is offline; ask an operator to run /jammarr diagnostics"); return false;
     }
     private boolean operator(ServerPlayer player) {
-        if (player.hasPermissions(JammarrConfig.OP_PERMISSION.get())) return true;
+        if (player.hasPermissions(JammarrSettings.operatorPermissionLevel())) return true;
         sendError(player, JammarrPayloads.ErrorCode.PERMISSION_DENIED, "Operator permission is required"); return false;
     }
     private boolean allow(SlidingWindowRateLimiter limiter, ServerPlayer player, int perSecond) {
@@ -565,10 +564,10 @@ public final class GlobalPlayer implements AutoCloseable {
         return "Plex operation failed: " + safe(cause);
     }
     private void sendErrorToOperators(JammarrPayloads.ErrorCode code, String message) {
-        for (ServerPlayer player : server.getPlayerList().getPlayers()) if (player.hasPermissions(JammarrConfig.OP_PERMISSION.get())) sendError(player, code, message);
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) if (player.hasPermissions(JammarrSettings.operatorPermissionLevel())) sendError(player, code, message);
     }
     private String cacheState(QueueTrack track) {
-        if (track == null) return "none"; Path path = cache.target(track.key(), JammarrConfig.BITRATE.get()); boolean cached = Files.isRegularFile(path);
+        if (track == null) return "none"; Path path = cache.target(track.key(), JammarrSettings.audioBitrateKbps()); boolean cached = Files.isRegularFile(path);
         if (saved.current() != null && saved.current().key().equals(track.key()) && asset != null) return "active," + (cached ? "cached" : "memory");
         return prefetched != null && prefetched.track.key().equals(track.key()) ? "prefetched,cached" : cached ? "cached" : "missing";
     }
@@ -583,8 +582,8 @@ public final class GlobalPlayer implements AutoCloseable {
         case PAUSE -> "Playback paused"; case RESUME -> "Playback resumed"; case SKIP -> "Track skipped"; case REMOVE -> "Manual request removed";
         case MOVE_UP -> "Manual request moved up"; case MOVE_DOWN -> "Manual request moved down"; case CLEAR -> "Playback cleared";
     }; }
-    private static void sendError(ServerPlayer player, JammarrPayloads.ErrorCode code, String message) { PacketDistributor.sendToPlayer(player, new JammarrPayloads.ErrorMessage(code, message)); }
-    private String safe(Throwable error) { return SecretRedactor.message(error, JammarrConfig.plexToken()); }
+    private static void sendError(ServerPlayer player, JammarrPayloads.ErrorCode code, String message) { JammarrNetwork.sendToPlayer(player, new JammarrPayloads.ErrorMessage(code, message)); }
+    private String safe(Throwable error) { return SecretRedactor.message(error, JammarrSettings.plexToken()); }
     private static Throwable root(Throwable error) { Throwable value = error; while (value.getCause() != null) value = value.getCause(); return value; }
 
     private record PreparedAsset(QueueTrack track, AudioAsset asset) {}

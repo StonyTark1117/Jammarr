@@ -1,0 +1,69 @@
+plugins {
+    id 'fabric-loom' version '1.17.19'
+}
+
+group = 'stonytark'
+version = '1.0.0'
+def artifactVersion = version.toString()
+
+base {
+    archivesName = "jammarr-${project.version}+mc1.21.1-fabric"
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+    withSourcesJar()
+}
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.fabricmc.net/' }
+}
+
+dependencies {
+    minecraft 'com.mojang:minecraft:1.21.1'
+    mappings loom.officialMojangMappings()
+    modImplementation 'net.fabricmc:fabric-loader:0.19.3'
+    modImplementation 'net.fabricmc.fabric-api:fabric-api:0.116.15+1.21.1'
+
+    implementation project(':core')
+    include project(':core')
+    implementation 'javazoom:jlayer:1.0.1'
+    include 'javazoom:jlayer:1.0.1'
+    implementation 'de.sciss:jump3r:1.0.5'
+    include 'de.sciss:jump3r:1.0.5'
+}
+
+sourceSets {
+    main {
+        java {
+            setSrcDirs([file('../../../src/main/java'), file('src/main')])
+            exclude 'stonytark/jammarr/Jammarr.java'
+            exclude 'stonytark/jammarr/client/JammarrClient.java'
+            exclude 'stonytark/jammarr/config/JammarrConfig.java'
+            exclude 'stonytark/jammarr/gametest/**'
+            exclude 'stonytark/jammarr/network/JammarrNetwork.java'
+            exclude 'stonytark/jammarr/server/JammarrCommands.java'
+            exclude 'stonytark/jammarr/server/JammarrServer.java'
+        }
+        resources {
+            srcDir file('../../../src/main/resources')
+            exclude 'META-INF/neoforge.mods.toml'
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+tasks.named('processResources') {
+    inputs.property 'version', artifactVersion
+    filesMatching('fabric.mod.json') { expand version: artifactVersion }
+}
+
+tasks.named('remapJar') {
+    archiveFileName = "jammarr-${project.version}+mc1.21.1-fabric.jar"
+}
