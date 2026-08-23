@@ -299,7 +299,7 @@ public final class GlobalPlayer implements AutoCloseable {
                     broadcastState();
                     return;
                 }
-                Pampmod.LOGGER.error("Skipping unplayable Plex track {}: {}", track.key(), safe(error));
+                Pampmod.LOGGER.error("Skipping unplayable Plex track {}: {}", track.key(), safe(error), error);
                 saved.queue().removeFirst();
                 saved.setDirty();
                 sendErrorToOperators(PampPayloads.ErrorCode.TRACK_FAILED, "Skipped an unplayable queued track");

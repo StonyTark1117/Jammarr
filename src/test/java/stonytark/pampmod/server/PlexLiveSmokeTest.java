@@ -6,6 +6,7 @@ import stonytark.pampmod.network.PampPayloads;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -22,7 +23,8 @@ class PlexLiveSmokeTest {
         PlexClient.Page albums = plex.browse(PampPayloads.BrowseKind.ALBUMS, "", 0, 20);
         assertFalse(albums.items().isEmpty(), "The Plex music library has no albums");
         PampPayloads.MediaItem album = albums.items().getFirst();
-        QueueTrack track = plex.expand(PampPayloads.ItemKind.ALBUM, album.key()).getFirst();
+        List<QueueTrack> tracks = plex.expand(PampPayloads.ItemKind.ALBUM, album.key());
+        QueueTrack track = tracks.getFirst();
         PlexClient.Page search = plex.browse(PampPayloads.BrowseKind.SEARCH, track.title(), 0, 20);
         assertTrue(search.items().stream().anyMatch(item -> item.key().equals(track.key())), "Plex track search did not find an exact title");
 
@@ -37,6 +39,16 @@ class PlexLiveSmokeTest {
             assertEquals(160, info.bitrateKbps(), "Plex did not honor the configured 160-kbps bitrate");
             assertEquals(2, info.channels(), "Plex did not return stereo MP3");
         } finally { Files.deleteIfExists(output); }
+
+        for (QueueTrack candidate : tracks.stream().limit(5).toList()) {
+            Path candidateOutput = Files.createTempFile("pampmod-live-", ".mp3");
+            try {
+                plex.transcode(candidate, candidateOutput, 160);
+                assertTrue(Files.size(candidateOutput) > 1024, "Plex returned an empty transcode for " + candidate.key());
+            } catch (Exception failure) {
+                throw new AssertionError("Plex transcode failed for track " + candidate.key() + " (" + candidate.title() + ")", failure);
+            } finally { Files.deleteIfExists(candidateOutput); }
+        }
     }
 
     private static String required(String name) {

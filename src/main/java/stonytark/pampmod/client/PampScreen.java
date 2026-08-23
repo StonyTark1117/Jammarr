@@ -23,6 +23,7 @@ public final class PampScreen extends Screen {
     private static final int PAGE_SIZE = 20;
     private final PampClientState state;
     private View view = View.NOW;
+    private Button searchTab;
     private EditBox search;
     private String searchQuery = "";
     private int rowOffset;
@@ -73,6 +74,7 @@ public final class PampScreen extends Screen {
             if (results.page() > 0) addRenderableWidget(Button.builder(Component.literal("<"), b -> request(results.page() - 1)).bounds(left + panelWidth - 70, bottom, 32, 20).build());
             if (results.hasMore()) addRenderableWidget(Button.builder(Component.literal(">"), b -> request(results.page() + 1)).bounds(left + panelWidth - 34, bottom, 32, 20).build());
         }
+        setInitialFocus(view == View.SEARCH ? search : searchTab);
     }
 
     private void addNowPlaying(int left, int top, int panelWidth) {
@@ -117,6 +119,7 @@ public final class PampScreen extends Screen {
         Button button = Button.builder(Component.literal(candidate.label), b -> {
             view = candidate; rowOffset = 0; state.clearNotice(); if (candidate.browseKind != null) request(0); rebuildWidgets();
         }).bounds(x, y, width, 20).build();
+        if (candidate == View.SEARCH) searchTab = button;
         button.active = view != candidate; addRenderableWidget(button);
     }
     private void activate(PampPayloads.MediaItem item) { PacketDistributor.sendToServer(new PampPayloads.QueueRequest(item.kind(), item.key())); }

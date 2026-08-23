@@ -19,7 +19,14 @@ final class PcmAudioStream implements AudioStream {
             output.put(remainder, remainderOffset, count); remainderOffset += count; wrote = true;
             if (remainderOffset == remainder.length) remainder = null;
         }
-        if (!wrote) return null; output.flip(); return output;
+        if (!wrote) {
+            // AudioStream treats null as end-of-stream. Keep the OpenAL
+            // source alive while the network/decoder catches up; the player
+            // will request a rebuffer if the decoder actually fails.
+            if (!decoder.finished()) return output;
+            return null;
+        }
+        output.flip(); return output;
     }
     @Override public void close() { decoder.close(); }
 }

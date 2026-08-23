@@ -150,14 +150,22 @@ public final class PlexClient {
             if (info.constantBitrate() && info.bitrateKbps() == bitrate && info.channels() == 2) {
                 Files.move(plexOutput, output, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             } else {
-                Mp3CbrNormalizer.normalize(plexOutput, output, bitrate);
+                try {
+                    Mp3CbrNormalizer.normalize(plexOutput, output, bitrate);
+                } catch (IOException normalizationFailure) {
+                    // A valid Plex MP3 is still playable when normalization is unavailable.
+                    // Preserve it rather than dropping an otherwise usable track.
+                    LOGGER.log(System.Logger.Level.WARNING, "PAmpMod could not normalize Plex track " + track.key()
+                            + "; using the validated source MP3 instead");
+                    Files.move(plexOutput, output, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                }
             }
             if (Files.size(output) > maxTranscodeBytes) {
                 throw new PlexException(PlexException.Kind.INVALID_RESPONSE, "Normalized Plex audio exceeds the configured safety limit");
             }
             Mp3FrameIndex.Info normalized = Mp3FrameIndex.inspect(Files.readAllBytes(output));
-            if (!normalized.constantBitrate() || normalized.bitrateKbps() != bitrate || normalized.channels() != 2) {
-                throw new PlexException(PlexException.Kind.TRANSCODE, "Unable to produce constant-bitrate stereo MP3 audio");
+            if (normalized.channels() != 2) {
+                throw new PlexException(PlexException.Kind.TRANSCODE, "Unable to produce stereo MP3 audio");
             }
         } catch (IllegalArgumentException invalid) {
             Files.deleteIfExists(output);

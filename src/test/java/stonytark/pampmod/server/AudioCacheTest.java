@@ -28,22 +28,30 @@ class AudioCacheTest {
         assertArrayEquals(original, Files.readAllBytes(target));
     }
 
-    @Test void rejectsMonoOrVariableFormatAudio() throws Exception {
+    @Test void rejectsMonoButAcceptsVariableBitrateStereoAudio() throws Exception {
         AudioCache cache = new AudioCache(directory, 10_000); byte[] mono = stream(); mono[3] = (byte)0xC0;
         Path file = directory.resolve("mono.mp3"); Files.write(file, mono);
         assertThrows(java.io.IOException.class, () -> cache.load(file));
+        byte[] variable = variableStream();
+        Path variableFile = directory.resolve("variable.mp3"); Files.write(variableFile, variable);
+        assertDoesNotThrow(() -> cache.load(variableFile, 160));
     }
 
-    @Test void rejectsAValidCbrCacheEntryAtTheWrongConfiguredBitrate() throws Exception {
+    @Test void acceptsAValidCbrCacheEntryAtAnotherBitrate() throws Exception {
         AudioCache cache = new AudioCache(directory, 10_000);
         Path file = directory.resolve("wrong-bitrate.mp3"); Files.write(file, stream());
-        assertThrows(java.io.IOException.class, () -> cache.load(file, 160));
-        assertDoesNotThrow(() -> cache.load(file, 128));
+        assertDoesNotThrow(() -> cache.load(file, 160));
     }
 
     private Path temp(String name) throws Exception { Path path = directory.resolve(name + ".part"); Files.write(path, stream()); return path; }
     private static byte[] stream() {
         byte[] frame = new byte[417]; frame[0] = (byte)0xff; frame[1] = (byte)0xfb; frame[2] = (byte)0x90; frame[3] = 0;
         byte[] bytes = new byte[frame.length * 2]; System.arraycopy(frame, 0, bytes, 0, frame.length); System.arraycopy(frame, 0, bytes, frame.length, frame.length); return bytes;
+    }
+    private static byte[] variableStream() {
+        byte[] bytes = new byte[417 + 365];
+        bytes[0] = (byte)0xff; bytes[1] = (byte)0xfb; bytes[2] = (byte)0x90;
+        bytes[417] = (byte)0xff; bytes[418] = (byte)0xfb; bytes[419] = (byte)0x80;
+        return bytes;
     }
 }

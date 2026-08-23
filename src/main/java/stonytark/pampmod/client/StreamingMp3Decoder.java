@@ -33,6 +33,7 @@ final class StreamingMp3Decoder implements AutoCloseable {
     boolean offer(int index, byte[] bytes) { return input.offer(index, bytes); }
     AudioFormat format() { return format; }
     String failure() { return failure; }
+    boolean finished() { return finished; }
     long bufferedMillis() {
         AudioFormat value = format; if (value == null) return 0;
         return bufferedBytes.get() * 1000L / Math.max(1, (long)value.getSampleRate() * value.getChannels() * 2L);

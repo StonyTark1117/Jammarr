@@ -32,8 +32,8 @@ public final class AudioCache {
         Files.setLastModifiedTime(path, java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis()));
         try {
             Mp3FrameIndex.Info info = Mp3FrameIndex.inspect(bytes);
-            if (!info.constantBitrate() || info.channels() != 2 || expectedBitrateKbps > 0 && info.bitrateKbps() != expectedBitrateKbps) {
-                throw new IllegalArgumentException("Plex audio must be the configured constant-bitrate stereo MP3 format");
+            if (info.channels() != 2) {
+                throw new IllegalArgumentException("Plex audio must be stereo MP3 format");
             }
             return new AudioAsset(path, Hashing.sha256(bytes), Mp3FrameIndex.split(bytes), bytes.length, info.durationMs());
         } catch (IllegalArgumentException invalid) {

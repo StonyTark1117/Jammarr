@@ -29,6 +29,7 @@ final class Mp3CbrNormalizer {
             byte[] pcm = null;
             byte[] mp3 = null;
             int sampleRate = -1;
+            int decodedFrames = 0;
             try {
                 Header header;
                 while ((header = bitstream.readFrame()) != null) {
@@ -62,12 +63,13 @@ final class Mp3CbrNormalizer {
                     }
                     writeEncoded(encoder, pcm, needed, mp3, encoded);
                     bitstream.closeFrame();
+                    decodedFrames++;
                 }
                 if (encoder == null) throw new IOException("Plex returned an MP3 with no decodable frames");
                 int finalBytes = encoder.encodeFinish(mp3);
                 if (finalBytes > 0) encoded.write(mp3, 0, finalBytes);
             } catch (javazoom.jl.decoder.JavaLayerException | RuntimeException decodeFailure) {
-                throw new IOException("Unable to normalize Plex MP3 audio", decodeFailure);
+                throw new IOException("Unable to normalize Plex MP3 audio after " + decodedFrames + " frames", decodeFailure);
             } finally {
                 if (encoder != null) encoder.close();
                 try { bitstream.close(); }

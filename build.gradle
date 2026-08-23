@@ -80,6 +80,10 @@ sourceSets.main.resources.srcDir(generateGameTestTemplate)
 dependencies {
     jarJar(implementation('javazoom:jlayer:1.0.1'))
     jarJar(implementation('de.sciss:jump3r:1.0.5'))
+    // NeoForge 1.21.1 does not expose ordinary Java libraries to the
+    // dedicated development run unless they are added to this classpath.
+    additionalRuntimeClasspath('javazoom:jlayer:1.0.1')
+    additionalRuntimeClasspath('de.sciss:jump3r:1.0.5')
     testImplementation(platform('org.junit:junit-bom:5.10.2'))
     testImplementation('org.junit.jupiter:junit-jupiter')
     testRuntimeOnly('org.junit.platform:junit-platform-launcher')

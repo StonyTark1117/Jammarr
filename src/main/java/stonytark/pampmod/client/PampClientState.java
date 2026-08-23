@@ -35,7 +35,6 @@ public final class PampClientState {
         } else if (payload instanceof PampPayloads.PlaybackState value) {
             playback = value;
             if (value.serverEpochMs() > 0 && !clock.initialized()) clock.accept(System.currentTimeMillis(), value.serverEpochMs(), System.currentTimeMillis());
-            refreshScreen(minecraft);
         } else if (payload instanceof PampPayloads.AudioManifest value) {
             audio.manifest(value);
         } else if (payload instanceof PampPayloads.AudioChunk value) {
