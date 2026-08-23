@@ -113,13 +113,22 @@ tasks.named('jar', Jar) {
 def releaseArchive = tasks.named('jar', Jar).flatMap { it.archiveFile }
 def releaseEntries = ['META-INF/jarjar/jlayer-1.0.1.jar', 'META-INF/jarjar/jump3r-1.0.5.jar',
                       'META-INF/LICENSE-Jammarr-CC0-1.0.txt', 'META-INF/LICENSE-LGPL-2.1-or-later.txt',
-                      'META-INF/THIRD_PARTY_NOTICES.md']
+                      'META-INF/THIRD_PARTY_NOTICES.md', 'META-INF/neoforge.mods.toml',
+                      'assets/jammarr/lang/en_us.json', 'jammarr.mixins.json']
 tasks.register('verifyRelease') {
     dependsOn(tasks.named('test'), tasks.named('jar'))
     doLast {
-        def found = new java.util.zip.ZipFile(releaseArchive.get().asFile).withCloseable { zip -> zip.entries().collect { it.name } as Set }
-        releaseEntries.each { entry ->
-            if (!found.contains(entry)) throw new org.gradle.api.GradleException("Release archive is missing ${entry}")
+        new java.util.zip.ZipFile(releaseArchive.get().asFile).withCloseable { zip ->
+            def found = zip.entries().collect { it.name } as Set
+            releaseEntries.each { entry ->
+                if (!found.contains(entry)) throw new org.gradle.api.GradleException("Release archive is missing ${entry}")
+            }
+            ['META-INF/neoforge.mods.toml', 'jammarr.mixins.json'].each { entry ->
+                def text = zip.getInputStream(zip.getEntry(entry)).getText('UTF-8').toLowerCase(java.util.Locale.ROOT)
+                if (text.contains('pampmod') || text.contains('pamp_')) {
+                    throw new org.gradle.api.GradleException("Release archive still contains the old PAmpMod identifier in ${entry}")
+                }
+            }
         }
     }
 }

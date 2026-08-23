@@ -31,6 +31,7 @@ public final class JammarrServer {
     public void control(ServerPlayer sender, JammarrPayloads.ControlRequest request) { if (player != null) player.control(sender, request); }
     public void chunks(ServerPlayer sender, JammarrPayloads.ChunkRequest request) { if (player != null) player.chunks(sender, request); }
     public void acknowledge(ServerPlayer sender, JammarrPayloads.ChunkAcknowledgement acknowledgement) { if (player != null) player.acknowledge(sender, acknowledgement); }
+    public void health(ServerPlayer sender, JammarrPayloads.AudioHealth health) { if (player != null) player.health(sender, health); }
     public void sync(ServerPlayer sender) { if (player != null) player.sync(sender); }
     public GlobalPlayer player() { return player; }
 }

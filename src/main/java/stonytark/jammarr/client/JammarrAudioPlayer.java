@@ -31,10 +31,13 @@ public final class JammarrAudioPlayer {
     private long lastAudioDataMs;
     private long lastCorrectionMs;
     private long lastRecoveryMs;
+    private long lastHealthSentMs;
+    private String lastHealthState = "";
     private int recoveryAttempts;
     private boolean recovering;
     private boolean recoveryFailed;
     private int receivedChunks;
+    private int underruns;
     private boolean started;
     private final AsyncStartGuard channelStarts = new AsyncStartGuard();
 
@@ -43,7 +46,7 @@ public final class JammarrAudioPlayer {
     public void manifest(JammarrPayloads.AudioManifest value) {
         if (value.totalChunks() == 0 || value.sessionId().equals(new UUID(0, 0))) { stop(); return; }
         if (manifest == null || !manifest.sessionId().equals(value.sessionId())) {
-            resetAudio(); manifest = value;
+            resetAudio(); manifest = value; recoveryAttempts = 0; underruns = 0; lastHealthSentMs = 0; lastHealthState = ""; recoveryFailed = false;
             if (JammarrConfig.ENABLED.get()) beginStreaming();
         } else {
             boolean timelineChanged = value.firstChunk() != manifest.firstChunk() || Math.abs(value.startedAtEpochMs() - manifest.startedAtEpochMs()) > DRIFT_REBUFFER_MS;
@@ -72,11 +75,14 @@ public final class JammarrAudioPlayer {
     }
 
     public void tick() {
-        if (manifest == null || decoder == null || window == null) return;
         long now = System.currentTimeMillis();
+        if (manifest == null) return;
+        if (decoder == null || window == null) {
+            sendHealthIfNeeded(now);
+            return;
+        }
         if (decoder.failure() != null && decoder.format() == null && now - lastRecoveryMs >= 2_000) {
-            Jammarr.LOGGER.warn("Jammarr received audio chunks but could not decode them; requesting a fresh stream");
-            requestRebuffer();
+            requestRebuffer("decoder failure");
             return;
         }
         window.request(now, decoder.bufferedMillis(), StreamingMp3Decoder.MAX_BUFFERED_MS).ifPresent(request -> {
@@ -92,18 +98,27 @@ public final class JammarrAudioPlayer {
         if (channel != null) {
             float volume = JammarrConfig.ENABLED.get() ? (float)(JammarrConfig.VOLUME.get() * minecraft.options.getSoundSourceVolume(SoundSource.MUSIC)) : 0;
             channel.execute(c -> c.setVolume(volume));
+            if (started && !manifest.paused() && decoder.bufferedMillis() == 0 && !window.complete() && now - lastAudioDataMs > UNDERRUN_GRACE_MS) {
+                underruns++;
+                requestRebuffer("decoder starvation");
+                return;
+            }
             if (channel.isStopped()) {
-                if (!window.complete() && now - lastAudioDataMs > UNDERRUN_GRACE_MS) requestRebuffer();
+                if (!window.complete() && now - lastAudioDataMs > UNDERRUN_GRACE_MS) {
+                    underruns++;
+                    requestRebuffer("audio underrun");
+                }
                 else stop();
                 return;
             }
             if (!manifest.paused() && now - lastCorrectionMs >= 2_000) {
                 long estimatedPosition = channelStartedPositionMs + Math.max(0, now - channelStartedLocalMs);
                 long authoritativePosition = Math.max(0, clock.toServerTime(now) - manifest.startedAtEpochMs());
-                if (DriftPolicy.shouldRebuffer(estimatedPosition, authoritativePosition, DRIFT_REBUFFER_MS)) requestRebuffer();
+                if (DriftPolicy.shouldRebuffer(estimatedPosition, authoritativePosition, DRIFT_REBUFFER_MS)) requestRebuffer("clock drift");
                 lastCorrectionMs = now;
             }
         }
+        sendHealthIfNeeded(now);
     }
 
     public void ensureStarted() { if (manifest != null && decoder == null && JammarrConfig.ENABLED.get()) beginStreaming(); }
@@ -134,7 +149,7 @@ public final class JammarrAudioPlayer {
         if (manifest == null || !JammarrConfig.ENABLED.get()) return;
         recoveryAttempts = 0;
         recoveryFailed = false;
-        requestRebuffer();
+        requestRebuffer("manual retry");
     }
 
     private void beginStreaming() {
@@ -161,7 +176,7 @@ public final class JammarrAudioPlayer {
                 return;
             }
             if (error != null || handle == null) {
-                requestRebuffer();
+                requestRebuffer("audio channel creation");
                 return;
             }
             if (decoder != startingDecoder || manifest == null || !manifest.sessionId().equals(startingSession)) {
@@ -179,7 +194,7 @@ public final class JammarrAudioPlayer {
         });
     }
 
-    private void requestRebuffer() {
+    private void requestRebuffer(String reason) {
         if (manifest == null || recoveryFailed) return;
         if (++recoveryAttempts > MAX_RECOVERY_ATTEMPTS) {
             recoveryFailed = true;
@@ -189,13 +204,25 @@ public final class JammarrAudioPlayer {
         }
         lastRecoveryMs = System.currentTimeMillis();
         recovering = true;
+        Jammarr.LOGGER.warn("Jammarr audio recovery attempt {}/{}: {}", recoveryAttempts, MAX_RECOVERY_ATTEMPTS, reason);
         resetAudio();
         PacketDistributor.sendToServer(new JammarrPayloads.ManifestRequest(true));
     }
 
     private void rebuffer() { resetAudio(); beginStreaming(); }
-    public void stop() { resetAudio(); manifest = null; recoveryAttempts = 0; recovering = false; recoveryFailed = false; }
-    public void audioEngineReloaded() { if (manifest != null) { resetAudio(); if (JammarrConfig.ENABLED.get()) PacketDistributor.sendToServer(new JammarrPayloads.ManifestRequest(true)); } }
+    public void stop() { resetAudio(); manifest = null; recoveryAttempts = 0; underruns = 0; recovering = false; recoveryFailed = false; lastHealthSentMs = 0; lastHealthState = ""; }
+    public void audioEngineReloaded() { if (manifest != null) { resetAudio(); if (JammarrConfig.ENABLED.get()) { recovering = true; PacketDistributor.sendToServer(new JammarrPayloads.ManifestRequest(true)); } } }
+
+    private void sendHealthIfNeeded(long now) {
+        if (manifest == null) return;
+        String state = state().name();
+        if (!state.equals(lastHealthState) || now - lastHealthSentMs >= 5_000) {
+            long buffered = decoder == null ? 0 : decoder.bufferedMillis();
+            PacketDistributor.sendToServer(new JammarrPayloads.AudioHealth(manifest.sessionId(), state, recoveryAttempts, underruns, receivedChunks, buffered));
+            lastHealthState = state;
+            lastHealthSentMs = now;
+        }
+    }
 
     private void resetAudio() {
         channelStarts.cancel();

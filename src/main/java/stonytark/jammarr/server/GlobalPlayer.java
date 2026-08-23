@@ -46,6 +46,7 @@ public final class GlobalPlayer implements AutoCloseable {
     private final SlidingWindowRateLimiter acknowledgementLimits = new SlidingWindowRateLimiter();
     private final SlidingWindowRateLimiter manifestLimits = new SlidingWindowRateLimiter();
     private final Map<UUID, ChunkTransferPolicy.State> transfers = new HashMap<>();
+    private final Map<UUID, ListenerStats> listenerStats = new HashMap<>();
     private final RetryGate preparationRetry = new RetryGate();
 
     private AudioAsset asset;
@@ -192,7 +193,7 @@ public final class GlobalPlayer implements AutoCloseable {
             int acceptedCount = append.accepted();
             saved.setDirty();
             player.sendSystemMessage(Component.literal("Queued " + acceptedCount + (acceptedCount == 1 ? " track" : " tracks")));
-            broadcastState();
+            broadcastState("Queued " + acceptedCount + (acceptedCount == 1 ? " track" : " tracks"));
             prepareCurrent();
             prefetchNext();
         }));
@@ -235,28 +236,31 @@ public final class GlobalPlayer implements AutoCloseable {
             case MOVE_UP -> move(request.index(), -1);
             case MOVE_DOWN -> move(request.index(), 1);
         }
-        if (request.action() != JammarrPayloads.ControlAction.CLEAR) {
-            player.sendSystemMessage(Component.literal("Jammarr: " + controlMessage(request.action())));
-        }
-        broadcastState();
+        String result = controlMessage(request.action());
+        player.sendSystemMessage(Component.literal("Jammarr: " + result));
+        broadcastState(result);
     }
 
     public void chunks(ServerPlayer player, JammarrPayloads.ChunkRequest request) {
         chunkRequests++;
+        ListenerStats stats = listenerStats.computeIfAbsent(player.getUUID(), ignored -> new ListenerStats());
+        stats.requests++;
+        stats.lastSeenMs = System.currentTimeMillis();
         if (asset == null || sessionId == null || !sessionId.equals(request.sessionId())) return;
         if (!allow(chunkLimits, player, 4)) return;
         long now = System.currentTimeMillis();
         ChunkTransferPolicy.State previous = transfers.get(player.getUUID());
         if (!ChunkTransferPolicy.acceptsRequest(previous, sessionId, request.requestId(), request.startIndex(), request.count(), asset.chunks().size(), now)) {
-            rejectedChunkRequests++;
+            rejectedChunkRequests++; stats.rejected++;
             return;
         }
         int start = request.startIndex();
         if (!ChunkTransferPolicy.withinPlaybackLead(asset.chunks().get(start).startMs(), positionMs(),
                 TRACK_START_DELAY_MS + ChunkTransferPolicy.MAX_BUFFERED_MS)) {
-            rejectedChunkRequests++;
+            rejectedChunkRequests++; stats.rejected++;
             return;
         }
+        stats.accepted++;
         int count = request.count();
         int end = start + count;
         transfers.put(player.getUUID(), ChunkTransferPolicy.begin(sessionId, request.requestId(), start, count, now));
@@ -271,10 +275,26 @@ public final class GlobalPlayer implements AutoCloseable {
         if (!allow(acknowledgementLimits, player, 8)) return;
         ChunkTransferPolicy.acknowledge(transfers.get(player.getUUID()), acknowledgement.sessionId(), acknowledgement.requestId(),
                 acknowledgement.receivedThroughIndex(), acknowledgement.bufferedMs(), System.currentTimeMillis())
-                .ifPresent(state -> { chunkAcknowledgements++; transfers.put(player.getUUID(), state); });
+                .ifPresent(state -> {
+                    chunkAcknowledgements++;
+                    ListenerStats stats = listenerStats.computeIfAbsent(player.getUUID(), ignored -> new ListenerStats());
+                    stats.acknowledgements++; stats.lastSeenMs = System.currentTimeMillis();
+                    transfers.put(player.getUUID(), state);
+                });
     }
 
-    public void playerJoined(ServerPlayer player) { sendState(player); if (asset != null) sendManifest(player); }
+    public void health(ServerPlayer player, JammarrPayloads.AudioHealth health) {
+        if (sessionId == null || !sessionId.equals(health.sessionId())) return;
+        ListenerStats stats = listenerStats.computeIfAbsent(player.getUUID(), ignored -> new ListenerStats());
+        stats.state = health.state();
+        stats.recoveries = Math.max(0, Math.min(health.recoveryAttempts(), 100));
+        stats.underruns = Math.max(0, Math.min(health.underruns(), 100_000));
+        stats.receivedChunks = Math.max(0, Math.min(health.receivedChunks(), asset == null ? 0 : asset.chunks().size()));
+        stats.bufferedMs = Math.max(0, Math.min(health.bufferedMs(), ChunkTransferPolicy.MAX_BUFFERED_MS));
+        stats.lastSeenMs = System.currentTimeMillis();
+    }
+
+    public void playerJoined(ServerPlayer player) { listenerStats.computeIfAbsent(player.getUUID(), ignored -> new ListenerStats()); sendState(player); if (asset != null) sendManifest(player); }
     public void sync(ServerPlayer player) {
         if (!allow(manifestLimits, player, 2)) return;
         sendState(player);
@@ -282,6 +302,7 @@ public final class GlobalPlayer implements AutoCloseable {
     }
     public void playerLeft(ServerPlayer player) {
         transfers.remove(player.getUUID());
+        if (listenerStats.remove(player.getUUID()) != null) Jammarr.LOGGER.debug("Jammarr listener disconnected: {}", player.getUUID());
         browseLimits.remove(player.getUUID()); queueLimits.remove(player.getUUID()); chunkLimits.remove(player.getUUID());
         acknowledgementLimits.remove(player.getUUID()); manifestLimits.remove(player.getUUID());
     }
@@ -293,11 +314,12 @@ public final class GlobalPlayer implements AutoCloseable {
     }
     public String diagnostics() {
         AudioCache.CacheStats stats = cache.stats();
-        return "Plex=" + plexHealth + ", lastCheck=" + (lastPlexValidation == 0 ? "never" : Instant.ofEpochMilli(lastPlexValidation)) + ", cache=" + cache.size() / 1024 / 1024
-                + " MiB, cacheLoads=" + stats.loads() + ", cacheInvalid=" + stats.invalidEntries()
-                + ", cacheInstalls=" + stats.installs() + ", listeners=" + transfers.size()
+        return "Plex=" + plexHealth + ", lastCheck=" + (lastPlexValidation == 0 ? "never" : Instant.ofEpochMilli(lastPlexValidation)) + ", position=" + positionMs() + "/" + durationMs()
+                + "ms, cache=" + cache.size() / 1024 / 1024 + " MiB, cacheHits=" + stats.loads() + ", cacheMisses=" + stats.misses() + ", cacheInvalid=" + stats.invalidEntries()
+                + ", cacheInstalls=" + stats.installs() + ", listeners=" + listenerStats.size()
                 + ", chunkRequests=" + chunkRequests + ", chunkAcks=" + chunkAcknowledgements + ", chunkRejected=" + rejectedChunkRequests
-                + ", preparing=" + preparing.get() + ", prefetching=" + prefetching.get() + ", detail=" + plexDiagnostic;
+                + ", preparing=" + preparing.get() + ", prefetching=" + prefetching.get() + ", current=" + cacheState(0)
+                + ", next=" + cacheState(1) + ", listenerHealth=" + listenerHealth() + ", detail=" + plexDiagnostic;
     }
 
     private boolean requirePlex(ServerPlayer player) {
@@ -344,9 +366,16 @@ public final class GlobalPlayer implements AutoCloseable {
         Path target = cache.target(track.key(), bitrate);
         try {
             if (Files.isRegularFile(target)) {
-                try { return new PreparedAsset(track, cache.load(target, bitrate)); }
-                catch (IOException invalidCache) { Files.deleteIfExists(target); }
+                try {
+                    Jammarr.LOGGER.debug("Jammarr cache hit for track {}", track.key());
+                    return new PreparedAsset(track, cache.load(target, bitrate));
+                } catch (IOException invalidCache) {
+                    Jammarr.LOGGER.warn("Discarding invalid Jammarr cache entry for track {}", track.key());
+                    Files.deleteIfExists(target);
+                }
             }
+            cache.recordMiss();
+            Jammarr.LOGGER.debug("Jammarr cache miss for track {}; preparing from Plex", track.key());
             Exception last = null;
             for (int attempt = 1; attempt <= 3; attempt++) {
                 Path temporary = target.resolveSibling(target.getFileName() + "." + UUID.randomUUID() + ".part");
@@ -470,14 +499,25 @@ public final class GlobalPlayer implements AutoCloseable {
     }
 
     private JammarrPayloads.AudioManifest emptyManifest() { return new JammarrPayloads.AudioManifest(new UUID(0, 0), "", "", 0, 0, 0, 0, true, 0, ""); }
-    private void broadcastState() { for (ServerPlayer player : server.getPlayerList().getPlayers()) sendState(player); }
-    private void sendState(ServerPlayer player) {
+    private void broadcastState() { broadcastState(""); }
+    private void broadcastState(String notice) { for (ServerPlayer player : server.getPlayerList().getPlayers()) sendState(player, notice); }
+    private void sendState(ServerPlayer player) { sendState(player, ""); }
+    private void sendState(ServerPlayer player, String notice) {
         QueueTrack current = saved.queue().isEmpty() ? null : saved.queue().getFirst();
         List<JammarrPayloads.QueueEntry> queue = saved.queue().stream().map(QueueTrack::networkEntry).toList();
         JammarrPayloads.PlaybackStatus status = playbackStatus();
-        String detail = player.hasPermissions(JammarrConfig.OP_PERMISSION.get()) ? plexDiagnostic : status == JammarrPayloads.PlaybackStatus.PLEX_OFFLINE ? "Plex is currently unavailable" : "";
+        String detail = notice.isBlank() ? (status == JammarrPayloads.PlaybackStatus.PLEX_OFFLINE ? "Plex is currently unavailable" : playbackDetail()) : notice;
+        if (player.hasPermissions(JammarrConfig.OP_PERMISSION.get())) detail += " | " + plexDiagnostic;
         PacketDistributor.sendToPlayer(player, new JammarrPayloads.PlaybackState(status, detail, current == null ? "" : current.title(), current == null ? "" : current.artist(),
                 timeline.paused(), positionMs(), durationMs(), System.currentTimeMillis(), player.hasPermissions(JammarrConfig.OP_PERMISSION.get()), queue));
+    }
+
+    private String playbackDetail() {
+        if (saved.queue().isEmpty()) return "";
+        if (asset == null) return cacheState(0).contains("cached") ? "Loading cached audio" : "Preparing audio from Plex";
+        if (timeline.paused()) return "Playback paused";
+        if (saved.queue().size() > 1) return prefetched != null ? "Next track prefetched" : "Preparing next track";
+        return "Audio ready";
     }
 
     private JammarrPayloads.PlaybackStatus playbackStatus() {
@@ -518,6 +558,28 @@ public final class GlobalPlayer implements AutoCloseable {
     private void sendErrorToOperators(JammarrPayloads.ErrorCode code, String message) {
         for (ServerPlayer player : server.getPlayerList().getPlayers()) if (player.hasPermissions(JammarrConfig.OP_PERMISSION.get())) sendError(player, code, message);
     }
+
+    private String cacheState(int queueOffset) {
+        if (saved.queue().size() <= queueOffset) return "none";
+        QueueTrack track = saved.queue().get(queueOffset);
+        int bitrate = JammarrConfig.BITRATE.get();
+        boolean cached = Files.isRegularFile(cache.target(track.key(), bitrate));
+        if (queueOffset == 0 && asset != null) return prefetched != null && saved.queue().size() > 1 ? "active,prefetched-next" : "active," + (cached ? "cached" : "memory");
+        return cached ? (prefetched != null && prefetched.track.key().equals(track.key()) ? "prefetched,cached" : "cached") : "missing";
+    }
+
+    private String listenerHealth() {
+        if (listenerStats.isEmpty()) return "none";
+        StringBuilder value = new StringBuilder();
+        listenerStats.forEach((uuid, stats) -> {
+            if (value.length() > 0) value.append(';');
+            value.append(uuid.toString(), 0, 8).append(':').append(stats.state)
+                    .append("/requests=").append(stats.requests).append("/acks=").append(stats.acknowledgements).append("/rejected=").append(stats.rejected)
+                    .append("/recovery=").append(stats.recoveries).append("/underrun=").append(stats.underruns)
+                    .append("/buffer=").append(stats.bufferedMs).append("ms");
+        });
+        return value.toString();
+    }
     private static String controlMessage(JammarrPayloads.ControlAction action) {
         return switch (action) {
             case PAUSE -> "Playback paused";
@@ -534,6 +596,18 @@ public final class GlobalPlayer implements AutoCloseable {
     private static Throwable root(Throwable error) { Throwable value = error; while (value.getCause() != null) value = value.getCause(); return value; }
 
     private record PreparedAsset(QueueTrack track, AudioAsset asset) {}
+    private static final class ListenerStats {
+        private long requests;
+        private long accepted;
+        private long rejected;
+        private long acknowledgements;
+        private long lastSeenMs;
+        private String state = "UNKNOWN";
+        private int recoveries;
+        private int underruns;
+        private int receivedChunks;
+        private long bufferedMs;
+    }
     @Override public void close() {
         saved.update(positionMs(), timeline.paused());
         stopAudio();

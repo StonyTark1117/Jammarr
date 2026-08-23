@@ -10,6 +10,7 @@ import stonytark.jammarr.client.AsyncStartGuard;
 import stonytark.jammarr.server.ChunkTransferPolicy;
 import stonytark.jammarr.server.JammarrSavedData;
 import stonytark.jammarr.server.PlaybackTimeline;
+import stonytark.jammarr.server.QueueOperations;
 import stonytark.jammarr.server.QueueTrack;
 import stonytark.jammarr.server.RetryGate;
 import stonytark.jammarr.server.SlidingWindowRateLimiter;
@@ -61,6 +62,28 @@ public final class JammarrGameTests {
         helper.assertTrue(starts.begin() < 0, "A duplicate audio-channel start was admitted");
         starts.cancel(); long second = starts.begin();
         helper.assertTrue(!starts.complete(first) && starts.complete(second), "A stale audio completion released the current start");
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 20)
+    public static void operatorQueueActionsPreserveCurrentTrackAndPlaybackPosition(GameTestHelper helper) {
+        var queue = new java.util.ArrayList<QueueTrack>();
+        queue.add(new QueueTrack("current", "Current", "Artist", "Album", 90_000));
+        queue.add(new QueueTrack("next", "Next", "Artist", "Album", 90_000));
+        queue.add(new QueueTrack("last", "Last", "Artist", "Album", 90_000));
+        helper.assertTrue(QueueOperations.move(queue, 2, -1, true) == QueueOperations.Result.APPLIED && queue.get(1).key().equals("last"), "Operator reorder did not move a queued entry");
+        helper.assertTrue(QueueOperations.remove(queue, 1, true) == QueueOperations.Result.APPLIED && queue.getFirst().key().equals("current"), "Operator remove changed the current track unexpectedly");
+        AtomicLong clock = new AtomicLong(1_000);
+        PlaybackTimeline timeline = new PlaybackTimeline(clock::get);
+        timeline.schedule(90_000, 0, false, 5_000);
+        clock.set(8_000);
+        timeline.pause();
+        long paused = timeline.positionMs();
+        clock.set(18_000);
+        helper.assertTrue(timeline.positionMs() == paused, "Pause did not hold the authoritative position");
+        timeline.resume();
+        clock.set(19_000);
+        helper.assertTrue(timeline.positionMs() > paused, "Resume did not advance the authoritative position");
         helper.succeed();
     }
     private JammarrGameTests() {}

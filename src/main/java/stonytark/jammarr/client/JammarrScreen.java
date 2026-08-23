@@ -4,6 +4,7 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractSliderButton;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -26,6 +27,8 @@ public final class JammarrScreen extends Screen {
     private Button searchTab;
     private EditBox search;
     private boolean requestPending;
+    private boolean queuePending;
+    private String pendingQueueKey = "";
     private JammarrPayloads.BrowseKind pendingKind;
     private String pendingQuery = "";
     private int pendingPage;
@@ -113,9 +116,12 @@ public final class JammarrScreen extends Screen {
 
     private void addNowPlaying(int left, int top, int panelWidth) {
         JammarrPayloads.PlaybackState playing = state.playback();
-        String title = playing.title().isBlank() ? "Nothing playing" : playing.title();
+        String title = playing.title().isBlank() ? Component.translatable("jammarr.screen.nothing_playing").getString() : playing.title();
         String artist = playing.artist().isBlank() ? "" : playing.artist();
-        addRenderableWidget(Button.builder(Component.literal(trim(title, panelWidth - 20)), b -> {}).bounds(left, top + 18, panelWidth, 20).build()).active = false;
+        Button titleButton = Button.builder(Component.literal(trim(title, panelWidth - 20)), b -> {}).bounds(left, top + 18, panelWidth, 20).build();
+        titleButton.active = false;
+        if (font.width(title) > panelWidth - 20) titleButton.setTooltip(Tooltip.create(Component.literal(title)));
+        addRenderableWidget(titleButton);
         if (!artist.isBlank()) addRenderableWidget(Button.builder(Component.literal(trim(artist, panelWidth - 20)), b -> {}).bounds(left, top + 42, panelWidth, 20).build()).active = false;
         if (state.audioState() == AudioPlaybackState.ERROR) {
             addRenderableWidget(Button.builder(Component.translatable("jammarr.screen.retry_audio"), b -> state.retryAudio()).bounds(left + panelWidth / 2 - 48, top + 66, 96, 20).build());
@@ -134,13 +140,14 @@ public final class JammarrScreen extends Screen {
             int queueIndex = results.page() * PAGE_SIZE + localIndex;
             JammarrPayloads.MediaItem item = items.get(localIndex);
             int y = contentTop + row * 22;
-            String prefix = view == View.QUEUE ? (queueIndex + 1) + ". " : "";
+            String prefix = view == View.QUEUE ? (queueIndex == 0 ? "▶ " : (queueIndex + 1) + ". ") : "";
             String duration = item.durationMs() > 0 ? " (" + time(item.durationMs()) + ")" : "";
             String label = prefix + item.title() + (item.subtitle().isBlank() ? "" : " — " + item.subtitle()) + duration;
             int controlsWidth = view == View.QUEUE && state.playback().operator() ? 90 : 52;
             Button itemButton = Button.builder(Component.literal(trim(label, panelWidth - controlsWidth - 20)), b -> activate(item))
                     .bounds(left, y, panelWidth - controlsWidth - 4, 20).build();
             if (view == View.QUEUE) itemButton.active = false;
+            if (font.width(label) > panelWidth - controlsWidth - 20) itemButton.setTooltip(Tooltip.create(Component.literal(label)));
             addRenderableWidget(itemButton);
             if (view == View.QUEUE && state.playback().operator()) {
                 int x = left + panelWidth - 88;
@@ -149,7 +156,7 @@ public final class JammarrScreen extends Screen {
                 up.active = queueIndex > 1; down.active = queueIndex > 0 && queueIndex < state.playback().queue().size() - 1;
                 addRenderableWidget(up); addRenderableWidget(down);
                 addRenderableWidget(Button.builder(Component.literal("×"), b -> control(JammarrPayloads.ControlAction.REMOVE, queueIndex, item.key())).bounds(x + 60, y, 28, 20).build());
-            } else if (view != View.QUEUE) {
+            } else if (view != View.QUEUE && !queuePending) {
                 addRenderableWidget(Button.builder(Component.literal("+"), b -> activate(item)).bounds(left + panelWidth - 48, y, 48, 20).build());
             }
         }
@@ -157,18 +164,33 @@ public final class JammarrScreen extends Screen {
 
     private void addTab(int x, int y, int width, View candidate) {
         Button button = Button.builder(Component.translatable(candidate.label), b -> {
-            view = candidate; rowOffset = 0; requestPending = false; screenNotice = ""; state.clearNotice(); if (candidate.browseKind != null) request(0); rebuildWidgets();
+            view = candidate; rowOffset = 0; requestPending = false; queuePending = false; pendingQueueKey = ""; screenNotice = ""; state.clearNotice(); if (candidate.browseKind != null) request(0); rebuildWidgets();
         }).bounds(x, y, width, 20).build();
         if (candidate == View.SEARCH) searchTab = button;
         button.active = view != candidate; addRenderableWidget(button);
     }
-    private void activate(JammarrPayloads.MediaItem item) { PacketDistributor.sendToServer(new JammarrPayloads.QueueRequest(item.kind(), item.key())); }
+    private void activate(JammarrPayloads.MediaItem item) {
+        if (queuePending) return;
+        queuePending = true;
+        pendingQueueKey = item.key();
+        screenNotice = Component.translatable("jammarr.screen.queuing").getString();
+        PacketDistributor.sendToServer(new JammarrPayloads.QueueRequest(item.kind(), item.key()));
+        rebuildWidgets();
+    }
     private void control(JammarrPayloads.ControlAction action, int index) { control(action, index, ""); }
     private void control(JammarrPayloads.ControlAction action, int index, String expectedKey) { PacketDistributor.sendToServer(new JammarrPayloads.ControlRequest(action, index, expectedKey)); }
     private void request(int page) {
         if (view.browseKind == null) return;
         if (requestPending) return;
         if (search != null) searchQuery = search.getValue();
+        searchQuery = searchQuery.trim();
+        if (view == View.SEARCH && searchQuery.length() < 2) {
+            requestPending = false;
+            screenNotice = Component.translatable("jammarr.screen.short_query").getString();
+            state.clearBrowse(view.browseKind, searchQuery);
+            rebuildWidgets();
+            return;
+        }
         requestPending = true;
         pendingKind = view.browseKind;
         pendingQuery = searchQuery;
@@ -181,7 +203,15 @@ public final class JammarrScreen extends Screen {
         if (requestPending && result.kind() == pendingKind && result.page() == pendingPage && result.query().equals(pendingQuery)) requestPending = false;
         if (minecraft != null) rebuildWidgets();
     }
-    void requestFailed() { requestPending = false; if (minecraft != null) rebuildWidgets(); }
+    void requestFailed() { requestPending = false; queuePending = false; pendingQueueKey = ""; if (minecraft != null) rebuildWidgets(); }
+
+    void playbackChanged() {
+        if (!queuePending || state.playback().queue().stream().noneMatch(entry -> entry.key().equals(pendingQueueKey))) return;
+        queuePending = false;
+        pendingQueueKey = "";
+        screenNotice = Component.translatable("jammarr.screen.queued").getString();
+        rebuildWidgets();
+    }
 
     @Override public boolean keyPressed(int key, int scanCode, int modifiers) {
         if (key == 257 && search != null && search.isFocused()) { request(0); return true; }
@@ -200,10 +230,12 @@ public final class JammarrScreen extends Screen {
         String notice = screenNotice.isBlank() ? (state.notice().isBlank() ? playing.statusMessage() : state.notice()) : screenNotice;
         if (!notice.isBlank()) graphics.drawCenteredString(font, trim(notice, width - 24), width / 2, height - 40, 0xFFB36B);
         if (view == View.NOW) graphics.drawCenteredString(font, "Audio: " + state.audioStatus(), width / 2, 145, state.audioState() == AudioPlaybackState.ERROR ? 0xFF7777 : 0xA0D8FF);
-        if (requestPending) graphics.drawCenteredString(font, "Loading page…", width / 2, height / 2, 0xA0D8FF);
+        if (requestPending) graphics.drawCenteredString(font, Component.translatable(view == View.SEARCH ? "jammarr.screen.searching" : "jammarr.screen.loading_page"), width / 2, height / 2, 0xA0D8FF);
+        else if (queuePending) graphics.drawCenteredString(font, Component.translatable("jammarr.screen.queuing"), width / 2, height / 2, 0xA0D8FF);
+        else if (playing.status() == JammarrPayloads.PlaybackStatus.PLEX_OFFLINE && notice.isBlank()) graphics.drawCenteredString(font, Component.translatable("jammarr.screen.plex_unavailable"), width / 2, height / 2, 0xFF7777);
         else if (view.browseKind != null && state.browse().kind() == view.browseKind && state.browse().items().isEmpty()) graphics.drawCenteredString(font, Component.translatable("jammarr.screen.empty"), width / 2, height / 2, 0x909090);
     }
-    private static String statusLabel(JammarrPayloads.PlaybackState state) { return switch (state.status()) { case IDLE -> "Idle"; case PREPARING -> "Preparing"; case PLAYING -> "Now playing"; case PAUSED -> "Paused"; case PLEX_OFFLINE -> "Plex offline"; }; }
+    private static String statusLabel(JammarrPayloads.PlaybackState state) { return Component.translatable(switch (state.status()) { case IDLE -> "jammarr.status.idle"; case PREPARING -> "jammarr.status.preparing"; case PLAYING -> "jammarr.status.playing"; case PAUSED -> "jammarr.status.paused"; case PLEX_OFFLINE -> "jammarr.status.plex_offline"; }).getString(); }
     private static int statusColor(JammarrPayloads.PlaybackStatus status) { return status == JammarrPayloads.PlaybackStatus.PLEX_OFFLINE ? 0xFF7777 : status == JammarrPayloads.PlaybackStatus.PREPARING ? 0xFFD37A : 0xCFCFCF; }
     private String trim(String value, int pixels) { return font.width(value) <= pixels ? value : font.plainSubstrByWidth(value, Math.max(0, pixels - font.width("…"))) + "…"; }
     private static String time(long ms) { long seconds = Math.max(0, ms / 1000); return "%d:%02d".formatted(seconds / 60, seconds % 60); }

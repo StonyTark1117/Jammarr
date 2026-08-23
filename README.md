@@ -17,7 +17,7 @@ No external FFmpeg installation is required. Plex prepares an MP3 rendition; if 
 1. Start the server once to generate `world/serverconfig/jammarr-server.toml`.
 2. Set `plexUrl` to the Plex base URL and `musicLibrary` to a music-library title or numeric section key. Leaving the library blank selects the first music library.
 3. Supply the token through `JAMMARR_PLEX_TOKEN` (recommended), or put it in `plexToken` in the server config.
-4. Restart the server after editing its server config. `/jammarr reload` reruns connection and library validation against the currently loaded values.
+4. If using `plexToken`, restrict the server-config file to the Minecraft server account and keep backups/logs from exposing it. Restart the server after editing its server config. `/jammarr reload` reruns connection and library validation against the currently loaded values.
 
 Important server options and defaults:
 
@@ -33,6 +33,7 @@ Important server options and defaults:
 Plex metadata responses are capped at 4 MiB, expanded albums/artists/playlists are capped to the remaining queue capacity, individual transcodes are capped at three hours and 256 MiB, and stalled transcode bodies are aborted after three minutes.
 
 Plain HTTP is allowed for trusted private networks and emits a warning. HTTPS uses normal Java certificate validation.
+Bitrate is constrained to 64–320 kbps and cache size to 64–16384 MiB; invalid values are rejected by NeoForge's config validation and reported during startup.
 
 ## In-game use
 
@@ -42,6 +43,7 @@ Plain HTTP is allowed for trusted private networks and emits a warning. HTTPS us
 - Permission-level 2 operators may pause, resume, skip, clear, remove, and reorder queue entries.
 - Each player may independently mute Jammarr and set a persistent local volume. Local opt-out never changes the global queue.
 - The Now Playing screen reports both server playback and local audio state. Decoder or transfer recovery is bounded and can be retried from the screen after a final local audio error.
+- Search reports short-query, searching, Plex-unavailable, and empty-result states; queue actions report progress and completion, and long titles expose their full text as tooltips.
 - Master, Music, and Jammarr volume controls all apply. Vanilla background music is suppressed while the Jammarr stream is active and restored afterward.
 
 Commands:
@@ -65,6 +67,7 @@ Commands:
 - Client audio recovery retries three times per playback session. A fourth failure stops retrying automatically and exposes a `Retry audio` action instead of leaving a silent stream running indefinitely.
 - The queue and five-second playback checkpoints live in world saved data. A graceful shutdown records the current position for `RESUME_POSITION`.
 - Unmodded clients and clients with an incompatible Jammarr network protocol are rejected during payload negotiation. Queue mutations include an expected track key so stale operator screens cannot modify the wrong entry.
+- The server diagnostics command reports Plex validation time, cache hit/miss/install/invalid counters, current and next-track cache state, active listener transfer counters, and client-reported recovery/underrun/buffer health.
 
 ## Security and privacy
 
@@ -82,6 +85,17 @@ Commands:
 ./gradlew build
 ./gradlew verifyRelease
 ```
+
+`verifyRelease` also checks that the Jammarr metadata, translations, mixin configuration, decoder dependencies, and required license notices are present in the final JAR and that old PAmpMod identifiers were not packaged.
+
+Release checklist:
+
+- [ ] Run `./gradlew cleanTest test`.
+- [ ] Run `./gradlew runGameTestServer` and confirm all GameTests pass.
+- [ ] Run `./gradlew verifyRelease` from a clean checkout.
+- [ ] Test a fresh dedicated server and client with the same Jammarr JAR.
+- [ ] Test a deliberately incompatible protocol version and confirm the clear disconnect.
+- [ ] Test two listeners, late join/reconnect, pause/resume/skip/clear/reorder, sound reload, and a temporary Plex outage with cached audio.
 
 The opt-in live Plex test reads credentials only from its process environment:
 

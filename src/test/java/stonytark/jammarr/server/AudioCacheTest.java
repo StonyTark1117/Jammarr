@@ -50,8 +50,19 @@ class AudioCacheTest {
         cache.load(target, 160);
         AudioCache.CacheStats stats = cache.stats();
         assertEquals(2, stats.loads());
+        assertEquals(0, stats.misses());
         assertEquals(1, stats.installs());
         assertEquals(0, stats.invalidEntries());
+    }
+
+    @Test void versionsCacheTargetsAndRemovesOldOrPartialEntriesOnStartup() throws Exception {
+        Files.write(directory.resolve("legacy-128.mp3"), stream());
+        Files.writeString(directory.resolve("interrupted.part"), "partial");
+        AudioCache cache = new AudioCache(directory, 10_000);
+
+        assertFalse(Files.exists(directory.resolve("legacy-128.mp3")));
+        assertFalse(Files.exists(directory.resolve("interrupted.part")));
+        assertTrue(cache.target("versioned", 160).getFileName().toString().endsWith("-v" + AudioCache.CACHE_FORMAT_VERSION + ".mp3"));
     }
 
     private Path temp(String name) throws Exception { Path path = directory.resolve(name + ".part"); Files.write(path, stream()); return path; }

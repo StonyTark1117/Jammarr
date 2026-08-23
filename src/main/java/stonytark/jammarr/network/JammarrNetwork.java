@@ -7,8 +7,11 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import stonytark.jammarr.server.JammarrServer;
 
 public final class JammarrNetwork {
-    public static final int PROTOCOL = 3;
+    /** Bumped for the AudioHealth listener telemetry payload. */
+    public static final int PROTOCOL = 4;
     public static final String VERSION = Integer.toString(PROTOCOL);
+
+    public static boolean protocolMatches(int offered) { return offered == PROTOCOL; }
 
     public static void register(RegisterPayloadHandlersEvent event) {
         PayloadRegistrar registrar = event.registrar(VERSION);
@@ -21,7 +24,7 @@ public final class JammarrNetwork {
         registrar.playToClient(JammarrPayloads.PlaybackState.TYPE, JammarrPayloads.PlaybackState.CODEC, JammarrNetwork::client);
         registrar.playToClient(JammarrPayloads.ErrorMessage.TYPE, JammarrPayloads.ErrorMessage.CODEC, JammarrNetwork::client);
         registrar.playToServer(JammarrPayloads.ClientHello.TYPE, JammarrPayloads.ClientHello.CODEC, (payload, context) -> {
-            if (payload.protocolVersion() != PROTOCOL) {
+            if (!protocolMatches(payload.protocolVersion())) {
                 context.disconnect(Component.literal("Jammarr protocol mismatch: server requires version " + PROTOCOL));
             } else {
                 context.enqueueWork(() -> JammarrServer.instance().hello((ServerPlayer)context.player()));
@@ -39,6 +42,8 @@ public final class JammarrNetwork {
                 (p, c) -> c.enqueueWork(() -> JammarrServer.instance().chunks((ServerPlayer)c.player(), p)));
         registrar.playToServer(JammarrPayloads.ChunkAcknowledgement.TYPE, JammarrPayloads.ChunkAcknowledgement.CODEC,
                 (p, c) -> c.enqueueWork(() -> JammarrServer.instance().acknowledge((ServerPlayer)c.player(), p)));
+        registrar.playToServer(JammarrPayloads.AudioHealth.TYPE, JammarrPayloads.AudioHealth.CODEC,
+                (p, c) -> c.enqueueWork(() -> JammarrServer.instance().health((ServerPlayer)c.player(), p)));
         registrar.playToServer(JammarrPayloads.ManifestRequest.TYPE, JammarrPayloads.ManifestRequest.CODEC,
                 (p, c) -> c.enqueueWork(() -> JammarrServer.instance().sync((ServerPlayer)c.player())));
     }

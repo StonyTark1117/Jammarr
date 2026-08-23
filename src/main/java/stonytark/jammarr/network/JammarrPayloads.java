@@ -133,6 +133,18 @@ public final class JammarrPayloads {
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
+    public record AudioHealth(UUID sessionId, String state, int recoveryAttempts, int underruns, int receivedChunks, long bufferedMs) implements CustomPacketPayload {
+        public static final Type<AudioHealth> TYPE = genericType("audio_health");
+        public static final StreamCodec<RegistryFriendlyByteBuf, AudioHealth> CODEC = StreamCodec.ofMember(AudioHealth::write, AudioHealth::read);
+        private static AudioHealth read(RegistryFriendlyByteBuf b) {
+            return new AudioHealth(b.readUUID(), b.readUtf(32), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readVarLong());
+        }
+        private void write(RegistryFriendlyByteBuf b) {
+            b.writeUUID(sessionId); b.writeUtf(state, 32); b.writeVarInt(recoveryAttempts); b.writeVarInt(underruns); b.writeVarInt(receivedChunks); b.writeVarLong(bufferedMs);
+        }
+        @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
+    }
+
     public record ManifestRequest(boolean forceRebuffer) implements CustomPacketPayload {
         public static final Type<ManifestRequest> TYPE = genericType("manifest_request");
         public static final StreamCodec<RegistryFriendlyByteBuf, ManifestRequest> CODEC = StreamCodec.ofMember(ManifestRequest::write, ManifestRequest::read);

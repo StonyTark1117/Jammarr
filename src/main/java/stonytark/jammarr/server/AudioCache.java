@@ -15,17 +15,20 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
 public final class AudioCache {
+    public static final int CACHE_FORMAT_VERSION = 1;
     private final Path directory;
     private final long maxBytes;
     private final AtomicLong loads = new AtomicLong();
+    private final AtomicLong misses = new AtomicLong();
     private final AtomicLong invalidEntries = new AtomicLong();
     private final AtomicLong installs = new AtomicLong();
 
     public AudioCache(Path directory, long maxBytes) throws IOException {
         this.directory = directory; this.maxBytes = maxBytes; Files.createDirectories(directory);
+        removeStaleFormats();
     }
 
-    public Path target(String key, int bitrate) { return directory.resolve(safeName(key) + "-" + bitrate + ".mp3"); }
+    public Path target(String key, int bitrate) { return directory.resolve(safeName(key) + "-" + bitrate + "-v" + CACHE_FORMAT_VERSION + ".mp3"); }
 
     public AudioAsset load(Path path) throws IOException {
         return load(path, -1);
@@ -83,11 +86,22 @@ public final class AudioCache {
         } catch (IOException e) { Jammarr.LOGGER.warn("Unable to trim Jammarr audio cache", e); }
     }
 
-    public CacheStats stats() { return new CacheStats(loads.get(), invalidEntries.get(), installs.get()); }
+    public void recordMiss() { misses.incrementAndGet(); }
+    public CacheStats stats() { return new CacheStats(loads.get(), misses.get(), invalidEntries.get(), installs.get()); }
 
-    public record CacheStats(long loads, long invalidEntries, long installs) {}
+    public record CacheStats(long loads, long misses, long invalidEntries, long installs) {}
 
     private static boolean isCacheFile(Path path) { return Files.isRegularFile(path) && path.getFileName().toString().endsWith(".mp3"); }
+
+    private void removeStaleFormats() throws IOException {
+        String suffix = "-v" + CACHE_FORMAT_VERSION + ".mp3";
+        try (var files = Files.list(directory)) {
+            for (Path path : files.filter(path -> isCacheFile(path) || path.getFileName().toString().endsWith(".part")).filter(path -> !path.getFileName().toString().endsWith(suffix)).toList()) {
+                Files.deleteIfExists(path);
+                Jammarr.LOGGER.info("Removed stale Jammarr cache entry {}", path.getFileName());
+            }
+        }
+    }
 
     private static String safeName(String key) {
         try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(key.getBytes(java.nio.charset.StandardCharsets.UTF_8))).substring(0, 24); }

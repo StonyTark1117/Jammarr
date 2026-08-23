@@ -25,7 +25,7 @@ public final class JammarrClientState {
             minecraft.setScreen(new JammarrScreen(this));
             PacketDistributor.sendToServer(new JammarrPayloads.BrowseRequest(JammarrPayloads.BrowseKind.SEARCH, "", 0));
         } else if (payload instanceof JammarrPayloads.ServerHello value) {
-            if (value.protocolVersion() != JammarrNetwork.PROTOCOL && minecraft.getConnection() != null) {
+            if (!JammarrNetwork.protocolMatches(value.protocolVersion()) && minecraft.getConnection() != null) {
                 minecraft.getConnection().getConnection().disconnect(net.minecraft.network.chat.Component.literal("Jammarr protocol mismatch"));
             } else requestTimeSync();
         } else if (payload instanceof JammarrPayloads.TimeSyncResponse value) {
@@ -35,6 +35,7 @@ public final class JammarrClientState {
         } else if (payload instanceof JammarrPayloads.PlaybackState value) {
             playback = value;
             if (value.serverEpochMs() > 0 && !clock.initialized()) clock.accept(System.currentTimeMillis(), value.serverEpochMs(), System.currentTimeMillis());
+            if (minecraft.screen instanceof JammarrScreen screen) screen.playbackChanged();
         } else if (payload instanceof JammarrPayloads.AudioManifest value) {
             audio.manifest(value);
         } else if (payload instanceof JammarrPayloads.AudioChunk value) {
@@ -53,6 +54,9 @@ public final class JammarrClientState {
     public String audioStatus() { return audio.status(); }
     public AudioPlaybackState audioState() { return audio.state(); }
     public void clearNotice() { notice = ""; }
+    public void clearBrowse(JammarrPayloads.BrowseKind kind, String query) {
+        browse = new JammarrPayloads.BrowseResults(kind, query, 0, false, List.of());
+    }
     public void tick() {
         long now = System.currentTimeMillis();
         if (now - lastTimeSync >= 10_000) requestTimeSync();
