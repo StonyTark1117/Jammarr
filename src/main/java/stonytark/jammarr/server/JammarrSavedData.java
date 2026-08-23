@@ -1,16 +1,18 @@
 package stonytark.jammarr.server;
 
+import stonytark.jammarr.core.model.QueueTrack;
+
+
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.world.level.saveddata.SavedData;
-
 import java.util.ArrayList;
 import java.util.List;
 
 public final class JammarrSavedData extends SavedData {
-    private static final int SCHEMA_VERSION = 3;
+    public static final int SCHEMA_VERSION = 4;
     public static final Factory<JammarrSavedData> FACTORY = new Factory<>(JammarrSavedData::new, JammarrSavedData::load);
     private final List<QueueTrack> queue = new ArrayList<>();
     private final List<QueueTrack> history = new ArrayList<>();
@@ -57,26 +59,26 @@ public final class JammarrSavedData extends SavedData {
 
     @Override public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
         tag.putInt("schemaVersion", SCHEMA_VERSION);
-        ListTag list = new ListTag(); queue.forEach(track -> list.add(track.save()));
+        ListTag list = new ListTag(); queue.forEach(track -> list.add(QueueTrackCodec.save(track)));
         tag.put("queue", list);
-        if (current != null) tag.put("current", current.save());
+        if (current != null) tag.put("current", QueueTrackCodec.save(current));
         tag.putString("currentOrigin", currentOrigin.name()); tag.putString("currentSourceName", currentSourceName);
         tag.put("station", station.save()); tag.putBoolean("autoplayEnabled", autoplayEnabled);
-        ListTag historyTags = new ListTag(); history.forEach(track -> historyTags.add(track.save())); tag.put("history", historyTags);
+        ListTag historyTags = new ListTag(); history.forEach(track -> historyTags.add(QueueTrackCodec.save(track))); tag.put("history", historyTags);
         tag.putLong("checkpointMs", checkpointMs); tag.putBoolean("paused", paused); return tag;
     }
 
     public static JammarrSavedData load(CompoundTag tag, HolderLookup.Provider registries) {
         JammarrSavedData data = new JammarrSavedData();
         ListTag list = tag.getList("queue", Tag.TAG_COMPOUND);
-        for (int i = 0; i < list.size(); i++) data.queue.add(QueueTrack.load(list.getCompound(i)));
+        for (int i = 0; i < list.size(); i++) data.queue.add(QueueTrackCodec.load(list.getCompound(i)));
         if (tag.getInt("schemaVersion") < 2) {
             if (!data.queue.isEmpty()) data.current = data.queue.removeFirst();
             data.currentOrigin = data.current == null ? stonytark.jammarr.network.JammarrPayloads.PlaybackOrigin.NONE
                     : stonytark.jammarr.network.JammarrPayloads.PlaybackOrigin.MANUAL;
             data.currentSourceName = data.current == null ? "" : "Manual request";
         } else {
-            if (tag.contains("current", Tag.TAG_COMPOUND)) data.current = QueueTrack.load(tag.getCompound("current"));
+            if (tag.contains("current", Tag.TAG_COMPOUND)) data.current = QueueTrackCodec.load(tag.getCompound("current"));
             try { data.currentOrigin = stonytark.jammarr.network.JammarrPayloads.PlaybackOrigin.valueOf(tag.getString("currentOrigin")); }
             catch (IllegalArgumentException ignored) { data.currentOrigin = data.current == null ? stonytark.jammarr.network.JammarrPayloads.PlaybackOrigin.NONE : stonytark.jammarr.network.JammarrPayloads.PlaybackOrigin.MANUAL; }
             data.currentSourceName = tag.getString("currentSourceName");
@@ -86,7 +88,7 @@ public final class JammarrSavedData extends SavedData {
             if (tag.contains("station", Tag.TAG_COMPOUND)) data.station = StationDefinition.load(tag.getCompound("station"));
             data.autoplayEnabled = tag.getBoolean("autoplayEnabled");
             ListTag historyTags = tag.getList("history", Tag.TAG_COMPOUND);
-            for (int i = Math.max(0, historyTags.size() - StationGenerator.TRACK_HISTORY_LIMIT); i < historyTags.size(); i++) data.history.add(QueueTrack.load(historyTags.getCompound(i)));
+            for (int i = Math.max(0, historyTags.size() - StationGenerator.TRACK_HISTORY_LIMIT); i < historyTags.size(); i++) data.history.add(QueueTrackCodec.load(historyTags.getCompound(i)));
         }
         data.checkpointMs = tag.getLong("checkpointMs"); data.paused = tag.getBoolean("paused"); return data;
     }

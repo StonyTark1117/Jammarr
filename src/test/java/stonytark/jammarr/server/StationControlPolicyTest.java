@@ -2,7 +2,6 @@ package stonytark.jammarr.server;
 
 import org.junit.jupiter.api.Test;
 import stonytark.jammarr.network.JammarrPayloads;
-
 import static org.junit.jupiter.api.Assertions.*;
 
 class StationControlPolicyTest {

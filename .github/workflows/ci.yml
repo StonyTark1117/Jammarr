@@ -17,4 +17,4 @@ jobs:
           distribution: temurin
           java-version: '21'
       - name: Run tests, GameTests, and release verification
-        run: ./gradlew --no-daemon cleanTest test runGameTestServer verifyRelease
+        run: ./gradlew --no-daemon verifyAllTargets

@@ -4,7 +4,6 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import stonytark.jammarr.network.JammarrPayloads;
-
 import java.util.ArrayList;
 import java.util.List;
 

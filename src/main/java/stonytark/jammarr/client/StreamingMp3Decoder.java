@@ -5,7 +5,6 @@ import javazoom.jl.decoder.Decoder;
 import javazoom.jl.decoder.Header;
 import javazoom.jl.decoder.SampleBuffer;
 import stonytark.jammarr.Jammarr;
-
 import javax.sound.sampled.AudioFormat;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;

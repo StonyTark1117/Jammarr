@@ -78,6 +78,9 @@ var generateGameTestTemplate = tasks.register('generateGameTestTemplate') {
 sourceSets.main.resources.srcDir(generateGameTestTemplate)
 
 dependencies {
+    jarJar(implementation(project(':core')))
+    additionalRuntimeClasspath(project(':core'))
+    neoForgeTestLibraries(project(':core'))
     jarJar(implementation('javazoom:jlayer:1.0.1'))
     jarJar(implementation('de.sciss:jump3r:1.0.5'))
     // NeoForge 1.21.1 does not expose ordinary Java libraries to the
@@ -98,6 +101,7 @@ tasks.withType(Test).configureEach {
 }
 
 tasks.named('jar', Jar) {
+    archiveFileName = "${mod_id}-${mod_version}+mc${minecraft_version}-neoforge.jar"
     from('THIRD_PARTY_NOTICES.md') {
         into('META-INF')
     }
@@ -111,7 +115,8 @@ tasks.named('jar', Jar) {
 }
 
 def releaseArchive = tasks.named('jar', Jar).flatMap { it.archiveFile }
-def releaseEntries = ['META-INF/jarjar/jlayer-1.0.1.jar', 'META-INF/jarjar/jump3r-1.0.5.jar',
+def coreJarEntry = "META-INF/jarjar/stonytark.core-${mod_version}.jar".toString()
+def releaseEntries = [coreJarEntry, 'META-INF/jarjar/jlayer-1.0.1.jar', 'META-INF/jarjar/jump3r-1.0.5.jar',
                       'META-INF/LICENSE-Jammarr-CC0-1.0.txt', 'META-INF/LICENSE-LGPL-2.1-or-later.txt',
                       'META-INF/THIRD_PARTY_NOTICES.md', 'META-INF/neoforge.mods.toml',
                       'assets/jammarr/lang/en_us.json', 'jammarr.mixins.json', 'jammarr.png']
@@ -123,6 +128,18 @@ tasks.register('verifyRelease') {
             releaseEntries.each { entry ->
                 if (!found.contains(entry)) throw new org.gradle.api.GradleException("Release archive is missing ${entry}")
             }
+            new java.util.zip.ZipInputStream(zip.getInputStream(zip.getEntry(coreJarEntry))).withCloseable { nested ->
+                boolean foundCoreClass = false
+                for (def entry = nested.nextEntry; entry != null; entry = nested.nextEntry) {
+                    if (entry.name == 'stonytark/jammarr/core/server/ChunkTransferPolicy.class') {
+                        byte[] header = nested.readNBytes(8)
+                        int major = ((header[6] & 0xff) << 8) | (header[7] & 0xff)
+                        if (major != 52) throw new org.gradle.api.GradleException("Shared core is not Java 8 bytecode: class major ${major}")
+                        foundCoreClass = true
+                    }
+                }
+                if (!foundCoreClass) throw new org.gradle.api.GradleException('Release archive does not contain the shared transport core')
+            }
             ['META-INF/neoforge.mods.toml', 'jammarr.mixins.json'].each { entry ->
                 def text = zip.getInputStream(zip.getEntry(entry)).getText('UTF-8').toLowerCase(java.util.Locale.ROOT)
                 if (text.contains('pampmod') || text.contains('pamp_')) {
@@ -131,6 +148,12 @@ tasks.register('verifyRelease') {
             }
         }
     }
+}
+
+tasks.register('verifyAllTargets') {
+    group = 'verification'
+    description = 'Builds and verifies every currently registered Jammarr target.'
+    dependsOn(':core:test', tasks.named('test'), tasks.named('runGameTestServer'), tasks.named('verifyRelease'))
 }
 
 var generateModMetadata = tasks.register('generateModMetadata', ProcessResources) {

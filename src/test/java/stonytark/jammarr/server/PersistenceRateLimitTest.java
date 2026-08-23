@@ -1,5 +1,9 @@
 package stonytark.jammarr.server;
 
+import stonytark.jammarr.core.model.QueueTrack;
+
+
+import stonytark.jammarr.core.server.SlidingWindowRateLimiter;
 import net.minecraft.nbt.CompoundTag;
 import org.junit.jupiter.api.Test;
 import java.util.UUID;
@@ -14,6 +18,7 @@ class PersistenceRateLimitTest {
         original.queue().add(new QueueTrack("1", "First", "Artist", "Album", 1_000));
         original.update(1_234, true);
         CompoundTag tag = original.save(new CompoundTag(), null);
+        assertEquals(JammarrSavedData.SCHEMA_VERSION, tag.getInt("schemaVersion"));
         JammarrSavedData restored = JammarrSavedData.load(tag, null);
         assertEquals(2, restored.queue().size()); assertEquals("2", restored.queue().getFirst().key());
         assertEquals(1_234, restored.checkpointMs()); assertTrue(restored.paused());
@@ -38,10 +43,34 @@ class PersistenceRateLimitTest {
 
     @Test void migratesLegacyQueueFirstItemToCurrent() {
         CompoundTag legacy = new CompoundTag(); net.minecraft.nbt.ListTag list = new net.minecraft.nbt.ListTag();
-        list.add(new QueueTrack("1", "Current", "Artist", "Album", 1_000).save()); list.add(new QueueTrack("2", "Next", "Artist", "Album", 1_000).save()); legacy.put("queue", list);
+        list.add(QueueTrackCodec.save(new QueueTrack("1", "Current", "Artist", "Album", 1_000)));
+        list.add(QueueTrackCodec.save(new QueueTrack("2", "Next", "Artist", "Album", 1_000))); legacy.put("queue", list);
         JammarrSavedData restored = JammarrSavedData.load(legacy, null);
         assertEquals("1", restored.current().key()); assertEquals(JammarrPayloads.PlaybackOrigin.MANUAL, restored.currentOrigin());
         assertEquals(List.of("2"), restored.queue().stream().map(QueueTrack::key).toList());
+    }
+
+    @Test void migratesSchemaTwoCurrentTrackAndSynthesizesItsSourceName() {
+        CompoundTag schemaTwo = new CompoundTag(); schemaTwo.putInt("schemaVersion", 2);
+        schemaTwo.put("current", QueueTrackCodec.save(new QueueTrack("1", "Current", "Artist", "Album", 1_000)));
+        schemaTwo.putString("currentOrigin", JammarrPayloads.PlaybackOrigin.STATION.name());
+        schemaTwo.putLong("checkpointMs", 500); schemaTwo.putBoolean("paused", true);
+        JammarrSavedData restored = JammarrSavedData.load(schemaTwo, null);
+        assertEquals("1", restored.current().key()); assertEquals(JammarrPayloads.PlaybackOrigin.STATION, restored.currentOrigin());
+        assertEquals("Station", restored.currentSourceName()); assertEquals(500, restored.checkpointMs()); assertTrue(restored.paused());
+    }
+
+    @Test void migratesSchemaThreeStationAutoplayAndHistoryToCanonicalSchemaFour() {
+        JammarrSavedData original = new JammarrSavedData();
+        original.station(new StationDefinition(JammarrPayloads.StationType.TRACK_RADIO, "Track Radio",
+                List.of(new JammarrPayloads.StationSeed(JammarrPayloads.ItemKind.TRACK, "seed", "Seed", "Artist")), 3));
+        original.autoplayEnabled(true); original.remember(new QueueTrack("history", "History", "Artist", "Album", 2_000));
+        CompoundTag schemaThree = original.save(new CompoundTag(), null); schemaThree.putInt("schemaVersion", 3);
+        JammarrSavedData restored = JammarrSavedData.load(schemaThree, null);
+        CompoundTag canonical = restored.save(new CompoundTag(), null);
+        assertEquals(4, canonical.getInt("schemaVersion")); assertTrue(restored.autoplayEnabled());
+        assertEquals(JammarrPayloads.StationType.TRACK_RADIO, restored.station().type());
+        assertEquals(List.of("history"), restored.history().stream().map(QueueTrack::key).toList());
     }
 
     @Test void globalClearRemovesPlaybackAndActiveSourceButRetainsRepeatHistory() {

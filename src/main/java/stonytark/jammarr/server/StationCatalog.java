@@ -1,7 +1,9 @@
 package stonytark.jammarr.server;
 
-import stonytark.jammarr.network.JammarrPayloads;
+import stonytark.jammarr.core.model.QueueTrack;
 
+
+import stonytark.jammarr.network.JammarrPayloads;
 import java.io.IOException;
 import java.util.List;
 import java.util.Set;

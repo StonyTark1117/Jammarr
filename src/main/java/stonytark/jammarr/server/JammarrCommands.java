@@ -9,7 +9,6 @@ import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 import stonytark.jammarr.config.JammarrConfig;
 import stonytark.jammarr.network.JammarrPayloads;
-
 import java.util.List;
 
 public final class JammarrCommands {

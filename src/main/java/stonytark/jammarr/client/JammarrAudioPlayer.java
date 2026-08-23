@@ -1,5 +1,10 @@
 package stonytark.jammarr.client;
 
+import stonytark.jammarr.core.client.ChunkWindowTracker;
+import stonytark.jammarr.core.client.ClockSynchronizer;
+import stonytark.jammarr.core.client.DriftPolicy;
+import stonytark.jammarr.core.client.AsyncStartGuard;
+import stonytark.jammarr.core.network.Hashing;
 import com.mojang.blaze3d.audio.Library;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.sounds.ChannelAccess;
@@ -9,9 +14,7 @@ import stonytark.jammarr.Jammarr;
 import stonytark.jammarr.config.JammarrConfig;
 import stonytark.jammarr.mixin.client.SoundEngineAccessor;
 import stonytark.jammarr.mixin.client.SoundManagerAccessor;
-import stonytark.jammarr.network.Hashing;
 import stonytark.jammarr.network.JammarrPayloads;
-
 import java.util.UUID;
 
 public final class JammarrAudioPlayer {

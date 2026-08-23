@@ -1,11 +1,11 @@
 package stonytark.jammarr.client;
 
+import stonytark.jammarr.core.client.ClockSynchronizer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.neoforged.neoforge.network.PacketDistributor;
 import stonytark.jammarr.network.JammarrNetwork;
 import stonytark.jammarr.network.JammarrPayloads;
-
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 

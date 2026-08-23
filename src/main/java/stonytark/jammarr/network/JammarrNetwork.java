@@ -5,10 +5,11 @@ import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import stonytark.jammarr.server.JammarrServer;
+import stonytark.jammarr.core.protocol.ProtocolLimits;
 
 public final class JammarrNetwork {
     /** Bumped for source-aware queues, stations, and Sonic Adventure payloads. */
-    public static final int PROTOCOL = 5;
+    public static final int PROTOCOL = ProtocolLimits.VERSION;
     public static final String VERSION = Integer.toString(PROTOCOL);
 
     public static boolean protocolMatches(int offered) { return offered == PROTOCOL; }

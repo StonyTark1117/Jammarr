@@ -1,5 +1,22 @@
 package stonytark.jammarr.server;
 
+import stonytark.jammarr.core.model.QueueTrack;
+
+
+import stonytark.jammarr.core.server.Mp3FrameIndex;
+import stonytark.jammarr.core.server.EmptyServerPausePolicy;
+import stonytark.jammarr.core.server.SecretRedactor;
+import stonytark.jammarr.core.server.ChunkTransferPolicy;
+import stonytark.jammarr.core.server.PlexException;
+import stonytark.jammarr.core.server.SlidingWindowRateLimiter;
+import stonytark.jammarr.core.server.PlaybackTimeline;
+import stonytark.jammarr.core.server.RetryGate;
+import stonytark.jammarr.core.server.TrackFailurePolicy;
+import stonytark.jammarr.core.server.QueueOperations;
+import stonytark.jammarr.core.server.RestartPolicy;
+import stonytark.jammarr.core.server.AudioAsset;
+import stonytark.jammarr.core.server.AudioCache;
+import stonytark.jammarr.core.platform.CoreLogger;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -8,7 +25,6 @@ import stonytark.jammarr.Jammarr;
 import stonytark.jammarr.config.JammarrConfig;
 import stonytark.jammarr.network.JammarrNetwork;
 import stonytark.jammarr.network.JammarrPayloads;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -82,7 +98,11 @@ public final class GlobalPlayer implements AutoCloseable {
 
     GlobalPlayer(MinecraftServer server, PlexClient plex) throws IOException {
         this.server = server; this.plex = plex; this.stationGenerator = new StationGenerator(plex);
-        this.cache = new AudioCache(server.getServerDirectory().resolve("jammarr-cache"), JammarrConfig.CACHE_MIB.get() * 1024L * 1024L);
+        this.cache = new AudioCache(server.getServerDirectory().resolve("jammarr-cache"), JammarrConfig.CACHE_MIB.get() * 1024L * 1024L,
+                new CoreLogger() {
+                    @Override public void info(String message) { Jammarr.LOGGER.info(message); }
+                    @Override public void warn(String message, Throwable error) { Jammarr.LOGGER.warn(message, error); }
+                });
         this.saved = server.overworld().getDataStorage().computeIfAbsent(JammarrSavedData.FACTORY, "jammarr_global_queue");
         RestartPolicy.Restoration restoration = RestartPolicy.restore(JammarrConfig.RESTART_MODE.get(), saved.checkpointMs(), saved.paused());
         if (restoration.clearQueue()) saved.clearAll();
@@ -246,7 +266,7 @@ public final class GlobalPlayer implements AutoCloseable {
         }, io).whenComplete((batch, error) -> server.execute(() -> {
             if (error != null) { sendError(player, JammarrPayloads.ErrorCode.INVALID_REQUEST, safe(root(error))); return; }
             List<JammarrPayloads.QueueEntry> path = batch.tracks().stream().limit(100)
-                    .map(track -> track.networkEntry(JammarrPayloads.PlaybackOrigin.ADVENTURE, false)).toList();
+                    .map(track -> QueueTrackCodec.networkEntry(track, JammarrPayloads.PlaybackOrigin.ADVENTURE, false)).toList();
             PacketDistributor.sendToPlayer(player, new JammarrPayloads.AdventurePreview(requested.generation(),
                     path.size() + (path.size() == 1 ? " track" : " tracks") + " in this Sonic Adventure", path));
         }));
@@ -488,15 +508,15 @@ public final class GlobalPlayer implements AutoCloseable {
         StationDefinition active = activeDefinition();
         PacketDistributor.sendToPlayer(player, new JammarrPayloads.StationState(active.type(), active.active(), saved.autoplayEnabled(), active.generation(),
                 sonicCapability, sonicMessage, active.name(), active.seeds(), generated.stream().limit(GENERATED_PREVIEW_SIZE)
-                .map(track -> track.networkEntry(active.adventure() ? JammarrPayloads.PlaybackOrigin.ADVENTURE : JammarrPayloads.PlaybackOrigin.STATION, false)).toList()));
+                .map(track -> QueueTrackCodec.networkEntry(track, active.adventure() ? JammarrPayloads.PlaybackOrigin.ADVENTURE : JammarrPayloads.PlaybackOrigin.STATION, false)).toList()));
     }
 
     private List<JammarrPayloads.QueueEntry> visibleQueue() {
         List<JammarrPayloads.QueueEntry> result = new ArrayList<>();
-        if (saved.current() != null) result.add(saved.current().networkEntry(saved.currentOrigin(), false));
-        saved.queue().forEach(track -> result.add(track.networkEntry(JammarrPayloads.PlaybackOrigin.MANUAL, true)));
+        if (saved.current() != null) result.add(QueueTrackCodec.networkEntry(saved.current(), saved.currentOrigin(), false));
+        saved.queue().forEach(track -> result.add(QueueTrackCodec.networkEntry(track, JammarrPayloads.PlaybackOrigin.MANUAL, true)));
         JammarrPayloads.PlaybackOrigin generatedOrigin = activeDefinition().adventure() ? JammarrPayloads.PlaybackOrigin.ADVENTURE : JammarrPayloads.PlaybackOrigin.STATION;
-        generated.stream().limit(GENERATED_PREVIEW_SIZE).forEach(track -> result.add(track.networkEntry(generatedOrigin, false)));
+        generated.stream().limit(GENERATED_PREVIEW_SIZE).forEach(track -> result.add(QueueTrackCodec.networkEntry(track, generatedOrigin, false)));
         return List.copyOf(result);
     }
 

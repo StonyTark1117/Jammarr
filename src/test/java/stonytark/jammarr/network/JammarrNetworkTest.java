@@ -5,10 +5,9 @@ import net.minecraft.core.RegistryAccess;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.neoforged.neoforge.network.connection.ConnectionType;
 import org.junit.jupiter.api.Test;
-
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.IntStream;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -29,6 +28,14 @@ class JammarrNetworkTest {
                 new JammarrPayloads.StationRequest(JammarrPayloads.StationAction.START_NOW, JammarrPayloads.StationType.SONIC_ADVENTURE, false, 12, seeds));
         assertEquals(JammarrPayloads.StationType.SONIC_ADVENTURE, decoded.stationType()); assertEquals(12, decoded.expectedGeneration());
         assertEquals(5, decoded.seeds().size());
+    }
+
+    @Test void neoForgeChunkAdapterMatchesTheSharedProtocolFiveGoldenVector() {
+        RegistryFriendlyByteBuf buffer = buffer();
+        JammarrPayloads.ChunkRequest.CODEC.encode(buffer, new JammarrPayloads.ChunkRequest(
+                UUID.fromString("00112233-4455-6677-8899-aabbccddeeff"), 300, 17, 8));
+        byte[] encoded = new byte[buffer.readableBytes()]; buffer.getBytes(0, encoded);
+        assertEquals("00112233445566778899aabbccddeeffac021108", hex(encoded));
     }
 
     @Test void stationStateCodecPreservesCapabilitySourceAndPreview() {
@@ -61,5 +68,11 @@ class JammarrNetworkTest {
 
     private static RegistryFriendlyByteBuf buffer() {
         return new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY, ConnectionType.NEOFORGE);
+    }
+
+    private static String hex(byte[] value) {
+        StringBuilder result = new StringBuilder(value.length * 2);
+        for (byte item : value) result.append("%02x".formatted(item & 0xff));
+        return result.toString();
     }
 }

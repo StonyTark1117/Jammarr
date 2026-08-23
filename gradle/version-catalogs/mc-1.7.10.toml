@@ -1,0 +1,4 @@
+[versions]
+minecraft = "1.7.10"
+java = "8"
+forge = "10.13.4.1614-1.7.10"

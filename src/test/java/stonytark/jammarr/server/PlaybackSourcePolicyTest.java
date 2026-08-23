@@ -1,12 +1,13 @@
 package stonytark.jammarr.server;
 
+import stonytark.jammarr.core.model.QueueTrack;
+
+
 import org.junit.jupiter.api.Test;
 import stonytark.jammarr.network.JammarrPayloads;
-
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
-
 import static org.junit.jupiter.api.Assertions.*;
 
 class PlaybackSourcePolicyTest {
@@ -25,10 +26,10 @@ class PlaybackSourcePolicyTest {
 
     @Test void generatedPreviewAndCurrentRowsCannotBeMoved() {
         List<JammarrPayloads.QueueEntry> visible = List.of(
-                track("current").networkEntry(JammarrPayloads.PlaybackOrigin.STATION, false),
-                track("manual-1").networkEntry(JammarrPayloads.PlaybackOrigin.MANUAL, true),
-                track("manual-2").networkEntry(JammarrPayloads.PlaybackOrigin.MANUAL, true),
-                track("preview").networkEntry(JammarrPayloads.PlaybackOrigin.STATION, false));
+                QueueTrackCodec.networkEntry(track("current"), JammarrPayloads.PlaybackOrigin.STATION, false),
+                QueueTrackCodec.networkEntry(track("manual-1"), JammarrPayloads.PlaybackOrigin.MANUAL, true),
+                QueueTrackCodec.networkEntry(track("manual-2"), JammarrPayloads.PlaybackOrigin.MANUAL, true),
+                QueueTrackCodec.networkEntry(track("preview"), JammarrPayloads.PlaybackOrigin.STATION, false));
         assertFalse(PlaybackSourcePolicy.canMove(visible, 1, -1)); assertTrue(PlaybackSourcePolicy.canMove(visible, 1, 1));
         assertFalse(PlaybackSourcePolicy.canMove(visible, 2, 1));
     }

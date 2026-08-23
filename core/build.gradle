@@ -1,0 +1,32 @@
+plugins {
+    id 'java-library'
+}
+
+group = rootProject.group
+version = rootProject.version
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(8)
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation('javazoom:jlayer:1.0.1')
+    implementation('de.sciss:jump3r:1.0.5')
+    testImplementation(platform('org.junit:junit-bom:5.10.2'))
+    testImplementation('org.junit.jupiter:junit-jupiter')
+    testRuntimeOnly('org.junit.platform:junit-platform-launcher')
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+}

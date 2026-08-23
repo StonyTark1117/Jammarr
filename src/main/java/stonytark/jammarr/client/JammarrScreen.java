@@ -10,7 +10,6 @@ import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
 import stonytark.jammarr.config.JammarrConfig;
 import stonytark.jammarr.network.JammarrPayloads;
-
 import java.util.ArrayList;
 import java.util.List;
 

@@ -1,10 +1,9 @@
 package stonytark.jammarr.config;
 
 import net.neoforged.neoforge.common.ModConfigSpec;
+import stonytark.jammarr.core.model.RestartMode;
 
 public final class JammarrConfig {
-    public enum RestartMode { RESTART_TRACK, CLEAR, RESUME_POSITION }
-
     private static final ModConfigSpec.Builder SERVER_BUILDER = new ModConfigSpec.Builder();
     public static final ModConfigSpec.ConfigValue<String> PLEX_URL = SERVER_BUILDER
             .comment("Plex Media Server base URL, for example http://127.0.0.1:32400")

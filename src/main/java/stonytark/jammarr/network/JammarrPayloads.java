@@ -6,18 +6,19 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import io.netty.handler.codec.DecoderException;
 import stonytark.jammarr.Jammarr;
-
+import stonytark.jammarr.core.protocol.ProtocolLimits;
+import stonytark.jammarr.core.protocol.TransportPackets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
 public final class JammarrPayloads {
-    private static final int MAX_BROWSE_RESULTS = 50;
-    private static final int MAX_STATION_SEEDS = 5;
+    private static final int MAX_BROWSE_RESULTS = ProtocolLimits.MAX_BROWSE_RESULTS;
+    private static final int MAX_STATION_SEEDS = ProtocolLimits.MAX_STATION_SEEDS;
     // One generated current track, the 500-entry manual queue, and three preview rows.
-    private static final int MAX_PLAYBACK_ENTRIES = 504;
-    private static final int MAX_STATION_PREVIEW = 3;
-    private static final int MAX_ADVENTURE_PATH = 100;
+    private static final int MAX_PLAYBACK_ENTRIES = ProtocolLimits.MAX_PLAYBACK_ENTRIES;
+    private static final int MAX_STATION_PREVIEW = ProtocolLimits.MAX_STATION_PREVIEW;
+    private static final int MAX_ADVENTURE_PATH = ProtocolLimits.MAX_ADVENTURE_PATH;
     public enum BrowseKind { SEARCH, ARTISTS, ALBUMS, PLAYLISTS, QUEUE }
     public enum ItemKind { TRACK, ARTIST, ALBUM, PLAYLIST }
     public enum ControlAction { PAUSE, RESUME, SKIP, CLEAR, REMOVE, MOVE_UP, MOVE_DOWN }
@@ -162,16 +163,27 @@ public final class JammarrPayloads {
     public record ChunkRequest(UUID sessionId, long requestId, int startIndex, int count) implements CustomPacketPayload {
         public static final Type<ChunkRequest> TYPE = genericType("chunk_request");
         public static final StreamCodec<RegistryFriendlyByteBuf, ChunkRequest> CODEC = StreamCodec.ofMember(ChunkRequest::write, ChunkRequest::read);
-        private static ChunkRequest read(RegistryFriendlyByteBuf b) { return new ChunkRequest(b.readUUID(), b.readVarLong(), b.readVarInt(), b.readVarInt()); }
-        private void write(RegistryFriendlyByteBuf b) { b.writeUUID(sessionId); b.writeVarLong(requestId); b.writeVarInt(startIndex); b.writeVarInt(count); }
+        private static ChunkRequest read(RegistryFriendlyByteBuf b) {
+            TransportPackets.ChunkRequest value = TransportPackets.CHUNK_REQUEST.decode(new MinecraftWireInput(b));
+            return new ChunkRequest(value.sessionId(), value.requestId(), value.startIndex(), value.count());
+        }
+        private void write(RegistryFriendlyByteBuf b) {
+            TransportPackets.CHUNK_REQUEST.encode(new MinecraftWireOutput(b), new TransportPackets.ChunkRequest(sessionId, requestId, startIndex, count));
+        }
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
     public record ChunkAcknowledgement(UUID sessionId, long requestId, int receivedThroughIndex, long bufferedMs) implements CustomPacketPayload {
         public static final Type<ChunkAcknowledgement> TYPE = genericType("chunk_ack");
         public static final StreamCodec<RegistryFriendlyByteBuf, ChunkAcknowledgement> CODEC = StreamCodec.ofMember(ChunkAcknowledgement::write, ChunkAcknowledgement::read);
-        private static ChunkAcknowledgement read(RegistryFriendlyByteBuf b) { return new ChunkAcknowledgement(b.readUUID(), b.readVarLong(), b.readVarInt(), b.readVarLong()); }
-        private void write(RegistryFriendlyByteBuf b) { b.writeUUID(sessionId); b.writeVarLong(requestId); b.writeVarInt(receivedThroughIndex); b.writeVarLong(bufferedMs); }
+        private static ChunkAcknowledgement read(RegistryFriendlyByteBuf b) {
+            TransportPackets.ChunkAcknowledgement value = TransportPackets.CHUNK_ACKNOWLEDGEMENT.decode(new MinecraftWireInput(b));
+            return new ChunkAcknowledgement(value.sessionId(), value.requestId(), value.receivedThroughIndex(), value.bufferedMs());
+        }
+        private void write(RegistryFriendlyByteBuf b) {
+            TransportPackets.CHUNK_ACKNOWLEDGEMENT.encode(new MinecraftWireOutput(b),
+                    new TransportPackets.ChunkAcknowledgement(sessionId, requestId, receivedThroughIndex, bufferedMs));
+        }
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
@@ -200,10 +212,13 @@ public final class JammarrPayloads {
         public static final Type<AudioManifest> TYPE = genericType("audio_manifest");
         public static final StreamCodec<RegistryFriendlyByteBuf, AudioManifest> CODEC = StreamCodec.ofMember(AudioManifest::write, AudioManifest::read);
         private static AudioManifest read(RegistryFriendlyByteBuf b) {
-            return new AudioManifest(b.readUUID(), b.readUtf(256), b.readUtf(256), b.readVarInt(), b.readVarInt(), b.readVarLong(), b.readLong(), b.readBoolean(), b.readVarLong(), b.readUtf(64));
+            TransportPackets.AudioManifest value = TransportPackets.AUDIO_MANIFEST.decode(new MinecraftWireInput(b));
+            return new AudioManifest(value.sessionId(), value.title(), value.artist(), value.totalChunks(), value.firstChunk(), value.durationMs(),
+                    value.startedAtEpochMs(), value.paused(), value.pausedPositionMs(), value.sha256());
         }
         private void write(RegistryFriendlyByteBuf b) {
-            b.writeUUID(sessionId); b.writeUtf(title, 256); b.writeUtf(artist, 256); b.writeVarInt(totalChunks); b.writeVarInt(firstChunk); b.writeVarLong(durationMs); b.writeLong(startedAtEpochMs); b.writeBoolean(paused); b.writeVarLong(pausedPositionMs); b.writeUtf(sha256, 64);
+            TransportPackets.AUDIO_MANIFEST.encode(new MinecraftWireOutput(b), new TransportPackets.AudioManifest(sessionId, title, artist,
+                    totalChunks, firstChunk, durationMs, startedAtEpochMs, paused, pausedPositionMs, sha256));
         }
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
@@ -211,8 +226,13 @@ public final class JammarrPayloads {
     public record AudioChunk(UUID sessionId, long requestId, int index, long startMs, String sha256, byte[] data) implements CustomPacketPayload {
         public static final Type<AudioChunk> TYPE = genericType("audio_chunk");
         public static final StreamCodec<RegistryFriendlyByteBuf, AudioChunk> CODEC = StreamCodec.ofMember(AudioChunk::write, AudioChunk::read);
-        private static AudioChunk read(RegistryFriendlyByteBuf b) { return new AudioChunk(b.readUUID(), b.readVarLong(), b.readVarInt(), b.readVarLong(), b.readUtf(64), b.readByteArray(16_384)); }
-        private void write(RegistryFriendlyByteBuf b) { b.writeUUID(sessionId); b.writeVarLong(requestId); b.writeVarInt(index); b.writeVarLong(startMs); b.writeUtf(sha256, 64); b.writeByteArray(data); }
+        private static AudioChunk read(RegistryFriendlyByteBuf b) {
+            TransportPackets.AudioChunk value = TransportPackets.AUDIO_CHUNK.decode(new MinecraftWireInput(b));
+            return new AudioChunk(value.sessionId(), value.requestId(), value.index(), value.startMs(), value.sha256(), value.data());
+        }
+        private void write(RegistryFriendlyByteBuf b) {
+            TransportPackets.AUDIO_CHUNK.encode(new MinecraftWireOutput(b), new TransportPackets.AudioChunk(sessionId, requestId, index, startMs, sha256, data));
+        }
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 

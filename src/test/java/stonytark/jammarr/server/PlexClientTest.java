@@ -1,12 +1,15 @@
 package stonytark.jammarr.server;
 
+import stonytark.jammarr.core.model.QueueTrack;
+
+
+import stonytark.jammarr.core.server.PlexException;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import stonytark.jammarr.network.JammarrPayloads;
-
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
@@ -18,7 +21,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
-
 import static org.junit.jupiter.api.Assertions.*;
 
 class PlexClientTest {

@@ -1,14 +1,12 @@
 package stonytark.jammarr.client;
 
+import stonytark.jammarr.core.server.Mp3FrameIndex;
 import de.sciss.jump3r.lowlevel.LameEncoder;
 import org.junit.jupiter.api.Test;
-import stonytark.jammarr.server.Mp3FrameIndex;
-
 import javax.sound.sampled.AudioFormat;
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-
 import static org.junit.jupiter.api.Assertions.*;
 
 class StreamingMp3DecoderTest {
