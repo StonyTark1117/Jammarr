@@ -114,7 +114,7 @@ def releaseArchive = tasks.named('jar', Jar).flatMap { it.archiveFile }
 def releaseEntries = ['META-INF/jarjar/jlayer-1.0.1.jar', 'META-INF/jarjar/jump3r-1.0.5.jar',
                       'META-INF/LICENSE-Jammarr-CC0-1.0.txt', 'META-INF/LICENSE-LGPL-2.1-or-later.txt',
                       'META-INF/THIRD_PARTY_NOTICES.md', 'META-INF/neoforge.mods.toml',
-                      'assets/jammarr/lang/en_us.json', 'jammarr.mixins.json']
+                      'assets/jammarr/lang/en_us.json', 'jammarr.mixins.json', 'jammarr.png']
 tasks.register('verifyRelease') {
     dependsOn(tasks.named('test'), tasks.named('jar'))
     doLast {
