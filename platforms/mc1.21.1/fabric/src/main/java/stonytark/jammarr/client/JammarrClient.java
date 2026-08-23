@@ -8,6 +8,7 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
 import net.fabricmc.fabric.api.resource.SimpleSynchronousResourceReloadListener;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.codec.StreamCodec;
@@ -18,15 +19,20 @@ import net.minecraft.server.packs.PackType;
 import net.minecraft.server.packs.resources.ResourceManager;
 import org.lwjgl.glfw.GLFW;
 import stonytark.jammarr.Jammarr;
+import stonytark.jammarr.core.platform.CanonicalConfigFiles;
+import stonytark.jammarr.core.platform.JammarrSettings;
 import stonytark.jammarr.network.ClientPayloadBridge;
 import stonytark.jammarr.network.JammarrNetwork;
 import stonytark.jammarr.network.JammarrPayloads;
+
+import java.nio.file.Path;
 
 public final class JammarrClient implements ClientModInitializer {
     private static final KeyMapping OPEN = new KeyMapping("key.jammarr.open", InputConstants.Type.KEYSYM,
             GLFW.GLFW_KEY_P, "key.categories.jammarr");
 
     @Override public void onInitializeClient() {
+        installClientSettings();
         KeyBindingHelper.registerKeyBinding(OPEN);
         ClientPayloadBridge.install(JammarrClientState.INSTANCE::accept);
         JammarrNetwork.installClientSender(ClientPlayNetworking::send);
@@ -42,6 +48,22 @@ public final class JammarrClient implements ClientModInitializer {
                 JammarrClientState.INSTANCE.audioEngineReloaded();
             }
         });
+    }
+
+    private static void installClientSettings() {
+        Path configDirectory = FabricLoader.getInstance().getConfigDir();
+        try {
+            CanonicalConfigFiles.ClientConfig config = CanonicalConfigFiles.loadClient(
+                    configDirectory.resolve(CanonicalConfigFiles.CLIENT_FILE_NAME),
+                    configDirectory.resolve("jammarr-client-fabric.toml"),
+                    configDirectory.resolve("pampmod-client.toml"));
+            JammarrSettings.installClient(config);
+            if (config.importedFrom() != null) {
+                Jammarr.LOGGER.info("Imported legacy Jammarr client settings from {}", config.importedFrom());
+            }
+        } catch (Exception error) {
+            Jammarr.LOGGER.error("Unable to load Jammarr client settings; using safe defaults", error);
+        }
     }
 
     private void tick(Minecraft minecraft) {
@@ -65,7 +87,7 @@ public final class JammarrClient implements ClientModInitializer {
         receive(JammarrPayloads.ErrorMessage.TYPE, JammarrPayloads.ErrorMessage.CODEC);
     }
 
-    private static <T extends CustomPacketPayload> void receive(CustomPacketPayload.Type<T> type,
+    private static <T extends CustomPacketPayload & stonytark.jammarr.core.protocol.JammarrMessage> void receive(CustomPacketPayload.Type<T> type,
                                                                  StreamCodec<? super RegistryFriendlyByteBuf, T> codec) {
         ClientPlayNetworking.registerGlobalReceiver(type, (payload, context) -> ClientPayloadBridge.accept(payload));
     }

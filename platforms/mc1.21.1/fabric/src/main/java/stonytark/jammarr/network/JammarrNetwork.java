@@ -7,6 +7,7 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import stonytark.jammarr.core.protocol.ProtocolLimits;
+import stonytark.jammarr.core.protocol.JammarrMessage;
 import stonytark.jammarr.server.JammarrServer;
 
 import java.util.function.Consumer;
@@ -21,15 +22,15 @@ public final class JammarrNetwork {
     public static void installClientSender(Consumer<CustomPacketPayload> sender) { clientSender = sender; }
     public static void activeServer(MinecraftServer value) { server = value; }
 
-    public static void sendToServer(CustomPacketPayload payload) {
+    public static void sendToServer(JammarrMessage payload) {
         Consumer<CustomPacketPayload> sender = clientSender;
         if (sender == null) throw new IllegalStateException("Jammarr client networking is not initialized");
-        sender.accept(payload);
+        sender.accept((CustomPacketPayload)payload);
     }
-    public static void sendToPlayer(ServerPlayer player, CustomPacketPayload payload) {
-        ServerPlayNetworking.send(player, payload);
+    public static void sendToPlayer(ServerPlayer player, JammarrMessage payload) {
+        ServerPlayNetworking.send(player, (CustomPacketPayload)payload);
     }
-    public static void sendToAllPlayers(CustomPacketPayload payload) {
+    public static void sendToAllPlayers(JammarrMessage payload) {
         MinecraftServer current = server;
         if (current != null) for (ServerPlayer player : current.getPlayerList().getPlayers()) sendToPlayer(player, payload);
     }
@@ -61,8 +62,11 @@ public final class JammarrNetwork {
                 context.responseSender().disconnect(Component.literal("Jammarr protocol mismatch: server requires version " + PROTOCOL));
             } else JammarrServer.instance().hello(context.player());
         });
-        ServerPlayNetworking.registerGlobalReceiver(JammarrPayloads.TimeSyncRequest.TYPE, (p, c) ->
-                c.responseSender().sendPacket(new JammarrPayloads.TimeSyncResponse(p.nonce(), p.clientSentEpochMs(), System.currentTimeMillis())));
+        ServerPlayNetworking.registerGlobalReceiver(JammarrPayloads.TimeSyncRequest.TYPE, (p, c) -> {
+            if (JammarrServer.instance().accepted(c.player())) {
+                c.responseSender().sendPacket(new JammarrPayloads.TimeSyncResponse(p.nonce(), p.clientSentEpochMs(), System.currentTimeMillis()));
+            }
+        });
         ServerPlayNetworking.registerGlobalReceiver(JammarrPayloads.BrowseRequest.TYPE, (p, c) -> JammarrServer.instance().browse(c.player(), p));
         ServerPlayNetworking.registerGlobalReceiver(JammarrPayloads.QueueRequest.TYPE, (p, c) -> JammarrServer.instance().queue(c.player(), p));
         ServerPlayNetworking.registerGlobalReceiver(JammarrPayloads.ControlRequest.TYPE, (p, c) -> JammarrServer.instance().control(c.player(), p));
@@ -73,11 +77,11 @@ public final class JammarrNetwork {
         ServerPlayNetworking.registerGlobalReceiver(JammarrPayloads.ManifestRequest.TYPE, (p, c) -> JammarrServer.instance().sync(c.player()));
     }
 
-    private static <T extends CustomPacketPayload> void registerS2C(CustomPacketPayload.Type<T> type,
+    private static <T extends CustomPacketPayload & JammarrMessage> void registerS2C(CustomPacketPayload.Type<T> type,
                                                                     net.minecraft.network.codec.StreamCodec<? super net.minecraft.network.RegistryFriendlyByteBuf, T> codec) {
         PayloadTypeRegistry.playS2C().register(type, codec);
     }
-    private static <T extends CustomPacketPayload> void registerC2S(CustomPacketPayload.Type<T> type,
+    private static <T extends CustomPacketPayload & JammarrMessage> void registerC2S(CustomPacketPayload.Type<T> type,
                                                                     net.minecraft.network.codec.StreamCodec<? super net.minecraft.network.RegistryFriendlyByteBuf, T> codec) {
         PayloadTypeRegistry.playC2S().register(type, codec);
     }

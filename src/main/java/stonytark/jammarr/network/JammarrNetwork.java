@@ -8,6 +8,7 @@ import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import stonytark.jammarr.server.JammarrServer;
 import stonytark.jammarr.core.protocol.ProtocolLimits;
+import stonytark.jammarr.core.protocol.JammarrMessage;
 
 public final class JammarrNetwork {
     /** Bumped for source-aware queues, stations, and Sonic Adventure payloads. */
@@ -16,9 +17,9 @@ public final class JammarrNetwork {
 
     public static boolean protocolMatches(int offered) { return offered == PROTOCOL; }
 
-    public static void sendToServer(CustomPacketPayload payload) { PacketDistributor.sendToServer(payload); }
-    public static void sendToPlayer(ServerPlayer player, CustomPacketPayload payload) { PacketDistributor.sendToPlayer(player, payload); }
-    public static void sendToAllPlayers(CustomPacketPayload payload) { PacketDistributor.sendToAllPlayers(payload); }
+    public static void sendToServer(JammarrMessage payload) { PacketDistributor.sendToServer((CustomPacketPayload)payload); }
+    public static void sendToPlayer(ServerPlayer player, JammarrMessage payload) { PacketDistributor.sendToPlayer(player, (CustomPacketPayload)payload); }
+    public static void sendToAllPlayers(JammarrMessage payload) { PacketDistributor.sendToAllPlayers((CustomPacketPayload)payload); }
 
     public static void register(RegisterPayloadHandlersEvent event) {
         PayloadRegistrar registrar = event.registrar(VERSION);
@@ -61,7 +62,7 @@ public final class JammarrNetwork {
 
     private static void client(net.minecraft.network.protocol.common.custom.CustomPacketPayload payload,
                                net.neoforged.neoforge.network.handling.IPayloadContext context) {
-        context.enqueueWork(() -> ClientPayloadBridge.accept(payload));
+        context.enqueueWork(() -> ClientPayloadBridge.accept((JammarrMessage)payload));
     }
 
     private JammarrNetwork() {}

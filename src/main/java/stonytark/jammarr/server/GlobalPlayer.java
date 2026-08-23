@@ -41,6 +41,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public final class GlobalPlayer implements AutoCloseable {
     private static final int PAGE_SIZE = 20;
@@ -54,7 +55,7 @@ public final class GlobalPlayer implements AutoCloseable {
     private final PlexClient plex;
     private final StationGenerator stationGenerator;
     private final AudioCache cache;
-    private final ExecutorService io = Executors.newFixedThreadPool(3, Thread.ofPlatform().name("jammarr-io-", 0).factory());
+    private final ExecutorService io = createIoExecutor();
     private final JammarrSavedData saved;
     private final PlaybackTimeline timeline = new PlaybackTimeline(System::currentTimeMillis);
     private final AtomicBoolean preparing = new AtomicBoolean();
@@ -434,7 +435,7 @@ public final class GlobalPlayer implements AutoCloseable {
         }));
     }
 
-    private QueueTrack nextTrack() { return !saved.queue().isEmpty() ? saved.queue().getFirst() : generated.peekFirst(); }
+    private QueueTrack nextTrack() { return !saved.queue().isEmpty() ? saved.queue().get(0) : generated.peekFirst(); }
     private Set<Path> pinnedPaths(Path additional) {
         Set<Path> pins = new HashSet<>(); if (additional != null) pins.add(additional); if (asset != null) pins.add(asset.path()); if (prefetched != null) pins.add(prefetched.asset.path()); return Set.copyOf(pins);
     }
@@ -448,7 +449,7 @@ public final class GlobalPlayer implements AutoCloseable {
     private void completeAdventureIfNeeded() {
         StationDefinition definition = saved.station();
         if (!definition.adventure() || adventureLoadedGeneration != definition.generation() || !generated.isEmpty()) return;
-        JammarrPayloads.StationSeed finalWaypoint = definition.seeds().getLast();
+        JammarrPayloads.StationSeed finalWaypoint = definition.seeds().get(definition.seeds().size() - 1);
         saved.station(new StationDefinition(JammarrPayloads.StationType.TRACK_RADIO,
                 "Track Radio: " + finalWaypoint.title(), List.of(finalWaypoint), definition.generation() + 1));
         adventureLoadedGeneration = -1; suspendedGeneration = -1; generationMessage = "Sonic Adventure complete; continuing with Track Radio";
@@ -480,7 +481,7 @@ public final class GlobalPlayer implements AutoCloseable {
         };
         return new StationDefinition(type, name, seeds, generation);
     }
-    private static String seedName(List<JammarrPayloads.StationSeed> seeds) { return seeds.isEmpty() ? "" : seeds.getFirst().title(); }
+    private static String seedName(List<JammarrPayloads.StationSeed> seeds) { return seeds.isEmpty() ? "" : seeds.get(0).title(); }
 
     private long positionMs() { return timeline.positionMs(); }
     private long durationMs() { return timeline.durationMs(); }
@@ -585,6 +586,11 @@ public final class GlobalPlayer implements AutoCloseable {
     private static void sendError(ServerPlayer player, JammarrPayloads.ErrorCode code, String message) { JammarrNetwork.sendToPlayer(player, new JammarrPayloads.ErrorMessage(code, message)); }
     private String safe(Throwable error) { return SecretRedactor.message(error, JammarrSettings.plexToken()); }
     private static Throwable root(Throwable error) { Throwable value = error; while (value.getCause() != null) value = value.getCause(); return value; }
+
+    private static ExecutorService createIoExecutor() {
+        AtomicInteger sequence = new AtomicInteger();
+        return Executors.newFixedThreadPool(3, runnable -> new Thread(runnable, "jammarr-io-" + sequence.getAndIncrement()));
+    }
 
     private record PreparedAsset(QueueTrack track, AudioAsset asset) {}
     private static final class ListenerStats {

@@ -1,0 +1,64 @@
+package stonytark.jammarr.network;
+
+import io.netty.buffer.Unpooled;
+import net.minecraft.core.RegistryAccess;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class JammarrForgeNetworkTest {
+    @Test void acceptsOnlyProtocolFive() {
+        assertEquals(5, JammarrNetwork.PROTOCOL);
+        assertTrue(JammarrNetwork.protocolMatches(5));
+        assertFalse(JammarrNetwork.protocolMatches(4));
+        assertFalse(JammarrNetwork.protocolMatches(6));
+    }
+
+    @Test void stationCodecMatchesTheSharedGoldenVector() {
+        RegistryFriendlyByteBuf buffer = buffer();
+        JammarrPayloads.StationRequest.CODEC.encode(buffer, new JammarrPayloads.StationRequest(
+                JammarrPayloads.StationAction.START_NOW, JammarrPayloads.StationType.SONIC_ADVENTURE,
+                false, 12, List.of(new JammarrPayloads.StationSeed(
+                        JammarrPayloads.ItemKind.TRACK, "42", "Song", "Artist"))));
+        byte[] encoded = new byte[buffer.readableBytes()];
+        buffer.getBytes(0, encoded);
+        assertEquals("0107000c010002343204536f6e6706417274697374", hex(encoded));
+    }
+
+    @Test void browseCodecMatchesTheSharedGoldenVector() {
+        RegistryFriendlyByteBuf buffer = buffer();
+        JammarrPayloads.BrowseRequest.CODEC.encode(buffer,
+                new JammarrPayloads.BrowseRequest(JammarrPayloads.BrowseKind.SEARCH, "A&B", 2));
+        byte[] encoded = new byte[buffer.readableBytes()];
+        buffer.getBytes(0, encoded);
+        assertEquals("000341264202", hex(encoded));
+    }
+
+    @Test void malformedOversizedStationListIsRejected() {
+        RegistryFriendlyByteBuf buffer = buffer();
+        buffer.writeEnum(JammarrPayloads.StationAction.START);
+        buffer.writeEnum(JammarrPayloads.StationType.SONIC_MIX);
+        buffer.writeBoolean(false);
+        buffer.writeVarLong(1);
+        buffer.writeVarInt(6);
+        buffer.readerIndex(0);
+        assertThrows(io.netty.handler.codec.DecoderException.class,
+                () -> JammarrPayloads.StationRequest.CODEC.decode(buffer));
+    }
+
+    private static RegistryFriendlyByteBuf buffer() {
+        return new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+    }
+
+    private static String hex(byte[] value) {
+        StringBuilder result = new StringBuilder(value.length * 2);
+        for (byte item : value) result.append(String.format("%02x", item & 0xff));
+        return result.toString();
+    }
+}

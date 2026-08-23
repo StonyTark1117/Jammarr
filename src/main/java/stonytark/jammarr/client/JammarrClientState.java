@@ -2,7 +2,7 @@ package stonytark.jammarr.client;
 
 import stonytark.jammarr.core.client.ClockSynchronizer;
 import net.minecraft.client.Minecraft;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import stonytark.jammarr.core.protocol.JammarrMessage;
 import stonytark.jammarr.network.JammarrNetwork;
 import stonytark.jammarr.network.JammarrPayloads;
 import java.util.List;
@@ -22,7 +22,7 @@ public final class JammarrClientState {
     private long lastTimeSync;
     private String notice = "";
 
-    public void accept(CustomPacketPayload payload) {
+    public void accept(JammarrMessage payload) {
         Minecraft minecraft = Minecraft.getInstance();
         if (payload instanceof JammarrPayloads.OpenScreen) {
             minecraft.setScreen(new JammarrScreen(this));

@@ -9,7 +9,7 @@ import java.util.List;
 
 public final class PlaybackSourcePolicy {
     public static Selection takeNext(List<QueueTrack> manual, Deque<QueueTrack> generated, boolean adventure) {
-        if (!manual.isEmpty()) return new Selection(manual.removeFirst(), JammarrPayloads.PlaybackOrigin.MANUAL);
+        if (!manual.isEmpty()) return new Selection(manual.remove(0), JammarrPayloads.PlaybackOrigin.MANUAL);
         QueueTrack track = generated.pollFirst();
         return track == null ? new Selection(null, JammarrPayloads.PlaybackOrigin.NONE)
                 : new Selection(track, adventure ? JammarrPayloads.PlaybackOrigin.ADVENTURE : JammarrPayloads.PlaybackOrigin.STATION);

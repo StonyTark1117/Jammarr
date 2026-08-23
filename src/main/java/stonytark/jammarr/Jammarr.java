@@ -19,9 +19,7 @@ public final class Jammarr {
     public static final Logger LOGGER = LogUtils.getLogger();
 
     public Jammarr(IEventBus modBus, ModContainer container) {
-        JammarrSettings.installServer(JammarrConfig.serverValues());
         JammarrSettings.installClient(JammarrConfig.clientValues());
-        container.registerConfig(ModConfig.Type.SERVER, JammarrConfig.SERVER_SPEC);
         container.registerConfig(ModConfig.Type.CLIENT, JammarrConfig.CLIENT_SPEC);
         modBus.addListener(JammarrNetwork::register);
         IEventBus gameBus = NeoForge.EVENT_BUS;

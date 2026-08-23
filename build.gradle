@@ -150,10 +150,31 @@ tasks.register('verifyRelease') {
     }
 }
 
+def verifyFabric1211 = tasks.register('verifyFabric1211', Exec) {
+    group = 'verification'
+    description = 'Runs the isolated Minecraft 1.21.1 Fabric release gate.'
+    workingDir(layout.projectDirectory.dir('platforms/mc1.21.1/fabric'))
+    commandLine('./gradlew', 'verifyRelease', '--no-daemon', '--max-workers=1')
+}
+
+def verifyForge1211 = tasks.register('verifyForge1211', Exec) {
+    group = 'verification'
+    description = 'Runs the isolated Minecraft 1.21.1 Forge release gate.'
+    workingDir(layout.projectDirectory.dir('platforms/mc1.21.1/forge'))
+    commandLine('./gradlew', 'verifyRelease', '--no-daemon', '--max-workers=1')
+    mustRunAfter(verifyFabric1211)
+}
+
+tasks.register('verify1211Family') {
+    group = 'verification'
+    description = 'Builds and verifies the NeoForge, Fabric, and Forge Minecraft 1.21.1 artifacts.'
+    dependsOn(':core:test', tasks.named('test'), tasks.named('verifyRelease'), verifyFabric1211, verifyForge1211)
+}
+
 tasks.register('verifyAllTargets') {
     group = 'verification'
     description = 'Builds and verifies every currently registered Jammarr target.'
-    dependsOn(':core:test', tasks.named('test'), tasks.named('runGameTestServer'), tasks.named('verifyRelease'))
+    dependsOn(tasks.named('verify1211Family'), tasks.named('runGameTestServer'))
 }
 
 var generateModMetadata = tasks.register('generateModMetadata', ProcessResources) {

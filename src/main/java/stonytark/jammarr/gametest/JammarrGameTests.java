@@ -55,7 +55,7 @@ public final class JammarrGameTests {
         data.queue().add(new QueueTrack("42", "Track", "Artist", "Album", 90_000));
         data.update(12_345, true);
         JammarrSavedData restored = JammarrSavedData.load(data.save(new CompoundTag(), null), null);
-        helper.assertTrue(restored.queue().size() == 1 && restored.queue().getFirst().key().equals("42"), "Queue did not survive saved-data serialization");
+        helper.assertTrue(restored.queue().size() == 1 && restored.queue().get(0).key().equals("42"), "Queue did not survive saved-data serialization");
         helper.assertTrue(restored.checkpointMs() == 12_345 && restored.paused(), "Playback checkpoint did not survive saved-data serialization");
         helper.succeed();
     }
@@ -78,7 +78,7 @@ public final class JammarrGameTests {
         queue.add(new QueueTrack("next", "Next", "Artist", "Album", 90_000));
         queue.add(new QueueTrack("last", "Last", "Artist", "Album", 90_000));
         helper.assertTrue(QueueOperations.move(queue, 2, -1, true) == QueueOperations.Result.APPLIED && queue.get(1).key().equals("last"), "Operator reorder did not move a queued entry");
-        helper.assertTrue(QueueOperations.remove(queue, 1, true) == QueueOperations.Result.APPLIED && queue.getFirst().key().equals("current"), "Operator remove changed the current track unexpectedly");
+        helper.assertTrue(QueueOperations.remove(queue, 1, true) == QueueOperations.Result.APPLIED && queue.get(0).key().equals("current"), "Operator remove changed the current track unexpectedly");
         AtomicLong clock = new AtomicLong(1_000);
         PlaybackTimeline timeline = new PlaybackTimeline(clock::get);
         timeline.schedule(90_000, 0, false, 5_000);

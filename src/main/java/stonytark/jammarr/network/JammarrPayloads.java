@@ -8,6 +8,7 @@ import io.netty.handler.codec.DecoderException;
 import stonytark.jammarr.Jammarr;
 import stonytark.jammarr.core.model.StationModels;
 import stonytark.jammarr.core.protocol.ControlPackets;
+import stonytark.jammarr.core.protocol.JammarrMessage;
 import stonytark.jammarr.core.protocol.ProtocolException;
 import stonytark.jammarr.core.protocol.StatePackets;
 import stonytark.jammarr.core.protocol.TransportPackets;
@@ -64,13 +65,13 @@ public final class JammarrPayloads {
         return new CustomPacketPayload.Type<>(ResourceLocation.fromNamespaceAndPath(Jammarr.MODID, path));
     }
 
-    public record OpenScreen() implements CustomPacketPayload {
+    public record OpenScreen() implements CustomPacketPayload, JammarrMessage {
         public static final Type<OpenScreen> TYPE = genericType("open_screen");
         public static final StreamCodec<RegistryFriendlyByteBuf, OpenScreen> CODEC = StreamCodec.unit(new OpenScreen());
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
-    public record ClientHello(int protocolVersion) implements CustomPacketPayload {
+    public record ClientHello(int protocolVersion) implements CustomPacketPayload, JammarrMessage {
         public static final Type<ClientHello> TYPE = genericType("client_hello");
         public static final StreamCodec<RegistryFriendlyByteBuf, ClientHello> CODEC = StreamCodec.ofMember(ClientHello::write, ClientHello::read);
         private static ClientHello read(RegistryFriendlyByteBuf b) {
@@ -82,7 +83,7 @@ public final class JammarrPayloads {
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
-    public record ServerHello(int protocolVersion, long serverEpochMs) implements CustomPacketPayload {
+    public record ServerHello(int protocolVersion, long serverEpochMs) implements CustomPacketPayload, JammarrMessage {
         public static final Type<ServerHello> TYPE = genericType("server_hello");
         public static final StreamCodec<RegistryFriendlyByteBuf, ServerHello> CODEC = StreamCodec.ofMember(ServerHello::write, ServerHello::read);
         private static ServerHello read(RegistryFriendlyByteBuf b) {
@@ -95,7 +96,7 @@ public final class JammarrPayloads {
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
-    public record TimeSyncRequest(long nonce, long clientSentEpochMs) implements CustomPacketPayload {
+    public record TimeSyncRequest(long nonce, long clientSentEpochMs) implements CustomPacketPayload, JammarrMessage {
         public static final Type<TimeSyncRequest> TYPE = genericType("time_sync_request");
         public static final StreamCodec<RegistryFriendlyByteBuf, TimeSyncRequest> CODEC = StreamCodec.ofMember(TimeSyncRequest::write, TimeSyncRequest::read);
         private static TimeSyncRequest read(RegistryFriendlyByteBuf b) {
@@ -108,7 +109,7 @@ public final class JammarrPayloads {
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
-    public record TimeSyncResponse(long nonce, long clientSentEpochMs, long serverEpochMs) implements CustomPacketPayload {
+    public record TimeSyncResponse(long nonce, long clientSentEpochMs, long serverEpochMs) implements CustomPacketPayload, JammarrMessage {
         public static final Type<TimeSyncResponse> TYPE = genericType("time_sync_response");
         public static final StreamCodec<RegistryFriendlyByteBuf, TimeSyncResponse> CODEC = StreamCodec.ofMember(TimeSyncResponse::write, TimeSyncResponse::read);
         private static TimeSyncResponse read(RegistryFriendlyByteBuf b) {
@@ -121,7 +122,7 @@ public final class JammarrPayloads {
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
-    public record BrowseRequest(BrowseKind kind, String query, int page) implements CustomPacketPayload {
+    public record BrowseRequest(BrowseKind kind, String query, int page) implements CustomPacketPayload, JammarrMessage {
         public static final Type<BrowseRequest> TYPE = genericType("browse_request");
         public static final StreamCodec<RegistryFriendlyByteBuf, BrowseRequest> CODEC = StreamCodec.ofMember(BrowseRequest::write, BrowseRequest::read);
         private static BrowseRequest read(RegistryFriendlyByteBuf b) {
@@ -135,7 +136,7 @@ public final class JammarrPayloads {
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
-    public record BrowseResults(BrowseKind kind, String query, int page, boolean hasMore, List<MediaItem> items) implements CustomPacketPayload {
+    public record BrowseResults(BrowseKind kind, String query, int page, boolean hasMore, List<MediaItem> items) implements CustomPacketPayload, JammarrMessage {
         public static final Type<BrowseResults> TYPE = genericType("browse_results");
         public static final StreamCodec<RegistryFriendlyByteBuf, BrowseResults> CODEC = StreamCodec.ofMember(BrowseResults::write, BrowseResults::read);
         private static BrowseResults read(RegistryFriendlyByteBuf b) {
@@ -151,7 +152,7 @@ public final class JammarrPayloads {
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
-    public record QueueRequest(ItemKind kind, String key) implements CustomPacketPayload {
+    public record QueueRequest(ItemKind kind, String key) implements CustomPacketPayload, JammarrMessage {
         public static final Type<QueueRequest> TYPE = genericType("queue_request");
         public static final StreamCodec<RegistryFriendlyByteBuf, QueueRequest> CODEC = StreamCodec.ofMember(QueueRequest::write, QueueRequest::read);
         private static QueueRequest read(RegistryFriendlyByteBuf b) {
@@ -165,7 +166,7 @@ public final class JammarrPayloads {
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
-    public record ControlRequest(ControlAction action, int index, String expectedKey) implements CustomPacketPayload {
+    public record ControlRequest(ControlAction action, int index, String expectedKey) implements CustomPacketPayload, JammarrMessage {
         public static final Type<ControlRequest> TYPE = genericType("control_request");
         public static final StreamCodec<RegistryFriendlyByteBuf, ControlRequest> CODEC = StreamCodec.ofMember(ControlRequest::write, ControlRequest::read);
         public ControlRequest(ControlAction action, int index) { this(action, index, ""); }
@@ -181,7 +182,7 @@ public final class JammarrPayloads {
     }
 
     public record StationRequest(StationAction action, StationType stationType, boolean enabled, long expectedGeneration,
-                                 List<StationSeed> seeds) implements CustomPacketPayload {
+                                 List<StationSeed> seeds) implements CustomPacketPayload, JammarrMessage {
         public static final Type<StationRequest> TYPE = genericType("station_request");
         public static final StreamCodec<RegistryFriendlyByteBuf, StationRequest> CODEC = StreamCodec.ofMember(StationRequest::write, StationRequest::read);
         private static StationRequest read(RegistryFriendlyByteBuf b) {
@@ -198,7 +199,7 @@ public final class JammarrPayloads {
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
-    public record ChunkRequest(UUID sessionId, long requestId, int startIndex, int count) implements CustomPacketPayload {
+    public record ChunkRequest(UUID sessionId, long requestId, int startIndex, int count) implements CustomPacketPayload, JammarrMessage {
         public static final Type<ChunkRequest> TYPE = genericType("chunk_request");
         public static final StreamCodec<RegistryFriendlyByteBuf, ChunkRequest> CODEC = StreamCodec.ofMember(ChunkRequest::write, ChunkRequest::read);
         private static ChunkRequest read(RegistryFriendlyByteBuf b) {
@@ -211,7 +212,7 @@ public final class JammarrPayloads {
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
-    public record ChunkAcknowledgement(UUID sessionId, long requestId, int receivedThroughIndex, long bufferedMs) implements CustomPacketPayload {
+    public record ChunkAcknowledgement(UUID sessionId, long requestId, int receivedThroughIndex, long bufferedMs) implements CustomPacketPayload, JammarrMessage {
         public static final Type<ChunkAcknowledgement> TYPE = genericType("chunk_ack");
         public static final StreamCodec<RegistryFriendlyByteBuf, ChunkAcknowledgement> CODEC = StreamCodec.ofMember(ChunkAcknowledgement::write, ChunkAcknowledgement::read);
         private static ChunkAcknowledgement read(RegistryFriendlyByteBuf b) {
@@ -225,7 +226,7 @@ public final class JammarrPayloads {
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
-    public record AudioHealth(UUID sessionId, String state, int recoveryAttempts, int underruns, int receivedChunks, long bufferedMs) implements CustomPacketPayload {
+    public record AudioHealth(UUID sessionId, String state, int recoveryAttempts, int underruns, int receivedChunks, long bufferedMs) implements CustomPacketPayload, JammarrMessage {
         public static final Type<AudioHealth> TYPE = genericType("audio_health");
         public static final StreamCodec<RegistryFriendlyByteBuf, AudioHealth> CODEC = StreamCodec.ofMember(AudioHealth::write, AudioHealth::read);
         private static AudioHealth read(RegistryFriendlyByteBuf b) {
@@ -240,7 +241,7 @@ public final class JammarrPayloads {
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
-    public record ManifestRequest(boolean forceRebuffer) implements CustomPacketPayload {
+    public record ManifestRequest(boolean forceRebuffer) implements CustomPacketPayload, JammarrMessage {
         public static final Type<ManifestRequest> TYPE = genericType("manifest_request");
         public static final StreamCodec<RegistryFriendlyByteBuf, ManifestRequest> CODEC = StreamCodec.ofMember(ManifestRequest::write, ManifestRequest::read);
         private static ManifestRequest read(RegistryFriendlyByteBuf b) {
@@ -253,7 +254,7 @@ public final class JammarrPayloads {
     }
 
     public record AudioManifest(UUID sessionId, String title, String artist, int totalChunks, int firstChunk, long durationMs,
-                                long startedAtEpochMs, boolean paused, long pausedPositionMs, String sha256) implements CustomPacketPayload {
+                                long startedAtEpochMs, boolean paused, long pausedPositionMs, String sha256) implements CustomPacketPayload, JammarrMessage {
         public static final Type<AudioManifest> TYPE = genericType("audio_manifest");
         public static final StreamCodec<RegistryFriendlyByteBuf, AudioManifest> CODEC = StreamCodec.ofMember(AudioManifest::write, AudioManifest::read);
         private static AudioManifest read(RegistryFriendlyByteBuf b) {
@@ -268,7 +269,7 @@ public final class JammarrPayloads {
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
-    public record AudioChunk(UUID sessionId, long requestId, int index, long startMs, String sha256, byte[] data) implements CustomPacketPayload {
+    public record AudioChunk(UUID sessionId, long requestId, int index, long startMs, String sha256, byte[] data) implements CustomPacketPayload, JammarrMessage {
         public static final Type<AudioChunk> TYPE = genericType("audio_chunk");
         public static final StreamCodec<RegistryFriendlyByteBuf, AudioChunk> CODEC = StreamCodec.ofMember(AudioChunk::write, AudioChunk::read);
         private static AudioChunk read(RegistryFriendlyByteBuf b) {
@@ -283,7 +284,7 @@ public final class JammarrPayloads {
 
     public record PlaybackState(PlaybackStatus status, String statusMessage, String title, String artist, boolean paused,
                                 long positionMs, long durationMs, long serverEpochMs, boolean operator,
-                                PlaybackOrigin origin, String sourceName, List<QueueEntry> queue) implements CustomPacketPayload {
+                                PlaybackOrigin origin, String sourceName, List<QueueEntry> queue) implements CustomPacketPayload, JammarrMessage {
         public PlaybackState(PlaybackStatus status, String statusMessage, String title, String artist, boolean paused,
                              long positionMs, long durationMs, long serverEpochMs, boolean operator, List<QueueEntry> queue) {
             this(status, statusMessage, title, artist, paused, positionMs, durationMs, serverEpochMs, operator, PlaybackOrigin.NONE, "", queue);
@@ -313,7 +314,7 @@ public final class JammarrPayloads {
 
     public record StationState(StationType stationType, boolean active, boolean autoplayEnabled, long generation,
                                SonicCapability capability, String capabilityMessage, String name,
-                               List<StationSeed> seeds, List<QueueEntry> preview) implements CustomPacketPayload {
+                               List<StationSeed> seeds, List<QueueEntry> preview) implements CustomPacketPayload, JammarrMessage {
         public static final Type<StationState> TYPE = genericType("station_state");
         public static final StreamCodec<RegistryFriendlyByteBuf, StationState> CODEC = StreamCodec.ofMember(StationState::write, StationState::read);
         private static StationState read(RegistryFriendlyByteBuf b) {
@@ -333,7 +334,7 @@ public final class JammarrPayloads {
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
-    public record AdventurePreview(long generation, String message, List<QueueEntry> path) implements CustomPacketPayload {
+    public record AdventurePreview(long generation, String message, List<QueueEntry> path) implements CustomPacketPayload, JammarrMessage {
         public static final Type<AdventurePreview> TYPE = genericType("adventure_preview");
         public static final StreamCodec<RegistryFriendlyByteBuf, AdventurePreview> CODEC = StreamCodec.ofMember(AdventurePreview::write, AdventurePreview::read);
         private static AdventurePreview read(RegistryFriendlyByteBuf b) {
@@ -348,7 +349,7 @@ public final class JammarrPayloads {
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
-    public record ErrorMessage(ErrorCode code, String message) implements CustomPacketPayload {
+    public record ErrorMessage(ErrorCode code, String message) implements CustomPacketPayload, JammarrMessage {
         public static final Type<ErrorMessage> TYPE = genericType("error");
         public static final StreamCodec<RegistryFriendlyByteBuf, ErrorMessage> CODEC = StreamCodec.ofMember(ErrorMessage::write, ErrorMessage::read);
         private static ErrorMessage read(RegistryFriendlyByteBuf b) {

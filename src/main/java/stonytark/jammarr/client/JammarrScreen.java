@@ -244,7 +244,7 @@ public final class JammarrScreen extends Screen {
     }
     private void addMix(JammarrPayloads.MediaItem item) {
         if (item.kind() == JammarrPayloads.ItemKind.PLAYLIST) return;
-        if (!mixSeeds.isEmpty() && mixSeeds.getFirst().kind() != item.kind()) { screenNotice = "Sonic Mix seeds must all be the same type"; rebuildWidgets(); return; }
+        if (!mixSeeds.isEmpty() && mixSeeds.get(0).kind() != item.kind()) { screenNotice = "Sonic Mix seeds must all be the same type"; rebuildWidgets(); return; }
         if (mixSeeds.size() >= 5 || mixSeeds.stream().anyMatch(seed -> seed.key().equals(item.key()))) return;
         mixSeeds.add(seed(item)); screenNotice = "Added to Sonic Mix builder"; rebuildWidgets();
     }

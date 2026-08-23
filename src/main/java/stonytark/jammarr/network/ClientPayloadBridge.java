@@ -1,11 +1,11 @@
 package stonytark.jammarr.network;
 
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import stonytark.jammarr.core.protocol.JammarrMessage;
 import java.util.function.Consumer;
 
 public final class ClientPayloadBridge {
-    private static Consumer<CustomPacketPayload> receiver = payload -> {};
-    public static void install(Consumer<CustomPacketPayload> value) { receiver = value; }
-    public static void accept(CustomPacketPayload payload) { receiver.accept(payload); }
+    private static Consumer<JammarrMessage> receiver = payload -> {};
+    public static void install(Consumer<JammarrMessage> value) { receiver = value; }
+    public static void accept(JammarrMessage payload) { receiver.accept(payload); }
     private ClientPayloadBridge() {}
 }

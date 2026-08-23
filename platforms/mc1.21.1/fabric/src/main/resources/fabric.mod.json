@@ -10,7 +10,8 @@
   "environment": "*",
   "entrypoints": {
     "main": ["stonytark.jammarr.Jammarr"],
-    "client": ["stonytark.jammarr.client.JammarrClient"]
+    "client": ["stonytark.jammarr.client.JammarrClient"],
+    "modmenu": ["stonytark.jammarr.client.JammarrModMenu"]
   },
   "mixins": ["jammarr.mixins.json"],
   "depends": {

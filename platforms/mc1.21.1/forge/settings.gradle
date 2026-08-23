@@ -1,7 +1,7 @@
 pluginManagement {
     repositories {
         gradlePluginPortal()
-        maven { url = 'https://maven.fabricmc.net/' }
+        maven { url = 'https://maven.minecraftforge.net/' }
     }
 }
 
@@ -15,6 +15,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = 'jammarr-mc1.21.1-fabric'
+rootProject.name = 'jammarr-mc1.21.1-forge'
 include 'core'
 project(':core').projectDir = file('../../../core')

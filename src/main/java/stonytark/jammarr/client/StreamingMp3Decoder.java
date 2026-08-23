@@ -27,7 +27,9 @@ final class StreamingMp3Decoder implements AutoCloseable {
 
     StreamingMp3Decoder(int firstChunk, int totalChunks) {
         input = new ChunkInputStream(firstChunk, totalChunks);
-        thread = Thread.ofPlatform().name("jammarr-mp3-decoder").daemon(true).start(this::decode);
+        thread = new Thread(this::decode, "jammarr-mp3-decoder");
+        thread.setDaemon(true);
+        thread.start();
     }
     boolean offer(int index, byte[] bytes) { return input.offer(index, bytes); }
     AudioFormat format() { return format; }

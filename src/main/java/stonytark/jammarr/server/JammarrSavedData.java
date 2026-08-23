@@ -47,7 +47,7 @@ public final class JammarrSavedData extends SavedData {
     public void remember(QueueTrack track) {
         if (track == null) return;
         history.add(track);
-        while (history.size() > StationGenerator.TRACK_HISTORY_LIMIT) history.removeFirst();
+        while (history.size() > StationGenerator.TRACK_HISTORY_LIMIT) history.remove(0);
         setDirty();
     }
     public void clearAll() {
@@ -74,7 +74,7 @@ public final class JammarrSavedData extends SavedData {
         ListTag list = tag.getList("queue", Tag.TAG_COMPOUND);
         for (int i = 0; i < list.size(); i++) data.queue.add(QueueTrackCodec.load(list.getCompound(i)));
         if (tag.getInt("schemaVersion") < 2) {
-            if (!data.queue.isEmpty()) data.current = data.queue.removeFirst();
+            if (!data.queue.isEmpty()) data.current = data.queue.remove(0);
             data.currentOrigin = data.current == null ? stonytark.jammarr.network.JammarrPayloads.PlaybackOrigin.NONE
                     : stonytark.jammarr.network.JammarrPayloads.PlaybackOrigin.MANUAL;
             data.currentSourceName = data.current == null ? "" : "Manual request";
