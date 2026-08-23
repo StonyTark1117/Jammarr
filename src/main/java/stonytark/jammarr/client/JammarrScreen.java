@@ -270,8 +270,12 @@ public final class JammarrScreen extends Screen {
         if ((view == View.SEARCH || view == View.ADVENTURE) && searchQuery.length() < 2) {
             requestPending = false; screenNotice = Component.translatable("jammarr.screen.short_query").getString(); state.clearBrowse(view.browseKind, searchQuery); rebuildWidgets(); return;
         }
-        requestPending = true; pendingKind = view.browseKind; pendingQuery = searchQuery; pendingPage = page;
-        PacketDistributor.sendToServer(new JammarrPayloads.BrowseRequest(view.browseKind, searchQuery, page)); rebuildWidgets();
+        String requestQuery = browseQuery(view.browseKind, searchQuery);
+        requestPending = true; pendingKind = view.browseKind; pendingQuery = requestQuery; pendingPage = page;
+        PacketDistributor.sendToServer(new JammarrPayloads.BrowseRequest(view.browseKind, requestQuery, page)); rebuildWidgets();
+    }
+    static String browseQuery(JammarrPayloads.BrowseKind kind, String searchQuery) {
+        return kind == JammarrPayloads.BrowseKind.SEARCH ? searchQuery.trim() : "";
     }
     void resultsChanged() { JammarrPayloads.BrowseResults result = state.browse(); if (requestPending && result.kind() == pendingKind && result.page() == pendingPage && result.query().equals(pendingQuery)) requestPending = false; if (minecraft != null) rebuildWidgets(); }
     void requestFailed() { requestPending = false; queuePending = false; pendingQueueKey = ""; if (minecraft != null) rebuildWidgets(); }
