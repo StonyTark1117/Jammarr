@@ -75,7 +75,10 @@ public final class JammarrClientState {
 
     private boolean refreshQueueBrowse() {
         if (browse.kind() != JammarrPayloads.BrowseKind.QUEUE) return false;
-        int page = browse.page();
+        return showQueuePage(browse.page());
+    }
+    public boolean showQueuePage(int requestedPage) {
+        int page = Math.max(0, requestedPage);
         if ((long)page * BROWSE_PAGE_SIZE >= playback.queue().size() && page > 0) page = 0;
         int start = page * BROWSE_PAGE_SIZE;
         int end = Math.min(playback.queue().size(), start + BROWSE_PAGE_SIZE);

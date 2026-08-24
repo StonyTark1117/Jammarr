@@ -120,6 +120,7 @@ tasks.register('verifyRelease') {
             [
                     'mcmod.info',
                     'assets/jammarr/lang/en_us.json',
+                    'assets/jammarr/lang/en_US.lang',
                     'jammarr.png',
                     'META-INF/LICENSE-Jammarr-CC0-1.0.txt',
                     'META-INF/LICENSE-LGPL-2.1-or-later.txt',
@@ -127,6 +128,9 @@ tasks.register('verifyRelease') {
                     'stonytark/jammarr/Jammarr.class',
                     'stonytark/jammarr/core/server/ChunkTransferPolicy.class',
                     'stonytark/jammarr/network/LegacyNetwork.class',
+                    'stonytark/jammarr/server/LegacyGlobalPlayer.class',
+                    'stonytark/jammarr/client/LegacyAudioPlayer.class',
+                    'stonytark/jammarr/client/LegacyScreen.class',
                     'stonytark/jammarr/server/LegacySavedData.class',
                     'javazoom/jl/decoder/Decoder.class',
                     'de/sciss/jump3r/mp3/Lame.class'

@@ -1,15 +1,22 @@
 package stonytark.jammarr;
 
 import cpw.mods.fml.common.Mod;
+import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
 import cpw.mods.fml.common.event.FMLServerStoppedEvent;
 import cpw.mods.fml.common.network.NetworkCheckHandler;
+import cpw.mods.fml.common.eventhandler.SubscribeEvent;
+import cpw.mods.fml.common.gameevent.PlayerEvent;
+import cpw.mods.fml.common.gameevent.TickEvent;
 import cpw.mods.fml.relauncher.Side;
 import org.apache.logging.log4j.Logger;
 import stonytark.jammarr.config.LegacyConfig;
+import stonytark.jammarr.client.LegacyClient;
 import stonytark.jammarr.network.LegacyNetwork;
+import stonytark.jammarr.server.LegacyCommands;
+import stonytark.jammarr.server.LegacyGlobalPlayer;
 import stonytark.jammarr.server.LegacySavedData;
 
 import java.io.IOException;
@@ -19,7 +26,8 @@ import java.util.Map;
         modid = Jammarr.MOD_ID,
         name = Jammarr.MOD_NAME,
         version = Jammarr.VERSION,
-        acceptableRemoteVersions = Jammarr.VERSION
+        acceptableRemoteVersions = Jammarr.VERSION,
+        guiFactory = "stonytark.jammarr.client.LegacyGuiFactory"
 )
 public final class Jammarr {
     public static final String MOD_ID = "jammarr";
@@ -28,6 +36,7 @@ public final class Jammarr {
     public static final int PROTOCOL = 5;
 
     public static Logger LOGGER;
+    private static LegacyGlobalPlayer coordinator;
 
     @Mod.EventHandler
     public void preInit(FMLPreInitializationEvent event) {
@@ -45,6 +54,8 @@ public final class Jammarr {
     @Mod.EventHandler
     public void init(FMLInitializationEvent event) {
         LegacyNetwork.register();
+        FMLCommonHandler.instance().bus().register(this);
+        if (event.getSide().isClient()) LegacyClient.register();
     }
 
     @Mod.EventHandler
@@ -52,16 +63,32 @@ public final class Jammarr {
         try {
             LegacyConfig.installServer(event.getServer());
             LegacySavedData.get(event.getServer());
+            coordinator = new LegacyGlobalPlayer(event.getServer());
+            event.registerServerCommand(new LegacyCommands(coordinator));
         } catch (IOException error) {
             throw new IllegalStateException("Unable to load canonical Jammarr server configuration", error);
         }
-        // The legacy command and server coordinator are registered in this lifecycle phase.
     }
 
     @Mod.EventHandler
     public void serverStopped(FMLServerStoppedEvent event) {
+        if (coordinator != null) {
+            coordinator.close();
+            coordinator = null;
+        }
         LegacyNetwork.shutdown();
-        // Release all legacy HTTP, cache, and OpenAL state on shutdown.
+    }
+
+    @SubscribeEvent
+    public void serverTick(TickEvent.ServerTickEvent event) {
+        if (event.phase == TickEvent.Phase.END && coordinator != null) coordinator.tick();
+    }
+
+    @SubscribeEvent
+    public void playerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
+        if (coordinator != null && event.player instanceof net.minecraft.entity.player.EntityPlayerMP) {
+            coordinator.playerLeft((net.minecraft.entity.player.EntityPlayerMP) event.player);
+        }
     }
 
     @NetworkCheckHandler

@@ -1,14 +1,24 @@
 # Jammarr
 
-Jammarr provides one server-authoritative Plex music queue for a NeoForge Minecraft server. Players browse and queue music in-game, operators control playback, and every listening client follows the same server timeline.
+Jammarr provides one server-authoritative Plex music queue for Minecraft. Players browse and queue music in-game, operators control playback, and every listening client follows the same server timeline.
 
 Jammarr is intentionally a required server-and-client mod. A server-only mod cannot decode arbitrary Plex audio through an unmodified Minecraft client's sound engine.
 
 ## Requirements
 
-- Minecraft 1.21.1, NeoForge 21.1, and Java 21.
-- The same Jammarr JAR on the dedicated server and every connecting client.
-- A Plex Media Server reachable from the Minecraft server.
+- One supported Minecraft/loader combination from the table below and its required Java version.
+- The matching Jammarr Minecraft-version and loader JAR on the dedicated server and every connecting client.
+- A Plex Media Server reachable from the Minecraft server. Clients do not need network access to Plex.
+
+| Minecraft | Java | Fabric | Forge | NeoForge |
+| --- | ---: | :---: | :---: | :---: |
+| 1.7.10 | 8 | unavailable | supported | unavailable |
+| 1.20.1 | 17 | supported | supported | supported |
+| 1.20.2 | 17 | supported | supported | supported |
+| 1.21.1 | 21 | supported | supported | supported |
+| 26.1.2 | 25 | supported | supported | supported |
+
+Fabric and NeoForge did not exist for Minecraft 1.7.10. Cross-loader and cross-Minecraft connections are unsupported. Every artifact uses protocol 5 and is named `jammarr-<mod-version>+mc<version>-<loader>.jar`; there is no universal JAR. Exact pinned dependencies are listed in the family catalogs under `gradle/version-catalogs/` and copied into the generated release manifest.
 
 No external FFmpeg installation is required. Plex prepares an MP3 rendition; if a Plex version returns variable-bitrate data, Jammarr normalizes it in-process to the configured constant bitrate using its bundled pure-Java encoder.
 
@@ -34,9 +44,9 @@ Important server options and defaults:
 Plex metadata responses are capped at 4 MiB, expanded albums/artists/playlists are capped to the remaining queue capacity, individual transcodes are capped at three hours and 256 MiB, and stalled transcode bodies are aborted after three minutes.
 
 Plain HTTP is allowed for trusted private networks and emits a warning. HTTPS uses normal Java certificate validation.
-Bitrate is constrained to 64–320 kbps and cache size to 64–16384 MiB; invalid values are rejected by NeoForge's config validation and reported during startup.
+Bitrate is constrained to 64–320 kbps and cache size to 64–16384 MiB; invalid values are rejected during canonical config loading and reported during startup.
 
-Client listening and volume settings are separate from the server file. Open the **Mods** list from the main menu, select Jammarr, and use **Config** to change them before joining a world.
+Client listening and volume settings are separate from the server file. Forge and NeoForge expose them from the Mods-list Config entry; Fabric exposes them inside Jammarr and through Mod Menu when installed.
 
 ## In-game use
 
@@ -97,23 +107,21 @@ The Stations and Adventure tabs report whether Plex Pass is unavailable, library
 ## Build and verification
 
 ```bash
-./gradlew cleanTest test
-./gradlew runGameTestServer
-./gradlew runServer
-./gradlew build
-./gradlew verifyRelease
+./gradlew releaseMatrixGate --no-daemon --max-workers=1
 ```
 
-`verifyRelease` also checks that the Jammarr metadata, translations, mixin configuration, decoder dependencies, and required license notices are present in the final JAR and that old PAmpMod identifiers were not packaged.
+`releaseMatrixGate` runs the shared tests, all four three-loader modern family gates, the cleanup-aware GameTest gate, and the isolated Forge 1.7.10 Java 8 gate. It inspects every target JAR, then places exactly 13 runtime artifacts in `build/releases/` alongside `manifest.json` and `SHA256SUMS`.
+
+Useful narrower gates are `verify1201Family`, `verify1202Family`, `verify1211Family`, `verify2612Family`, `verifyLegacy1710`, and `verifyGameTests`. Each target's `verifyRelease` checks loader metadata, translations, decoder dependencies, license notices, canonical filename, and other target-specific invariants. The legacy verifier additionally checks all Jammarr classes are Java 8 bytecode.
 
 Release checklist:
 
-- [ ] Run `./gradlew cleanTest test`.
-- [ ] Run `./gradlew runGameTestServer` and confirm all GameTests pass.
-- [ ] Run `./gradlew verifyRelease` from a clean checkout.
-- [ ] Test a fresh dedicated server and client with the same Jammarr JAR.
-- [ ] Test a deliberately incompatible protocol version and confirm the clear disconnect.
-- [ ] Test two listeners, late join/reconnect, pause/resume/skip/clear/reorder, sound reload, and a temporary Plex outage with cached audio.
+- [ ] Run `./gradlew releaseMatrixGate --no-daemon --max-workers=1` from a clean checkout.
+- [ ] Validate the credentialed Plex smoke test once per Minecraft family against the intended deployment server.
+- [ ] Start and cleanly stop a dedicated server for every artifact; confirm no process or port remains.
+- [ ] Confirm missing-client and deliberately incompatible-protocol clients receive a clear disconnect.
+- [ ] Complete the audible two-client matrix in `docs/RELEASE_ACCEPTANCE.md`; a connected client or allocated OpenAL source is not sufficient.
+- [ ] Publish the 13 JARs, `manifest.json`, and `SHA256SUMS` from `build/releases/` together.
 
 The opt-in live Plex test reads credentials only from its process environment:
 
@@ -127,3 +135,5 @@ JAMMARR_PLEX_TOKEN='...' \
 Credentialed live-test results are deliberately non-cacheable. Test credentials are not build inputs and are not packaged into the mod JAR.
 
 Jammarr is released under CC0-1.0. Its license, the complete LGPL-2.1-or-later text for the embedded MP3 libraries, and `THIRD_PARTY_NOTICES.md` are copied into the built artifact.
+
+See [compatibility](docs/COMPATIBILITY.md), [migration](docs/MIGRATION.md), and the [release acceptance matrix](docs/RELEASE_ACCEPTANCE.md) for target-specific details.

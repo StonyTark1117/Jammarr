@@ -4,6 +4,9 @@ plugins {
     id 'net.neoforged.moddev' version '2.0.143'
 }
 
+import groovy.json.JsonOutput
+import java.security.MessageDigest
+
 version = mod_version
 group = mod_group_id
 
@@ -243,6 +246,22 @@ def verifyNeoForge2612 = tasks.register('verifyNeoForge2612', Exec) {
     mustRunAfter(verifyForge2612)
 }
 
+def verifyLegacy1710 = tasks.register('verifyLegacy1710', Exec) {
+    group = 'verification'
+    description = 'Runs the isolated Java 8 Forge 1.7.10 release gate.'
+    workingDir(layout.projectDirectory.dir('platforms/mc1.7.10/forge'))
+    environment 'JAVA_HOME', java26Home
+    environment 'PATH', java26Path
+    commandLine('./gradlew', 'verifyRelease', '--no-daemon', '--max-workers=1')
+}
+
+def verifyGameTests = tasks.register('verifyGameTests', Exec) {
+    group = 'verification'
+    description = 'Runs NeoForge GameTests and cleans up a successful lingering server process.'
+    workingDir(layout.projectDirectory)
+    commandLine('bash', 'scripts/run-gametest-gate.sh')
+}
+
 tasks.register('verify1211Family') {
     group = 'verification'
     description = 'Builds and verifies the NeoForge, Fabric, and Forge Minecraft 1.21.1 artifacts.'
@@ -271,7 +290,91 @@ tasks.register('verifyAllTargets') {
     group = 'verification'
     description = 'Builds and verifies every currently registered Jammarr target.'
     dependsOn(tasks.named('verify1201Family'), tasks.named('verify1202Family'), tasks.named('verify1211Family'),
-            tasks.named('verify2612Family'), tasks.named('runGameTestServer'))
+            tasks.named('verify2612Family'), verifyLegacy1710, verifyGameTests)
+}
+
+def canonicalArtifacts = [
+        [minecraft: '1.7.10', java: 8, loader: 'forge', path: 'platforms/mc1.7.10/forge/build/libs/jammarr-1.0.0+mc1.7.10-forge.jar'],
+        [minecraft: '1.20.1', java: 17, loader: 'fabric', path: 'platforms/mc1.20.1/fabric/build/libs/jammarr-1.0.0+mc1.20.1-fabric.jar'],
+        [minecraft: '1.20.1', java: 17, loader: 'forge', path: 'platforms/mc1.20.1/forge/build/libs/jammarr-1.0.0+mc1.20.1-forge.jar'],
+        [minecraft: '1.20.1', java: 17, loader: 'neoforge', path: 'platforms/mc1.20.1/neoforge/build/libs/jammarr-1.0.0+mc1.20.1-neoforge.jar'],
+        [minecraft: '1.20.2', java: 17, loader: 'fabric', path: 'platforms/mc1.20.2/fabric/build/libs/jammarr-1.0.0+mc1.20.2-fabric.jar'],
+        [minecraft: '1.20.2', java: 17, loader: 'forge', path: 'platforms/mc1.20.2/forge/build/libs/jammarr-1.0.0+mc1.20.2-forge.jar'],
+        [minecraft: '1.20.2', java: 17, loader: 'neoforge', path: 'platforms/mc1.20.2/neoforge/build/libs/jammarr-1.0.0+mc1.20.2-neoforge.jar'],
+        [minecraft: '1.21.1', java: 21, loader: 'fabric', path: 'platforms/mc1.21.1/fabric/build/libs/jammarr-1.0.0+mc1.21.1-fabric.jar'],
+        [minecraft: '1.21.1', java: 21, loader: 'forge', path: 'platforms/mc1.21.1/forge/build/libs/jammarr-1.0.0+mc1.21.1-forge.jar'],
+        [minecraft: '1.21.1', java: 21, loader: 'neoforge', path: 'build/libs/jammarr-1.0.0+mc1.21.1-neoforge.jar'],
+        [minecraft: '26.1.2', java: 25, loader: 'fabric', path: 'platforms/mc26.1.2/fabric/build/libs/jammarr-1.0.0+mc26.1.2-fabric.jar'],
+        [minecraft: '26.1.2', java: 25, loader: 'forge', path: 'platforms/mc26.1.2/forge/build/libs/jammarr-1.0.0+mc26.1.2-forge.jar'],
+        [minecraft: '26.1.2', java: 25, loader: 'neoforge', path: 'platforms/mc26.1.2/neoforge/build/libs/jammarr-1.0.0+mc26.1.2-neoforge.jar']
+]
+
+def catalogVersions = { String minecraft ->
+    File catalog = layout.projectDirectory.file("gradle/version-catalogs/mc-${minecraft}.toml").asFile
+    Map<String, String> versions = [:]
+    boolean inVersions = false
+    catalog.eachLine('UTF-8') { line ->
+        String value = line.trim()
+        if (value.startsWith('[')) inVersions = value == '[versions]'
+        else if (inVersions) {
+            def match = value =~ /^([a-z0-9-]+)\s*=\s*"([^"]+)"$/
+            if (match.matches()) versions[match.group(1)] = match.group(2)
+        }
+    }
+    return versions
+}
+
+def sha256 = { File file ->
+    MessageDigest digest = MessageDigest.getInstance('SHA-256')
+    file.withInputStream { stream ->
+        byte[] buffer = new byte[64 * 1024]
+        int count
+        while ((count = stream.read(buffer)) >= 0) if (count > 0) digest.update(buffer, 0, count)
+    }
+    return digest.digest().collect { String.format('%02x', it & 0xff) }.join()
+}
+
+def assembleRelease = tasks.register('assembleReleaseArtifacts') {
+    group = 'verification'
+    description = 'Collects the 13 verified runtime JARs and writes release manifest/checksums.'
+    notCompatibleWithConfigurationCache('Release indexing reads the independently built target files at execution time')
+    dependsOn(tasks.named('verifyAllTargets'))
+    outputs.dir(layout.buildDirectory.dir('releases'))
+    doLast {
+        File releaseDirectory = layout.buildDirectory.dir('releases').get().asFile
+        project.delete(releaseDirectory)
+        releaseDirectory.mkdirs()
+        List<Map<String, Object>> manifestArtifacts = []
+        canonicalArtifacts.each { artifact ->
+            File source = layout.projectDirectory.file(artifact.path).asFile
+            if (!source.isFile()) throw new GradleException("Missing release artifact ${artifact.path}")
+            String expected = "jammarr-${mod_version}+mc${artifact.minecraft}-${artifact.loader}.jar"
+            if (source.name != expected) throw new GradleException("Non-canonical artifact name ${source.name}; expected ${expected}")
+            File target = new File(releaseDirectory, expected)
+            java.nio.file.Files.copy(source.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            Map<String, String> versions = catalogVersions(artifact.minecraft as String)
+            Map<String, String> dependencies = new TreeMap<String, String>(versions)
+            dependencies.remove('minecraft')
+            dependencies.remove('java')
+            manifestArtifacts << [productVersion: mod_version, minecraftVersion: artifact.minecraft,
+                                  loader: artifact.loader, javaVersion: artifact.java,
+                                  dependencies: dependencies, filename: expected, sha256: sha256(target)]
+        }
+        if (manifestArtifacts.size() != 13) throw new GradleException("Expected 13 release artifacts, found ${manifestArtifacts.size()}")
+        Map<String, Object> manifest = [schemaVersion: 1, product: 'Jammarr', modId: mod_id,
+                                        productVersion: mod_version, protocolVersion: 5,
+                                        artifacts: manifestArtifacts]
+        new File(releaseDirectory, 'manifest.json').setText(JsonOutput.prettyPrint(JsonOutput.toJson(manifest)) + '\n', 'UTF-8')
+        new File(releaseDirectory, 'SHA256SUMS').setText(manifestArtifacts.collect {
+            "${it.sha256}  ${it.filename}"
+        }.join('\n') + '\n', 'UTF-8')
+    }
+}
+
+tasks.register('releaseMatrixGate') {
+    group = 'verification'
+    description = 'Builds, tests, inspects, and indexes all 13 supported Jammarr artifacts.'
+    dependsOn(assembleRelease)
 }
 
 var generateModMetadata = tasks.register('generateModMetadata', ProcessResources) {

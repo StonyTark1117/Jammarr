@@ -266,6 +266,9 @@ public final class JammarrScreen extends Screen {
 
     private void request(int page) {
         if (view.browseKind == null || requestPending) return; if (search != null) searchQuery = search.getValue(); searchQuery = searchQuery.trim();
+        if (view.browseKind == JammarrPayloads.BrowseKind.QUEUE) {
+            requestPending = false; state.showQueuePage(page); rebuildWidgets(); return;
+        }
         if ((view == View.SEARCH || view == View.ADVENTURE) && searchQuery.length() < 2) {
             requestPending = false; screenNotice = Component.translatable("jammarr.screen.short_query").getString(); state.clearBrowse(view.browseKind, searchQuery); rebuildWidgets(); return;
         }
