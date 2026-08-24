@@ -10,13 +10,14 @@ import stonytark.jammarr.core.model.QueueTrack;
 import stonytark.jammarr.core.model.StationModels;
 import stonytark.jammarr.core.protocol.StatePackets;
 import stonytark.jammarr.core.server.StationGenerator;
+import stonytark.jammarr.core.server.PlaybackStore;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
 /** Schema-4 world state stored through Forge 1.7.10 WorldSavedData. */
-public final class LegacySavedData extends WorldSavedData {
+public final class LegacySavedData extends WorldSavedData implements PlaybackStore {
     public static final String DATA_NAME = "jammarr_global_queue";
     public static final int SCHEMA_VERSION = 4;
     private static final int MAX_QUEUE = 500;

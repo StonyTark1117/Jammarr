@@ -39,7 +39,7 @@ import java.util.UUID;
 import java.util.function.Supplier;
 import java.util.logging.Logger;
 
-public final class PlexService implements StationCatalog {
+public final class PlexService implements PlexGateway {
     private static final Logger LOGGER = Logger.getLogger(PlexService.class.getName());
     private static final String CLIENT_ID = "f0b09ec2674d42f4a802c5cc9a57d774";
     public static final int MAX_EXPANDED_TRACKS = 500;

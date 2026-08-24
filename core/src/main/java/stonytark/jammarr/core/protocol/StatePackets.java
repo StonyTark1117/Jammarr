@@ -149,7 +149,7 @@ public final class StatePackets {
         }
     };
 
-    public static final class QueueEntry {
+    public static final class QueueEntry implements JammarrMessage {
         private final String key;
         private final String title;
         private final String artist;
@@ -173,7 +173,7 @@ public final class StatePackets {
         public boolean editable() { return editable; }
     }
 
-    public static final class AudioHealth {
+    public static final class AudioHealth implements JammarrMessage {
         private final UUID sessionId;
         private final String state;
         private final int recoveryAttempts;
@@ -197,13 +197,13 @@ public final class StatePackets {
         public long bufferedMs() { return bufferedMs; }
     }
 
-    public static final class ManifestRequest {
+    public static final class ManifestRequest implements JammarrMessage {
         private final boolean forceRebuffer;
         public ManifestRequest(boolean forceRebuffer) { this.forceRebuffer = forceRebuffer; }
         public boolean forceRebuffer() { return forceRebuffer; }
     }
 
-    public static final class PlaybackState {
+    public static final class PlaybackState implements JammarrMessage {
         private final PlaybackStatus status;
         private final String statusMessage;
         private final String title;
@@ -246,7 +246,7 @@ public final class StatePackets {
         public List<QueueEntry> queue() { return queue; }
     }
 
-    public static final class StationState {
+    public static final class StationState implements JammarrMessage {
         private final StationType stationType;
         private final boolean active;
         private final boolean autoplayEnabled;
@@ -280,7 +280,7 @@ public final class StatePackets {
         public List<QueueEntry> preview() { return preview; }
     }
 
-    public static final class AdventurePreview {
+    public static final class AdventurePreview implements JammarrMessage {
         private final long generation;
         private final String message;
         private final List<QueueEntry> path;
@@ -294,7 +294,7 @@ public final class StatePackets {
         public List<QueueEntry> path() { return path; }
     }
 
-    public static final class ErrorMessage {
+    public static final class ErrorMessage implements JammarrMessage {
         private final ErrorCode code;
         private final String message;
         public ErrorMessage(ErrorCode code, String message) {

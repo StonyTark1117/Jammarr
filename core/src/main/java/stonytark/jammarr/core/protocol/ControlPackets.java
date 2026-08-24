@@ -133,13 +133,13 @@ public final class ControlPackets {
         }
     };
 
-    public static final class ClientHello {
+    public static final class ClientHello implements JammarrMessage {
         private final int protocolVersion;
         public ClientHello(int protocolVersion) { this.protocolVersion = protocolVersion; }
         public int protocolVersion() { return protocolVersion; }
     }
 
-    public static final class ServerHello {
+    public static final class ServerHello implements JammarrMessage {
         private final int protocolVersion;
         private final long serverEpochMs;
         public ServerHello(int protocolVersion, long serverEpochMs) {
@@ -150,7 +150,7 @@ public final class ControlPackets {
         public long serverEpochMs() { return serverEpochMs; }
     }
 
-    public static final class TimeSyncRequest {
+    public static final class TimeSyncRequest implements JammarrMessage {
         private final long nonce;
         private final long clientSentEpochMs;
         public TimeSyncRequest(long nonce, long clientSentEpochMs) {
@@ -161,7 +161,7 @@ public final class ControlPackets {
         public long clientSentEpochMs() { return clientSentEpochMs; }
     }
 
-    public static final class TimeSyncResponse {
+    public static final class TimeSyncResponse implements JammarrMessage {
         private final long nonce;
         private final long clientSentEpochMs;
         private final long serverEpochMs;
@@ -175,7 +175,7 @@ public final class ControlPackets {
         public long serverEpochMs() { return serverEpochMs; }
     }
 
-    public static final class BrowseRequest {
+    public static final class BrowseRequest implements JammarrMessage {
         private final BrowseKind kind;
         private final String query;
         private final int page;
@@ -189,7 +189,7 @@ public final class ControlPackets {
         public int page() { return page; }
     }
 
-    public static final class BrowseResults {
+    public static final class BrowseResults implements JammarrMessage {
         private final BrowseKind kind;
         private final String query;
         private final int page;
@@ -209,7 +209,7 @@ public final class ControlPackets {
         public List<MediaItem> items() { return items; }
     }
 
-    public static final class QueueRequest {
+    public static final class QueueRequest implements JammarrMessage {
         private final ItemKind kind;
         private final String key;
         public QueueRequest(ItemKind kind, String key) {
@@ -220,7 +220,7 @@ public final class ControlPackets {
         public String key() { return key; }
     }
 
-    public static final class ControlRequest {
+    public static final class ControlRequest implements JammarrMessage {
         private final ControlAction action;
         private final int index;
         private final String expectedKey;
@@ -234,7 +234,7 @@ public final class ControlPackets {
         public String expectedKey() { return expectedKey; }
     }
 
-    public static final class StationRequest {
+    public static final class StationRequest implements JammarrMessage {
         private final StationAction action;
         private final StationType stationType;
         private final boolean enabled;

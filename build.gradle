@@ -344,6 +344,7 @@ def assembleRelease = tasks.register('assembleReleaseArtifacts') {
     description = 'Collects the 13 verified runtime JARs and writes release manifest/checksums.'
     notCompatibleWithConfigurationCache('Release indexing reads the independently built target files at execution time')
     dependsOn(tasks.named('verifyAllTargets'))
+    inputs.files(canonicalArtifacts.collect { artifact -> layout.projectDirectory.file(artifact.path) })
     outputs.dir(layout.buildDirectory.dir('releases'))
     doLast {
         File releaseDirectory = layout.buildDirectory.dir('releases').get().asFile

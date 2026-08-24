@@ -191,6 +191,9 @@ def verify_jar(path: Path, minecraft: str, loader: str, java: int, expected_majo
             required_legacy = {
                 "assets/jammarr/lang/en_US.lang",
                 "stonytark/jammarr/core/server/ChunkTransferPolicy.class",
+                "stonytark/jammarr/core/server/CoordinatorRuntime.class",
+                "stonytark/jammarr/core/server/GlobalPlaybackCoordinator.class",
+                "stonytark/jammarr/core/server/PlaybackStore.class",
                 "stonytark/jammarr/network/LegacyNetwork.class",
                 "stonytark/jammarr/server/LegacyGlobalPlayer.class",
                 "stonytark/jammarr/client/LegacyAudioPlayer.class",
@@ -217,10 +220,15 @@ def verify_jar(path: Path, minecraft: str, loader: str, java: int, expected_majo
                                      and name.endswith("core-1.0.0.jar"))
             if len(core_candidates) != 1:
                 fail(f"{filename} must bundle exactly one shared core JAR, found {core_candidates}")
-            core_class = require_nested_class(archive, core_candidates[0],
-                                              "stonytark/jammarr/core/server/ChunkTransferPolicy.class", filename)
-            if class_major(core_class, f"{filename}:core") != 52:
-                fail(f"{filename} shared core is not Java 8 bytecode")
+            for core_entry in (
+                "stonytark/jammarr/core/server/ChunkTransferPolicy.class",
+                "stonytark/jammarr/core/server/CoordinatorRuntime.class",
+                "stonytark/jammarr/core/server/GlobalPlaybackCoordinator.class",
+                "stonytark/jammarr/core/server/PlaybackStore.class",
+            ):
+                core_class = require_nested_class(archive, core_candidates[0], core_entry, filename)
+                if class_major(core_class, f"{filename}:{core_entry}") != 52:
+                    fail(f"{filename} shared core is not Java 8 bytecode")
             require_nested_class(archive, f"{nested_prefix}/jlayer-1.0.1.jar",
                                  "javazoom/jl/decoder/Decoder.class", filename)
             require_nested_class(archive, f"{nested_prefix}/jump3r-1.0.5.jar",

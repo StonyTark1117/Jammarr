@@ -86,6 +86,7 @@ The Stations and Adventure tabs report whether Plex Pass is unavailable, library
 
 ## Playback and failure behavior
 
+- Every loader delegates server playback to the same Java 8, Minecraft-independent coordinator. Narrow runtime, player/permission, packet-transport, and schema-4 persistence contracts keep loader APIs out of queue, station, Adventure, cache, timing, and transfer policy.
 - The server owns the queue, timeline, Plex credentials, cache, and all media requests. The Plex token is never sent to clients.
 - Tracks are validated before atomic cache installation. The next track is prefetched while the current one plays.
 - MP3 data is split only on frame boundaries into payloads no larger than 16 KiB. Clients pull one server-authorized window at a time, validate SHA-256 hashes, acknowledge complete windows, and retry only the outstanding window. The server rejects out-of-order, unacknowledged, over-buffered, and excessive requests.
@@ -110,7 +111,7 @@ The Stations and Adventure tabs report whether Plex Pass is unavailable, library
 ./gradlew releaseMatrixGate --no-daemon --max-workers=1
 ```
 
-`releaseMatrixGate` runs the shared tests, all four three-loader modern family gates, the cleanup-aware GameTest gate, the isolated Forge 1.7.10 Java 8 gate, centralized inspection of every final JAR, and a fresh dedicated-server start/stop check for all 13 targets. It places exactly 13 runtime artifacts in `build/releases/` alongside `manifest.json` and `SHA256SUMS` and fails if a tested server leaves a process or game port behind.
+`releaseMatrixGate` runs the shared tests, all four three-loader modern family gates, the cleanup-aware GameTest gate, the isolated Forge 1.7.10 Java 8 gate, centralized inspection of every final JAR, and a fresh dedicated-server start/stop check for all 13 targets. Each server must complete authenticated library and sonic-capability calls against a deterministic loopback Plex service. The gate places exactly 13 runtime artifacts in `build/releases/` alongside `manifest.json` and `SHA256SUMS` and fails if a tested server leaves a process or game port behind.
 
 Useful narrower gates are `verify1201Family`, `verify1202Family`, `verify1211Family`, `verify2612Family`, `verifyLegacy1710`, and `verifyGameTests`. Each target's `verifyRelease` checks loader metadata, translations, decoder dependencies, license notices, canonical filename, and other target-specific invariants. The legacy verifier additionally checks all Jammarr classes are Java 8 bytecode.
 

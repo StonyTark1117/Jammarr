@@ -49,7 +49,7 @@ public final class TransportPackets {
         }
     };
 
-    public static final class ChunkRequest {
+    public static final class ChunkRequest implements JammarrMessage {
         private final UUID sessionId; private final long requestId; private final int startIndex; private final int count;
         public ChunkRequest(UUID sessionId, long requestId, int startIndex, int count) {
             this.sessionId = sessionId; this.requestId = requestId; this.startIndex = startIndex; this.count = count;
@@ -60,7 +60,7 @@ public final class TransportPackets {
         public int count() { return count; }
     }
 
-    public static final class ChunkAcknowledgement {
+    public static final class ChunkAcknowledgement implements JammarrMessage {
         private final UUID sessionId; private final long requestId; private final int receivedThroughIndex; private final long bufferedMs;
         public ChunkAcknowledgement(UUID sessionId, long requestId, int receivedThroughIndex, long bufferedMs) {
             this.sessionId = sessionId; this.requestId = requestId; this.receivedThroughIndex = receivedThroughIndex; this.bufferedMs = bufferedMs;
@@ -71,7 +71,7 @@ public final class TransportPackets {
         public long bufferedMs() { return bufferedMs; }
     }
 
-    public static final class AudioManifest {
+    public static final class AudioManifest implements JammarrMessage {
         private final UUID sessionId; private final String title; private final String artist;
         private final int totalChunks; private final int firstChunk; private final long durationMs; private final long startedAtEpochMs;
         private final boolean paused; private final long pausedPositionMs; private final String sha256;
@@ -93,7 +93,7 @@ public final class TransportPackets {
         public String sha256() { return sha256; }
     }
 
-    public static final class AudioChunk {
+    public static final class AudioChunk implements JammarrMessage {
         private final UUID sessionId; private final long requestId; private final int index; private final long startMs;
         private final String sha256; private final byte[] data;
         public AudioChunk(UUID sessionId, long requestId, int index, long startMs, String sha256, byte[] data) {

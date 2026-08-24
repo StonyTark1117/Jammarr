@@ -4,6 +4,13 @@ set -uo pipefail
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 output_root="$repo_root/build/dedicated-server-gate"
 mkdir -p "$output_root"
+fake_plex_token="jammarr-dedicated-gate-token"
+fake_plex_port_file="$output_root/fake-plex.port"
+fake_plex_request_log="$output_root/fake-plex.requests.tsv"
+fake_plex_pid=""
+active_config=""
+active_config_backup=""
+active_config_existed=0
 
 targets=(
   "1.7.10-forge|platforms/mc1.7.10/forge|/usr/lib/jvm/java-26-openjdk|25695"
@@ -22,6 +29,88 @@ targets=(
 )
 
 requested=${1:-all}
+
+restore_server_config() {
+  if [[ -z "$active_config" ]]; then return; fi
+  if (( active_config_existed )); then
+    cp -- "$active_config_backup" "$active_config"
+  else
+    rm -f -- "$active_config"
+  fi
+  rm -f -- "$active_config_backup"
+  active_config=""
+  active_config_backup=""
+  active_config_existed=0
+}
+
+cleanup_all() {
+  restore_server_config
+  if [[ -n "$fake_plex_pid" ]]; then
+    kill "$fake_plex_pid" 2>/dev/null || true
+    wait "$fake_plex_pid" 2>/dev/null || true
+  fi
+  rm -f -- "$fake_plex_port_file"
+}
+
+trap cleanup_all EXIT
+trap 'exit 130' INT TERM
+
+start_fake_plex() {
+  rm -f -- "$fake_plex_port_file"
+  python3 "$repo_root/scripts/fake-plex-server.py" \
+    --port-file "$fake_plex_port_file" --request-log "$fake_plex_request_log" \
+    --token "$fake_plex_token" &
+  fake_plex_pid=$!
+  local deadline=$((SECONDS + 10))
+  while [[ ! -s "$fake_plex_port_file" ]]; do
+    if ! kill -0 "$fake_plex_pid" 2>/dev/null; then
+      echo "Fake Plex service exited before publishing its port" >&2
+      return 1
+    fi
+    if (( SECONDS >= deadline )); then
+      echo "Fake Plex service did not become ready" >&2
+      return 1
+    fi
+    sleep 0.1
+  done
+}
+
+fake_plex_requests_complete() {
+  local first_line=$1
+  awk -F '\t' -v first="$first_line" -v token="$fake_plex_token" '
+    NR > first && $3 == token && $2 == "/library/sections" { sections = 1 }
+    NR > first && $3 == token && $2 == "/" { identity = 1 }
+    NR > first && $3 == token && $2 == "/library/sections/1/all" { analysis = 1 }
+    END { exit !(sections && identity && analysis) }
+  ' "$fake_plex_request_log"
+}
+
+install_fake_plex_config() {
+  local run_dir=$1
+  local label=$2
+  local level_name=$3
+  local fake_plex_port=$4
+  active_config="$run_dir/$level_name/serverconfig/jammarr-server.toml"
+  active_config_backup=$(mktemp "$output_root/$label.config.XXXXXX")
+  active_config_existed=0
+  mkdir -p "$(dirname "$active_config")"
+  if [[ -f "$active_config" ]]; then
+    cp -- "$active_config" "$active_config_backup"
+    active_config_existed=1
+  fi
+  printf '%s\n' \
+    '# Generated temporarily by the Jammarr dedicated-server gate.' \
+    "plexUrl = \"http://127.0.0.1:${fake_plex_port}\"" \
+    'plexToken = ""' \
+    'musicLibrary = "Music"' \
+    'restartMode = "RESTART_TRACK"' \
+    'pauseWhenNoPlayers = true' \
+    'operatorPermissionLevel = 2' \
+    'queueLimit = 500' \
+    'audioBitrateKbps = 160' \
+    'cacheSizeMiB = 1024' \
+    'stationMetadataFallbackEnabled = false' > "$active_config"
+}
 
 group_alive() {
   local group_id=$1
@@ -83,6 +172,7 @@ run_target() {
   local latest_log="$run_dir/logs/latest.log"
   local console_log="$output_root/$label.console.log"
   local fifo_dir fifo fifo_fd pid server_pid port rcon_port rcon_password start_epoch result=0
+  local fake_plex_port fake_request_start plex_deadline level_name
   local -a cache_args=()
 
   if [[ ! -x "$java_home/bin/java" ]]; then
@@ -95,6 +185,8 @@ run_target() {
     echo "$label: unable to resolve server port" >&2
     return 1
   fi
+  level_name=$(sed -n 's/^level-name=\(.*\)$/\1/p' "$run_dir/server.properties" | tail -n 1)
+  level_name=${level_name:-world}
   if ss -ltnH "sport = :$port" | grep -q .; then
     echo "$label: port $port is already in use" >&2
     return 1
@@ -120,6 +212,10 @@ run_target() {
       ;;
   esac
 
+  fake_plex_port=$(<"$fake_plex_port_file")
+  fake_request_start=$(wc -l < "$fake_plex_request_log")
+  install_fake_plex_config "$run_dir" "$label" "$level_name" "$fake_plex_port"
+
   fifo_dir=$(mktemp -d "$output_root/$label.fifo.XXXXXX")
   fifo="$fifo_dir/stdin"
   mkfifo "$fifo"
@@ -129,6 +225,7 @@ run_target() {
   (
     cd "$target_dir" || exit 1
     exec setsid env JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
+      JAMMARR_PLEX_TOKEN="$fake_plex_token" \
       ./gradlew runServer --no-daemon --max-workers=1 --console=plain "${cache_args[@]}" \
       < "$fifo" > "$console_log" 2>&1
   ) &
@@ -152,6 +249,18 @@ run_target() {
     fi
     sleep 1
   done
+
+  if (( result == 0 )); then
+    plex_deadline=$((SECONDS + 30))
+    while ! fake_plex_requests_complete "$fake_request_start"; do
+      if ! kill -0 "$pid" 2>/dev/null || (( SECONDS >= plex_deadline )); then
+        echo "$label: did not complete authenticated Plex library and sonic validation" >&2
+        result=1
+        break
+      fi
+      sleep 1
+    done
+  fi
 
   if [[ "$label" == "1.7.10-forge" ]]; then
     printf 'stop\n' >&"$fifo_fd"
@@ -208,6 +317,8 @@ run_target() {
     result=1
   fi
 
+  restore_server_config
+
   if (( result == 0 )); then
     echo "$label: ready, clean shutdown, no lingering process or port"
   fi
@@ -216,6 +327,7 @@ run_target() {
 
 matched=0
 failed=0
+start_fake_plex || exit 1
 for target in "${targets[@]}"; do
   IFS='|' read -r label relative_dir java_home port <<< "$target"
   if [[ "$requested" != "all" && "$requested" != "$label" ]]; then continue; fi
