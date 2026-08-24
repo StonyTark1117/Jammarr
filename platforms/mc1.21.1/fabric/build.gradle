@@ -10,6 +10,18 @@ base {
     archivesName = "jammarr-${project.version}+mc1.21.1-fabric"
 }
 
+loom {
+    runs {
+        client {
+            if (providers.gradleProperty('jammarrAcceptanceServer').isPresent()) {
+                runDir providers.gradleProperty('jammarrAcceptanceGameDir').get()
+                programArgs '--username', providers.gradleProperty('jammarrAcceptanceUsername').get(),
+                        '--quickPlayMultiplayer', providers.gradleProperty('jammarrAcceptanceServer').get()
+            }
+        }
+    }
+}
+
 java {
     toolchain.languageVersion = JavaLanguageVersion.of(libs.versions.java.get().toInteger())
     sourceCompatibility = JavaVersion.VERSION_21

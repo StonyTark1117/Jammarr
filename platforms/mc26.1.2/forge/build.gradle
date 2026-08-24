@@ -24,7 +24,13 @@ minecraft {
             workingDir = layout.projectDirectory.dir('run')
             systemProperty 'eventbus.api.strictRuntimeChecks', 'true'
         }
-        register('client')
+        register('client') {
+            if (providers.gradleProperty('jammarrAcceptanceServer').isPresent()) {
+                workingDir = file(providers.gradleProperty('jammarrAcceptanceGameDir').get())
+                args '--username', providers.gradleProperty('jammarrAcceptanceUsername').get(),
+                        '--quickPlayMultiplayer', providers.gradleProperty('jammarrAcceptanceServer').get()
+            }
+        }
         register('server') { args '--nogui' }
     }
 }

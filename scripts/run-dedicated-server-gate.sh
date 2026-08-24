@@ -31,6 +31,7 @@ targets=(
 )
 
 requested=${1:-all}
+protocol_client_gate=${JAMMARR_PROTOCOL_CLIENT_GATE:-false}
 
 restore_server_config() {
   if [[ -z "$active_config" ]]; then return; fi
@@ -103,6 +104,69 @@ missing_client_rejection_logged() {
     "$latest_log" "$console_log" 2>/dev/null
 }
 
+run_wrong_protocol_client() {
+  local label=$1
+  local target_dir=$2
+  local java_home=$3
+  local port=$4
+  local server_console=$5
+  local client_dir="$output_root/$label.wrong-protocol-client"
+  local client_console="$output_root/$label.wrong-protocol-client.console.log"
+  local evidence="$output_root/$label.wrong-protocol-client.server.txt"
+  local pid deadline result=0
+
+  mkdir -p "$client_dir"
+  : > "$client_console"
+  printf '%s\n' \
+    'onboardAccessibility:false' \
+    'skipMultiplayerWarning:true' \
+    'joinedFirstServer:true' \
+    'narrator:0' > "$client_dir/options.txt"
+  (
+    cd "$target_dir" || exit 1
+    exec setsid xvfb-run -a env \
+      JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
+      JAVA_TOOL_OPTIONS='-Djammarr.acceptance.enabled=true -Djammarr.acceptance.clientProtocol=4 -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
+      LIBGL_ALWAYS_SOFTWARE=1 \
+      ./gradlew runClient --no-daemon --max-workers=1 --console=plain \
+      -PjammarrAcceptanceUsername=JammarrMismatch \
+      -PjammarrAcceptanceServer="127.0.0.1:${port}" \
+      -PjammarrAcceptanceGameDir="$client_dir" \
+      > "$client_console" 2>&1
+  ) &
+  pid=$!
+
+  deadline=$((SECONDS + 600))
+  while ! grep -Fq 'Jammarr protocol mismatch: server requires' "$server_console" 2>/dev/null \
+      || ! grep -Fq 'Client disconnected with reason: Jammarr protocol mismatch: server requires' "$client_console" 2>/dev/null; do
+    if ! group_alive "$pid"; then
+      echo "$label: wrong-protocol client exited before the server rejected its hello; see $client_console" >&2
+      result=1
+      break
+    fi
+    if (( SECONDS >= deadline )); then
+      echo "$label: wrong-protocol client was not rejected within 600 seconds; see $client_console" >&2
+      result=1
+      break
+    fi
+    sleep 1
+  done
+
+  if (( result == 0 )); then
+    {
+      grep -F 'Jammarr protocol mismatch: server requires' "$server_console" | tail -n 1
+      grep -F 'Client disconnected with reason: Jammarr protocol mismatch: server requires' "$client_console" | tail -n 1
+    } > "$evidence"
+  fi
+  stop_process_tree "$pid" TERM
+  if ! wait_for_process_tree_exit "$pid" 20; then
+    stop_process_tree "$pid" KILL
+    wait_for_process_tree_exit "$pid" 10 || result=1
+  fi
+  wait "$pid" 2>/dev/null || true
+  return "$result"
+}
+
 install_fake_plex_config() {
   local run_dir=$1
   local label=$2
@@ -164,6 +228,40 @@ wait_for_group_exit() {
   local seconds=$2
   local deadline=$((SECONDS + seconds))
   while group_alive "$group_id"; do
+    if (( SECONDS >= deadline )); then return 1; fi
+    sleep 1
+  done
+}
+
+process_tree_pids() {
+  local root=$1
+  ps -eo pid=,ppid= | awk -v root="$root" '
+    { parent[$1] = $2 }
+    END {
+      for (pid in parent) {
+        current = pid
+        while (current in parent && current != 1) {
+          if (current == root) { print pid; break }
+          current = parent[current]
+        }
+      }
+    }
+  ' | sort -rn
+}
+
+stop_process_tree() {
+  local root=$1
+  local signal=$2
+  local -a tree=()
+  mapfile -t tree < <(process_tree_pids "$root")
+  if (( ${#tree[@]} != 0 )); then kill "-$signal" -- "${tree[@]}" 2>/dev/null || true; fi
+}
+
+wait_for_process_tree_exit() {
+  local root=$1
+  local seconds=$2
+  local deadline=$((SECONDS + seconds))
+  while [[ -n "$(process_tree_pids "$root")" ]]; do
     if (( SECONDS >= deadline )); then return 1; fi
     sleep 1
   done
@@ -379,6 +477,12 @@ run_target() {
       fi
       sleep 1
     done
+  fi
+
+  if (( result == 0 )) && [[ "$protocol_client_gate" == "true" ]]; then
+    if ! run_wrong_protocol_client "$label" "$target_dir" "$java_home" "$port" "$console_log"; then
+      result=1
+    fi
   fi
 
   if (( result == 0 )) && [[ "$label" != "1.7.10-forge" ]]; then

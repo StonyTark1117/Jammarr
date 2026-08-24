@@ -59,7 +59,8 @@ public final class JammarrNetwork {
 
         ServerPlayNetworking.registerGlobalReceiver(JammarrPayloads.ClientHello.TYPE, (payload, context) -> {
             if (!protocolMatches(payload.protocolVersion())) {
-                context.responseSender().disconnect(Component.literal("Jammarr protocol mismatch: server requires version " + PROTOCOL));
+                context.player().connection.disconnect(Component.literal(
+                        "Jammarr protocol mismatch: server requires version " + PROTOCOL));
             } else JammarrServer.instance().hello(context.player());
         });
         ServerPlayNetworking.registerGlobalReceiver(JammarrPayloads.TimeSyncRequest.TYPE, (p, c) -> {

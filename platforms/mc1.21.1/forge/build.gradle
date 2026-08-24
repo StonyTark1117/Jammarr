@@ -22,7 +22,13 @@ minecraft {
     mappings channel: 'official', version: '1.21.1'
     runs {
         configureEach { workingDir = layout.projectDirectory.dir('run') }
-        register('client')
+        register('client') {
+            if (providers.gradleProperty('jammarrAcceptanceServer').isPresent()) {
+                workingDir = file(providers.gradleProperty('jammarrAcceptanceGameDir').get())
+                args '--username', providers.gradleProperty('jammarrAcceptanceUsername').get(),
+                        '--quickPlayMultiplayer', providers.gradleProperty('jammarrAcceptanceServer').get()
+            }
+        }
         register('server') { args '--nogui' }
     }
 }

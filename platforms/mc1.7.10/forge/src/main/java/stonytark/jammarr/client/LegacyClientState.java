@@ -6,6 +6,7 @@ import stonytark.jammarr.Jammarr;
 import stonytark.jammarr.core.client.ClockSynchronizer;
 import stonytark.jammarr.core.model.StationModels;
 import stonytark.jammarr.core.protocol.ControlPackets;
+import stonytark.jammarr.core.protocol.ProtocolLimits;
 import stonytark.jammarr.core.protocol.StatePackets;
 import stonytark.jammarr.core.protocol.TransportPackets;
 import stonytark.jammarr.network.LegacyNetwork;
@@ -78,7 +79,7 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
     }
 
     void hello() {
-        LegacyNetwork.sendToServer(LegacyPacketTypes.CLIENT_HELLO, new ControlPackets.ClientHello(Jammarr.PROTOCOL));
+        LegacyNetwork.sendToServer(LegacyPacketTypes.CLIENT_HELLO, new ControlPackets.ClientHello(ProtocolLimits.clientHelloVersion()));
         requestTimeSync();
     }
 

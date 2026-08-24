@@ -3,6 +3,7 @@ package stonytark.jammarr.client;
 import stonytark.jammarr.core.client.ClockSynchronizer;
 import net.minecraft.client.Minecraft;
 import stonytark.jammarr.core.protocol.JammarrMessage;
+import stonytark.jammarr.core.protocol.ProtocolLimits;
 import stonytark.jammarr.network.JammarrNetwork;
 import stonytark.jammarr.network.JammarrPayloads;
 import java.util.List;
@@ -95,7 +96,7 @@ public final class JammarrClientState {
         if (now - lastTimeSync >= 10_000) requestTimeSync();
         audio.tick();
     }
-    public void hello() { JammarrNetwork.sendToServer(new JammarrPayloads.ClientHello(JammarrNetwork.PROTOCOL)); requestTimeSync(); }
+    public void hello() { JammarrNetwork.sendToServer(new JammarrPayloads.ClientHello(ProtocolLimits.clientHelloVersion())); requestTimeSync(); }
     public void ensureAudio() { audio.ensureStarted(); }
     public void listeningChanged() { audio.listeningChanged(); }
     public void retryAudio() { audio.retry(); refreshScreen(Minecraft.getInstance()); }

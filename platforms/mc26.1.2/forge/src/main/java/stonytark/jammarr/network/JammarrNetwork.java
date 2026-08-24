@@ -48,7 +48,11 @@ public final class JammarrNetwork {
         PayloadFlow<RegistryFriendlyByteBuf, CustomPacketPayload> serverbound = connection.play().flow(PacketFlow.SERVERBOUND);
         serverbound.addMain(JammarrPayloads.ClientHello.TYPE, JammarrPayloads.ClientHello.CODEC, (payload, context) -> {
             if (!protocolMatches(payload.protocolVersion())) {
-                context.getConnection().disconnect(Component.literal("Jammarr protocol mismatch: server requires version " + PROTOCOL));
+                withSender(context, sender -> {
+                    String reason = "Jammarr protocol mismatch: server requires version " + PROTOCOL;
+                    Jammarr.LOGGER.warn("Disconnecting {}: {}", sender.getGameProfile().name(), reason);
+                    sender.connection.disconnect(Component.literal(reason));
+                });
             } else withSender(context, sender -> JammarrServer.instance().hello(sender));
         });
         serverbound.addMain(JammarrPayloads.TimeSyncRequest.TYPE, JammarrPayloads.TimeSyncRequest.CODEC, (payload, context) ->

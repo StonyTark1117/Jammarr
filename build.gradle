@@ -32,6 +32,11 @@ neoForge {
         client {
             client()
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+            if (providers.gradleProperty('jammarrAcceptanceServer').isPresent()) {
+                gameDirectory = file(providers.gradleProperty('jammarrAcceptanceGameDir').get())
+                programArguments.addAll '--username', providers.gradleProperty('jammarrAcceptanceUsername').get(),
+                        '--quickPlayMultiplayer', providers.gradleProperty('jammarrAcceptanceServer').get()
+            }
         }
         server {
             server()

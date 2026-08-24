@@ -15,6 +15,7 @@ import net.minecraft.entity.player.EntityPlayerMP;
 import stonytark.jammarr.Jammarr;
 import stonytark.jammarr.core.protocol.ControlPackets;
 import stonytark.jammarr.core.protocol.ProtocolException;
+import stonytark.jammarr.core.protocol.ProtocolLimits;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -95,7 +96,7 @@ public final class LegacyNetwork {
     @SubscribeEvent
     public void clientConnected(FMLNetworkEvent.ClientConnectedToServerEvent event) {
         CLIENT_INBOX.clear();
-        sendToServer(LegacyPacketTypes.CLIENT_HELLO, new ControlPackets.ClientHello(Jammarr.PROTOCOL));
+        sendToServer(LegacyPacketTypes.CLIENT_HELLO, new ControlPackets.ClientHello(ProtocolLimits.clientHelloVersion()));
     }
 
     @SubscribeEvent
