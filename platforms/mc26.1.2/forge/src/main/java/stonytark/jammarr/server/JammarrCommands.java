@@ -1,11 +1,10 @@
 package stonytark.jammarr.server;
 
-import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
-import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
+import net.minecraftforge.event.RegisterCommandsEvent;
 import stonytark.jammarr.core.platform.JammarrSettings;
 import stonytark.jammarr.network.JammarrNetwork;
 import stonytark.jammarr.network.JammarrPayloads;
@@ -13,11 +12,10 @@ import stonytark.jammarr.network.JammarrPayloads;
 import java.util.List;
 
 public final class JammarrCommands {
-    public static void register() {
-        CommandRegistrationCallback.EVENT.register((dispatcher, registries, environment) -> register(dispatcher));
-    }
+    private static final JammarrCommands INSTANCE = new JammarrCommands();
+    public static void register() { RegisterCommandsEvent.BUS.addListener(INSTANCE::commands); }
 
-    private static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
+    public void commands(RegisterCommandsEvent event) {
         LiteralArgumentBuilder<CommandSourceStack> root = Commands.literal("jammarr")
                 .executes(c -> { JammarrNetwork.sendToPlayer(c.getSource().getPlayerOrException(), new JammarrPayloads.OpenScreen()); return 1; })
                 .then(Commands.literal("status").executes(c -> { GlobalPlayer p = JammarrServer.instance().player(); c.getSource().sendSuccess(() -> Component.literal(p == null ? "Jammarr is unavailable" : p.status()), false); return 1; }));
@@ -38,7 +36,7 @@ public final class JammarrCommands {
         root.then(Commands.literal("adventure").requires(s -> JammarrPermissions.has(s, JammarrSettings.operatorPermissionLevel()))
                 .then(Commands.literal("status").executes(c -> { GlobalPlayer p = JammarrServer.instance().player(); c.getSource().sendSuccess(() -> Component.literal(p == null ? "Jammarr is unavailable" : p.stationStatus()), false); return 1; }))
                 .then(Commands.literal("stop").executes(c -> station(c.getSource(), JammarrPayloads.StationAction.STOP, JammarrPayloads.StationType.NONE, false))));
-        dispatcher.register(root);
+        event.getDispatcher().register(root);
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> operator(String name, JammarrPayloads.ControlAction action) {
@@ -56,6 +54,4 @@ public final class JammarrCommands {
                 action, type, enabled, player.stationGeneration(), List.of()));
         return 1;
     }
-
-    private JammarrCommands() {}
 }

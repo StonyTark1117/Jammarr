@@ -211,6 +211,38 @@ def verifyNeoForge1202 = tasks.register('verifyNeoForge1202', Exec) {
     mustRunAfter(verifyForge1202)
 }
 
+def java26Home = '/usr/lib/jvm/java-26-openjdk'
+def java26Path = "${java26Home}/bin:${System.getenv('PATH')}"
+
+def verifyFabric2612 = tasks.register('verifyFabric2612', Exec) {
+    group = 'verification'
+    description = 'Runs the isolated Java 25 Minecraft 26.1.2 Fabric release gate.'
+    workingDir(layout.projectDirectory.dir('platforms/mc26.1.2/fabric'))
+    environment 'JAVA_HOME', java26Home
+    environment 'PATH', java26Path
+    commandLine('./gradlew', 'verifyRelease', '--no-daemon', '--max-workers=1')
+}
+
+def verifyForge2612 = tasks.register('verifyForge2612', Exec) {
+    group = 'verification'
+    description = 'Runs the isolated Java 25 Minecraft 26.1.2 Forge release gate.'
+    workingDir(layout.projectDirectory.dir('platforms/mc26.1.2/forge'))
+    environment 'JAVA_HOME', java26Home
+    environment 'PATH', java26Path
+    commandLine('./gradlew', 'verifyRelease', '--no-daemon', '--max-workers=1')
+    mustRunAfter(verifyFabric2612)
+}
+
+def verifyNeoForge2612 = tasks.register('verifyNeoForge2612', Exec) {
+    group = 'verification'
+    description = 'Runs the isolated Java 25 Minecraft 26.1.2 NeoForge release gate.'
+    workingDir(layout.projectDirectory.dir('platforms/mc26.1.2/neoforge'))
+    environment 'JAVA_HOME', java26Home
+    environment 'PATH', java26Path
+    commandLine('./gradlew', 'verifyRelease', '--no-daemon', '--max-workers=1')
+    mustRunAfter(verifyForge2612)
+}
+
 tasks.register('verify1211Family') {
     group = 'verification'
     description = 'Builds and verifies the NeoForge, Fabric, and Forge Minecraft 1.21.1 artifacts.'
@@ -229,10 +261,17 @@ tasks.register('verify1202Family') {
     dependsOn(verifyFabric1202, verifyForge1202, verifyNeoForge1202)
 }
 
+tasks.register('verify2612Family') {
+    group = 'verification'
+    description = 'Builds and verifies the Java 25 Fabric, Forge, and NeoForge Minecraft 26.1.2 artifacts.'
+    dependsOn(verifyFabric2612, verifyForge2612, verifyNeoForge2612)
+}
+
 tasks.register('verifyAllTargets') {
     group = 'verification'
     description = 'Builds and verifies every currently registered Jammarr target.'
-    dependsOn(tasks.named('verify1201Family'), tasks.named('verify1202Family'), tasks.named('verify1211Family'), tasks.named('runGameTestServer'))
+    dependsOn(tasks.named('verify1201Family'), tasks.named('verify1202Family'), tasks.named('verify1211Family'),
+            tasks.named('verify2612Family'), tasks.named('runGameTestServer'))
 }
 
 var generateModMetadata = tasks.register('generateModMetadata', ProcessResources) {

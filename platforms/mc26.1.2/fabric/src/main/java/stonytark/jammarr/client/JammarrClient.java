@@ -3,7 +3,7 @@ package stonytark.jammarr.client;
 import com.mojang.blaze3d.platform.InputConstants;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
@@ -14,7 +14,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.packs.PackType;
 import net.minecraft.server.packs.resources.ResourceManager;
 import org.lwjgl.glfw.GLFW;
@@ -28,12 +28,14 @@ import stonytark.jammarr.network.JammarrPayloads;
 import java.nio.file.Path;
 
 public final class JammarrClient implements ClientModInitializer {
+    private static final KeyMapping.Category CATEGORY = KeyMapping.Category.register(
+            Identifier.fromNamespaceAndPath(Jammarr.MODID, "controls"));
     private static final KeyMapping OPEN = new KeyMapping("key.jammarr.open", InputConstants.Type.KEYSYM,
-            GLFW.GLFW_KEY_P, "key.categories.jammarr");
+            GLFW.GLFW_KEY_P, CATEGORY);
 
     @Override public void onInitializeClient() {
         installClientSettings();
-        KeyBindingHelper.registerKeyBinding(OPEN);
+        KeyMappingHelper.registerKeyMapping(OPEN);
         ClientPayloadBridge.install(JammarrClientState.INSTANCE::accept);
         JammarrNetwork.installClientSender(ClientPlayNetworking::send);
         registerReceivers();
@@ -41,8 +43,8 @@ public final class JammarrClient implements ClientModInitializer {
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> JammarrClientState.INSTANCE.stop());
         ClientTickEvents.END_CLIENT_TICK.register(this::tick);
         ResourceManagerHelper.get(PackType.CLIENT_RESOURCES).registerReloadListener(new SimpleSynchronousResourceReloadListener() {
-            @Override public ResourceLocation getFabricId() {
-                return ResourceLocation.fromNamespaceAndPath(Jammarr.MODID, "sound_engine_reload");
+            @Override public Identifier getFabricId() {
+                return Identifier.fromNamespaceAndPath(Jammarr.MODID, "sound_engine_reload");
             }
             @Override public void onResourceManagerReload(ResourceManager manager) {
                 JammarrClientState.INSTANCE.audioEngineReloaded();

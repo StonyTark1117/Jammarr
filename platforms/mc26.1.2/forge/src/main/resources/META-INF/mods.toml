@@ -1,0 +1,26 @@
+modLoader="javafml"
+loaderVersion="[64,65)"
+license="CC0-1.0"
+
+[[mods]]
+modId="jammarr"
+version="${version}"
+displayName="Jammarr"
+logoFile="jammarr.png"
+authors="stonytark_mkii"
+displayTest="MATCH_VERSION"
+description='''Streams a shared, synchronized Plex music queue to every player.'''
+
+[[dependencies.jammarr]]
+modId="forge"
+mandatory=true
+versionRange="[64,65)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.jammarr]]
+modId="minecraft"
+mandatory=true
+versionRange="[26.1.2,26.2)"
+ordering="NONE"
+side="BOTH"

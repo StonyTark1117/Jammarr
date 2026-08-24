@@ -79,11 +79,11 @@ public final class JammarrNetwork {
 
     private static <T extends CustomPacketPayload & JammarrMessage> void registerS2C(CustomPacketPayload.Type<T> type,
                                                                     net.minecraft.network.codec.StreamCodec<? super net.minecraft.network.RegistryFriendlyByteBuf, T> codec) {
-        PayloadTypeRegistry.playS2C().register(type, codec);
+        PayloadTypeRegistry.clientboundPlay().register(type, codec);
     }
     private static <T extends CustomPacketPayload & JammarrMessage> void registerC2S(CustomPacketPayload.Type<T> type,
                                                                     net.minecraft.network.codec.StreamCodec<? super net.minecraft.network.RegistryFriendlyByteBuf, T> codec) {
-        PayloadTypeRegistry.playC2S().register(type, codec);
+        PayloadTypeRegistry.serverboundPlay().register(type, codec);
     }
     private JammarrNetwork() {}
 }

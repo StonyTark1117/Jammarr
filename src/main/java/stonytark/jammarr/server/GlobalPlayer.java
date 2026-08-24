@@ -219,7 +219,7 @@ public final class GlobalPlayer implements AutoCloseable {
 
     public void station(ServerPlayer player, JammarrPayloads.StationRequest request) {
         StationControlPolicy.Decision decision = StationControlPolicy.assess(
-                player.hasPermissions(JammarrSettings.operatorPermissionLevel()), request.expectedGeneration(), saved.station().generation());
+                JammarrPermissions.has(player, JammarrSettings.operatorPermissionLevel()), request.expectedGeneration(), saved.station().generation());
         if (decision == StationControlPolicy.Decision.PERMISSION_DENIED) {
             sendError(player, JammarrPayloads.ErrorCode.PERMISSION_DENIED, "Operator permission is required"); return;
         }
@@ -501,9 +501,9 @@ public final class GlobalPlayer implements AutoCloseable {
     private void sendState(ServerPlayer player, String notice) {
         QueueTrack current = saved.current(); JammarrPayloads.PlaybackStatus status = playbackStatus();
         String detail = notice.isBlank() ? (status == JammarrPayloads.PlaybackStatus.PLEX_OFFLINE ? "Plex is currently unavailable" : playbackDetail()) : notice;
-        if (player.hasPermissions(JammarrSettings.operatorPermissionLevel())) detail += " | " + plexDiagnostic;
+        if (JammarrPermissions.has(player, JammarrSettings.operatorPermissionLevel())) detail += " | " + plexDiagnostic;
         JammarrNetwork.sendToPlayer(player, new JammarrPayloads.PlaybackState(status, detail, current == null ? "" : current.title(), current == null ? "" : current.artist(),
-                timeline.paused(), positionMs(), durationMs(), System.currentTimeMillis(), player.hasPermissions(JammarrSettings.operatorPermissionLevel()),
+                timeline.paused(), positionMs(), durationMs(), System.currentTimeMillis(), JammarrPermissions.has(player, JammarrSettings.operatorPermissionLevel()),
                 saved.currentOrigin(), saved.currentSourceName(), visibleQueue()));
         StationDefinition active = activeDefinition();
         JammarrNetwork.sendToPlayer(player, new JammarrPayloads.StationState(active.type(), active.active(), saved.autoplayEnabled(), active.generation(),
@@ -541,7 +541,7 @@ public final class GlobalPlayer implements AutoCloseable {
         sendError(player, JammarrPayloads.ErrorCode.PLEX_OFFLINE, plexHealth == PlexHealth.VALIDATING ? "Plex validation is still in progress" : "Plex is offline; ask an operator to run /jammarr diagnostics"); return false;
     }
     private boolean operator(ServerPlayer player) {
-        if (player.hasPermissions(JammarrSettings.operatorPermissionLevel())) return true;
+        if (JammarrPermissions.has(player, JammarrSettings.operatorPermissionLevel())) return true;
         sendError(player, JammarrPayloads.ErrorCode.PERMISSION_DENIED, "Operator permission is required"); return false;
     }
     private boolean allow(SlidingWindowRateLimiter limiter, ServerPlayer player, int perSecond) {
@@ -565,7 +565,7 @@ public final class GlobalPlayer implements AutoCloseable {
         return "Plex operation failed: " + safe(cause);
     }
     private void sendErrorToOperators(JammarrPayloads.ErrorCode code, String message) {
-        for (ServerPlayer player : server.getPlayerList().getPlayers()) if (player.hasPermissions(JammarrSettings.operatorPermissionLevel())) sendError(player, code, message);
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) if (JammarrPermissions.has(player, JammarrSettings.operatorPermissionLevel())) sendError(player, code, message);
     }
     private String cacheState(QueueTrack track) {
         if (track == null) return "none"; Path path = cache.target(track.key(), JammarrSettings.audioBitrateKbps()); boolean cached = Files.isRegularFile(path);
