@@ -12,20 +12,22 @@ Automation is necessary but does not prove audible playback. Before publishing a
 
 | Target | Dedicated start/stop | Required-client rejection | Fake Plex | Live Plex | Two-client audible playback | Result |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1.7.10 Forge | pending | pending | pending | pending | pending | pending |
-| 1.20.1 Fabric | pending | pending | pending | pending | pending | pending |
-| 1.20.1 Forge | pending | pending | pending | pending | pending | pending |
-| 1.20.1 NeoForge | pending | pending | pending | pending | pending | pending |
-| 1.20.2 Fabric | pending | pending | pending | pending | pending | pending |
-| 1.20.2 Forge | pending | pending | pending | pending | pending | pending |
-| 1.20.2 NeoForge | pending | pending | pending | pending | pending | pending |
-| 1.21.1 Fabric | pending | pending | pending | pending | pending | pending |
-| 1.21.1 Forge | pending | pending | pending | pending | pending | pending |
-| 1.21.1 NeoForge | pending | pending | pending | pending | pending | pending |
-| 26.1.2 Fabric | pending | pending | pending | pending | pending | pending |
-| 26.1.2 Forge | pending | pending | pending | pending | pending | pending |
-| 26.1.2 NeoForge | pending | pending | pending | pending | pending | pending |
+| 1.7.10 Forge | automated gate | pending | automated gate | pending | pending | pending |
+| 1.20.1 Fabric | automated gate | pending | automated gate | pending | pending | pending |
+| 1.20.1 Forge | automated gate | pending | automated gate | pending | pending | pending |
+| 1.20.1 NeoForge | automated gate | pending | automated gate | pending | pending | pending |
+| 1.20.2 Fabric | automated gate | pending | automated gate | pending | pending | pending |
+| 1.20.2 Forge | automated gate | pending | automated gate | pending | pending | pending |
+| 1.20.2 NeoForge | automated gate | pending | automated gate | pending | pending | pending |
+| 1.21.1 Fabric | automated gate | pending | automated gate | pending | pending | pending |
+| 1.21.1 Forge | automated gate | pending | automated gate | pending | pending | pending |
+| 1.21.1 NeoForge | automated gate | pending | automated gate | pending | pending | pending |
+| 26.1.2 Fabric | automated gate | pending | automated gate | pending | pending | pending |
+| 26.1.2 Forge | automated gate | pending | automated gate | pending | pending | pending |
+| 26.1.2 NeoForge | automated gate | pending | automated gate | pending | pending | pending |
 
 For each audible two-client run, exercise late join, reconnect, pause/resume/skip/clear/reorder, local mute and volume, station generation, Sonic Adventure, cache-backed Plex outage playback, sound reload, underrun recovery, drift correction, and the final retry state. Confirm sound through both clients' actual output; connection state, packet receipt, decoder progress, and an allocated OpenAL source are insufficient.
 
-For each dedicated server run, also test wrong protocol, command permissions, invalid config rejection, sanitized diagnostics, clean shutdown, and absence of a lingering process or listening port. Inspect every final JAR for exact loader/Minecraft metadata, bundled JLayer and Jump3r, mappings-appropriate Mixins, icon, translations, Jammarr and LGPL licenses, third-party notice, canonical filename, and absence of credentials or private addresses.
+`verifyDedicatedServers` launches every target, waits for Minecraft readiness, requests shutdown over authenticated loopback RCON, and fails on missing save/shutdown markers, a lingering process group, or a listening game port. Console evidence is written under `build/dedicated-server-gate/`. The centralized artifact inspector validates exact metadata and bytecode targets, bundled core/JLayer/Jump3r libraries, mappings-appropriate Mixins (and their intentional absence on pre-Mixin Forge 1.7.10), icon alpha, translations, licenses, notices, checksums, canonical filenames, and absence of an environment token or RFC1918 deployment address.
+
+For each dedicated-server acceptance run, also test wrong protocol, command permissions, invalid config rejection, and sanitized diagnostics. These interaction checks remain pending until exercised through real clients; server readiness alone does not prove them.

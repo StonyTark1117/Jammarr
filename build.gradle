@@ -347,7 +347,9 @@ def assembleRelease = tasks.register('assembleReleaseArtifacts') {
     outputs.dir(layout.buildDirectory.dir('releases'))
     doLast {
         File releaseDirectory = layout.buildDirectory.dir('releases').get().asFile
-        project.delete(releaseDirectory)
+        if (releaseDirectory.exists() && !releaseDirectory.deleteDir()) {
+            throw new GradleException("Could not clean release directory ${releaseDirectory}")
+        }
         releaseDirectory.mkdirs()
         List<Map<String, Object>> manifestArtifacts = []
         canonicalArtifacts.each { artifact ->
@@ -379,7 +381,23 @@ def assembleRelease = tasks.register('assembleReleaseArtifacts') {
 tasks.register('releaseMatrixGate') {
     group = 'verification'
     description = 'Builds, tests, inspects, and indexes all 13 supported Jammarr artifacts.'
+    dependsOn('inspectReleaseArtifacts', 'verifyDedicatedServers')
+}
+
+tasks.register('inspectReleaseArtifacts', Exec) {
+    group = 'verification'
+    description = 'Inspects metadata, bytecode, libraries, assets, notices, credentials, and checksums in all 13 release JARs.'
     dependsOn(assembleRelease)
+    workingDir(layout.projectDirectory)
+    commandLine('python3', 'scripts/inspect-release-artifacts.py', layout.buildDirectory.dir('releases').get().asFile.absolutePath)
+}
+
+tasks.register('verifyDedicatedServers', Exec) {
+    group = 'verification'
+    description = 'Starts and cleanly stops all 13 dedicated-server targets and rejects lingering processes or ports.'
+    mustRunAfter('inspectReleaseArtifacts')
+    workingDir(layout.projectDirectory)
+    commandLine('bash', 'scripts/run-dedicated-server-gate.sh', 'all')
 }
 
 var generateModMetadata = tasks.register('generateModMetadata', ProcessResources) {

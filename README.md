@@ -110,7 +110,7 @@ The Stations and Adventure tabs report whether Plex Pass is unavailable, library
 ./gradlew releaseMatrixGate --no-daemon --max-workers=1
 ```
 
-`releaseMatrixGate` runs the shared tests, all four three-loader modern family gates, the cleanup-aware GameTest gate, and the isolated Forge 1.7.10 Java 8 gate. It inspects every target JAR, then places exactly 13 runtime artifacts in `build/releases/` alongside `manifest.json` and `SHA256SUMS`.
+`releaseMatrixGate` runs the shared tests, all four three-loader modern family gates, the cleanup-aware GameTest gate, the isolated Forge 1.7.10 Java 8 gate, centralized inspection of every final JAR, and a fresh dedicated-server start/stop check for all 13 targets. It places exactly 13 runtime artifacts in `build/releases/` alongside `manifest.json` and `SHA256SUMS` and fails if a tested server leaves a process or game port behind.
 
 Useful narrower gates are `verify1201Family`, `verify1202Family`, `verify1211Family`, `verify2612Family`, `verifyLegacy1710`, and `verifyGameTests`. Each target's `verifyRelease` checks loader metadata, translations, decoder dependencies, license notices, canonical filename, and other target-specific invariants. The legacy verifier additionally checks all Jammarr classes are Java 8 bytecode.
 
@@ -118,7 +118,7 @@ Release checklist:
 
 - [ ] Run `./gradlew releaseMatrixGate --no-daemon --max-workers=1` from a clean checkout.
 - [ ] Validate the credentialed Plex smoke test once per Minecraft family against the intended deployment server.
-- [ ] Start and cleanly stop a dedicated server for every artifact; confirm no process or port remains.
+- [ ] Confirm the automated 13-target dedicated-server gate passed and retain `build/dedicated-server-gate/` logs with the release evidence.
 - [ ] Confirm missing-client and deliberately incompatible-protocol clients receive a clear disconnect.
 - [ ] Complete the audible two-client matrix in `docs/RELEASE_ACCEPTANCE.md`; a connected client or allocated OpenAL source is not sufficient.
 - [ ] Publish the 13 JARs, `manifest.json`, and `SHA256SUMS` from `build/releases/` together.

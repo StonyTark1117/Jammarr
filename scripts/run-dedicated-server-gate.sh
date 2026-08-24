@@ -1,0 +1,233 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+output_root="$repo_root/build/dedicated-server-gate"
+mkdir -p "$output_root"
+
+targets=(
+  "1.7.10-forge|platforms/mc1.7.10/forge|/usr/lib/jvm/java-26-openjdk|25695"
+  "1.20.1-fabric|platforms/mc1.20.1/fabric|/usr/lib/jvm/java-21-openjdk|25571"
+  "1.20.1-forge|platforms/mc1.20.1/forge|/usr/lib/jvm/java-21-openjdk|25572"
+  "1.20.1-neoforge|platforms/mc1.20.1/neoforge|/usr/lib/jvm/java-21-openjdk|25574"
+  "1.20.2-fabric|platforms/mc1.20.2/fabric|/usr/lib/jvm/java-21-openjdk|25576"
+  "1.20.2-forge|platforms/mc1.20.2/forge|/usr/lib/jvm/java-21-openjdk|25578"
+  "1.20.2-neoforge|platforms/mc1.20.2/neoforge|/usr/lib/jvm/java-21-openjdk|25580"
+  "1.21.1-fabric|platforms/mc1.21.1/fabric|/usr/lib/jvm/java-21-openjdk|25581"
+  "1.21.1-forge|platforms/mc1.21.1/forge|/usr/lib/jvm/java-21-openjdk|25582"
+  "1.21.1-neoforge|.|/usr/lib/jvm/java-21-openjdk|25566"
+  "26.1.2-fabric|platforms/mc26.1.2/fabric|/usr/lib/jvm/java-26-openjdk|25642"
+  "26.1.2-forge|platforms/mc26.1.2/forge|/usr/lib/jvm/java-26-openjdk|25643"
+  "26.1.2-neoforge|platforms/mc26.1.2/neoforge|/usr/lib/jvm/java-26-openjdk|25644"
+)
+
+requested=${1:-all}
+
+group_alive() {
+  local group_id=$1
+  ps -eo pgid=,stat= | awk -v expected="$group_id" \
+    '$1 == expected && $2 !~ /^Z/ { found = 1 } END { exit !found }'
+}
+
+stop_group() {
+  local group_id=$1
+  local signal=$2
+  kill "-$signal" -- "-$group_id" 2>/dev/null || true
+}
+
+wait_for_group_exit() {
+  local group_id=$1
+  local seconds=$2
+  local deadline=$((SECONDS + seconds))
+  while group_alive "$group_id"; do
+    if (( SECONDS >= deadline )); then return 1; fi
+    sleep 1
+  done
+}
+
+ensure_runtime_files() {
+  local run_dir=$1
+  local default_port=$2
+  mkdir -p "$run_dir"
+  if [[ ! -f "$run_dir/eula.txt" ]]; then
+    printf 'eula=true\n' > "$run_dir/eula.txt"
+  elif ! grep -Eq '^eula=true$' "$run_dir/eula.txt"; then
+    printf 'eula=true\n' > "$run_dir/eula.txt"
+  fi
+  if [[ ! -f "$run_dir/server.properties" ]]; then
+    printf 'allow-flight=true\nonline-mode=false\nserver-port=%s\nlevel-name=world\nmotd=Jammarr dedicated-server gate\n' \
+      "$default_port" > "$run_dir/server.properties"
+  elif ! grep -Eq '^server-port=[0-9]+$' "$run_dir/server.properties"; then
+    printf '\nserver-port=%s\n' "$default_port" >> "$run_dir/server.properties"
+  fi
+}
+
+set_property() {
+  local file=$1
+  local key=$2
+  local value=$3
+  if grep -q "^${key}=" "$file"; then
+    sed -i "s|^${key}=.*|${key}=${value}|" "$file"
+  else
+    printf '%s=%s\n' "$key" "$value" >> "$file"
+  fi
+}
+
+run_target() {
+  local label=$1
+  local relative_dir=$2
+  local java_home=$3
+  local default_port=$4
+  local target_dir="$repo_root/$relative_dir"
+  local run_dir="$target_dir/run"
+  local latest_log="$run_dir/logs/latest.log"
+  local console_log="$output_root/$label.console.log"
+  local fifo_dir fifo fifo_fd pid server_pid port rcon_port rcon_password start_epoch result=0
+  local -a cache_args=()
+
+  if [[ ! -x "$java_home/bin/java" ]]; then
+    echo "$label: missing Java runtime $java_home" >&2
+    return 1
+  fi
+  ensure_runtime_files "$run_dir" "$default_port"
+  port=$(sed -n 's/^server-port=\([0-9][0-9]*\)$/\1/p' "$run_dir/server.properties" | tail -n 1)
+  if [[ -z "$port" ]]; then
+    echo "$label: unable to resolve server port" >&2
+    return 1
+  fi
+  if ss -ltnH "sport = :$port" | grep -q .; then
+    echo "$label: port $port is already in use" >&2
+    return 1
+  fi
+  rcon_port=$((default_port + 1000))
+  rcon_password="jammarr-gate-${default_port}"
+  if [[ "$label" == "1.7.10-forge" ]]; then
+    # Vanilla 1.7.10 closes an RCON connection after its authentication packet,
+    # so use its working console input instead of weakening clean-shutdown proof.
+    set_property "$run_dir/server.properties" enable-rcon false
+  else
+    set_property "$run_dir/server.properties" enable-rcon true
+    set_property "$run_dir/server.properties" rcon.port "$rcon_port"
+    set_property "$run_dir/server.properties" rcon.password "$rcon_password"
+    if ss -ltnH "sport = :$rcon_port" | grep -q .; then
+      echo "$label: RCON port $rcon_port is already in use" >&2
+      return 1
+    fi
+  fi
+  case "$label" in
+    1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge)
+      cache_args+=(--no-configuration-cache)
+      ;;
+  esac
+
+  fifo_dir=$(mktemp -d "$output_root/$label.fifo.XXXXXX")
+  fifo="$fifo_dir/stdin"
+  mkfifo "$fifo"
+  exec {fifo_fd}<>"$fifo"
+  start_epoch=$(date +%s)
+  echo "$label: starting on port $port"
+  (
+    cd "$target_dir" || exit 1
+    exec setsid env JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
+      ./gradlew runServer --no-daemon --max-workers=1 --console=plain "${cache_args[@]}" \
+      < "$fifo" > "$console_log" 2>&1
+  ) &
+  pid=$!
+
+  local startup_deadline=$((SECONDS + 180))
+  while :; do
+    if [[ -f "$latest_log" ]] && (( $(stat -c %Y "$latest_log") >= start_epoch )) \
+        && grep -Eq 'Done \([^)]*\)! For help' "$latest_log"; then
+      break
+    fi
+    if ! kill -0 "$pid" 2>/dev/null; then
+      echo "$label: server process exited before readiness" >&2
+      result=1
+      break
+    fi
+    if (( SECONDS >= startup_deadline )); then
+      echo "$label: server did not become ready within 180 seconds" >&2
+      result=1
+      break
+    fi
+    sleep 1
+  done
+
+  if [[ "$label" == "1.7.10-forge" ]]; then
+    printf 'stop\n' >&"$fifo_fd"
+  elif ! python3 "$repo_root/scripts/minecraft-rcon.py" 127.0.0.1 "$rcon_port" "$rcon_password" stop \
+      >> "$console_log" 2>&1; then
+    printf 'stop\n' >&"$fifo_fd"
+  fi
+  if ! wait_for_group_exit "$pid" 60; then
+    server_pid=$(ss -ltnp "sport = :$port" | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' | head -n 1)
+    if [[ -n "$server_pid" ]]; then
+      kill -TERM "$server_pid" 2>/dev/null || true
+    else
+      echo "$label: console stop timed out and the listening server process could not be identified" >&2
+      stop_group "$pid" TERM
+      result=1
+    fi
+    if ! wait_for_group_exit "$pid" 30; then
+      echo "$label: graceful shutdown timed out" >&2
+      stop_group "$pid" KILL
+      wait_for_group_exit "$pid" 10 || true
+      result=1
+    fi
+  fi
+  wait "$pid" 2>/dev/null || true
+  exec {fifo_fd}>&-
+  rm -f -- "$fifo"
+  rmdir -- "$fifo_dir"
+
+  if [[ ! -f "$latest_log" ]] || ! grep -Eq 'Stopping (the )?server' "$latest_log" \
+      || ! grep -q 'Saving players' "$latest_log"; then
+    echo "$label: log does not prove a clean Minecraft shutdown" >&2
+    result=1
+  fi
+  if [[ "$label" == "1.7.10-forge" ]]; then
+    if ! grep -q 'Initializing Jammarr 1.0.0 for Forge 1.7.10 protocol 5' "$run_dir/logs/fml-server-latest.log"; then
+      echo "$label: FML log does not prove Jammarr initialized" >&2
+      result=1
+    fi
+  elif ! grep -Eiq 'jammarr' "$latest_log"; then
+    echo "$label: server log does not prove Jammarr loaded" >&2
+    result=1
+  fi
+  if grep -Eiq 'Failed to start the minecraft server|ModLoadingException|Preparing crash report|Encountered an unexpected exception' \
+      "$latest_log" "$console_log"; then
+    echo "$label: fatal startup marker found; see $console_log" >&2
+    result=1
+  fi
+  if ss -ltnH "sport = :$port" | grep -q .; then
+    echo "$label: port $port remains open after shutdown" >&2
+    result=1
+  fi
+  if group_alive "$pid"; then
+    echo "$label: process group $pid remains alive after shutdown" >&2
+    result=1
+  fi
+
+  if (( result == 0 )); then
+    echo "$label: ready, clean shutdown, no lingering process or port"
+  fi
+  return "$result"
+}
+
+matched=0
+failed=0
+for target in "${targets[@]}"; do
+  IFS='|' read -r label relative_dir java_home port <<< "$target"
+  if [[ "$requested" != "all" && "$requested" != "$label" ]]; then continue; fi
+  matched=1
+  run_target "$label" "$relative_dir" "$java_home" "$port" || failed=1
+done
+
+if (( matched == 0 )); then
+  echo "Unknown target '$requested'" >&2
+  exit 2
+fi
+if (( failed != 0 )); then
+  exit 1
+fi
+echo "Dedicated-server gate passed for $requested"

@@ -7,9 +7,6 @@ group = 'stonytark'
 version = '1.0.0'
 def artifactVersion = version.toString()
 def expectedReleaseName = "jammarr-${artifactVersion}+mc1.20.1-neoforge.jar"
-evaluationDependsOn(':core')
-def sharedCoreSource = project(':core').extensions.getByName('sourceSets').getByName('main')
-
 base { archivesName = "jammarr-${artifactVersion}+mc1.20.1-neoforge" }
 
 java {
@@ -26,11 +23,9 @@ minecraft {
         configureEach {
             workingDirectory project.file('run')
             buildAllProjects true
-            source sharedCoreSource
             mods {
                 jammarr {
                     source sourceSets.main
-                    source sharedCoreSource
                 }
             }
         }
