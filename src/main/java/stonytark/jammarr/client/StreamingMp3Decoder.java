@@ -41,12 +41,15 @@ final class StreamingMp3Decoder implements AutoCloseable {
     }
     byte[] poll() {
         byte[] value = pcm.poll();
-        if (value == null && !finished && !closed) {
+        while (value == null && !finished && !closed) {
             synchronized (pcmAvailable) {
                 value = pcm.poll();
                 if (value == null && !finished && !closed) {
-                    try { pcmAvailable.wait(500); }
-                    catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+                    try { pcmAvailable.wait(250); }
+                    catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        return null;
+                    }
                     value = pcm.poll();
                 }
             }

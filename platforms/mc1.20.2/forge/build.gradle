@@ -30,6 +30,7 @@ minecraft {
             }
         }
         client {
+            args '--mixin.config', 'jammarr.mixins.json'
             if (providers.gradleProperty('jammarrAcceptanceServer').isPresent()) {
                 workingDirectory file(providers.gradleProperty('jammarrAcceptanceGameDir').get())
                 args '--username', providers.gradleProperty('jammarrAcceptanceUsername').get(),
@@ -49,8 +50,10 @@ dependencies {
     implementation project(':core')
     jarJar(project(':core')) { dependency -> jarJar.ranged(dependency, '[1.0.0,1.0.1)') }
     implementation libs.jlayer
+    minecraftLibrary libs.jlayer
     jarJar(libs.jlayer) { dependency -> jarJar.ranged(dependency, '[1.0.1,1.0.2)') }
     implementation libs.jump3r
+    minecraftLibrary libs.jump3r
     jarJar(libs.jump3r) { dependency -> jarJar.ranged(dependency, '[1.0.5,1.0.6)') }
     testImplementation platform(libs.junit.bom)
     testImplementation libs.junit.jupiter

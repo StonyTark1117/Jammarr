@@ -7,18 +7,21 @@ import javax.sound.sampled.AudioFormat;
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.*;
 
 class StreamingMp3DecoderTest {
     @Test
-    void pcmStreamKeepsOpenAudioAliveWhileTheFirstChunkIsStillArriving() {
+    void pcmStreamWaitsForTheFirstChunkInsteadOfReturningFalseEndOfStream() throws Exception {
         StreamingMp3Decoder decoder = new StreamingMp3Decoder(0, 1);
         try {
             PcmAudioStream stream = new PcmAudioStream(decoder);
-            ByteBuffer silence = stream.read(256);
-            assertNotNull(silence);
-            assertEquals(256, silence.remaining());
+            CompletableFuture<ByteBuffer> pending = CompletableFuture.supplyAsync(() -> stream.read(256));
+            Thread.sleep(300);
+            assertFalse(pending.isDone(), "an empty buffer would make OpenAL stop a live stream");
             stream.close();
+            assertNull(pending.get(2, TimeUnit.SECONDS));
         } finally {
             decoder.close();
         }

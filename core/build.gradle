@@ -42,4 +42,9 @@ sourceSets {
 
 tasks.withType(Test).configureEach {
     useJUnitPlatform()
+    inputs.property('jammarrLiveTestEnabled', providers.environmentVariable('JAMMARR_LIVE_TEST').orElse('false'))
+    outputs.upToDateWhen { System.getenv('JAMMARR_LIVE_TEST') != 'true' }
+    outputs.cacheIf('credentialed Plex integration tests must execute live') {
+        System.getenv('JAMMARR_LIVE_TEST') != 'true'
+    }
 }

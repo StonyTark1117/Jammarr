@@ -40,6 +40,12 @@ class TransportPacketCodecTest {
         assertThrows(ProtocolException.class, () -> new ByteArrayWireInput(new byte[]{-128, -128, -128, -128, -128, 0}).readVarInt());
     }
 
+    @Test void signedMaximumWidthVarLongRoundTrips() {
+        ByteArrayWireOutput output = new ByteArrayWireOutput();
+        output.writeVarLong(-1L);
+        assertEquals(-1L, new ByteArrayWireInput(output.toByteArray()).readVarLong());
+    }
+
     @Test void truncatedDeclaredFieldLengthIsRejected() {
         assertThrows(ProtocolException.class,
                 () -> new ByteArrayWireInput(new byte[] { 5, 'a' }).readUtf(16));

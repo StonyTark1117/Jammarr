@@ -108,6 +108,7 @@ dependencies {
 tasks.withType(Test).configureEach {
     useJUnitPlatform()
     inputs.property('jammarrLiveTestEnabled', providers.environmentVariable('JAMMARR_LIVE_TEST').orElse('false'))
+    outputs.upToDateWhen { System.getenv('JAMMARR_LIVE_TEST') != 'true' }
     outputs.cacheIf('credentialed Plex integration tests must execute live') {
         System.getenv('JAMMARR_LIVE_TEST') != 'true'
     }
@@ -224,7 +225,8 @@ def verifyNeoForge1202 = tasks.register('verifyNeoForge1202', Exec) {
     mustRunAfter(verifyForge1202)
 }
 
-def java26Home = '/usr/lib/jvm/java-26-openjdk'
+def java26Home = providers.environmentVariable('JAMMARR_JAVA26_HOME')
+        .orElse('/usr/lib/jvm/java-26-openjdk').get()
 def java26Path = "${java26Home}/bin:${System.getenv('PATH')}"
 
 def verifyFabric2612 = tasks.register('verifyFabric2612', Exec) {
@@ -400,10 +402,13 @@ tasks.register('inspectReleaseArtifacts', Exec) {
 
 tasks.register('verifyDedicatedServers', Exec) {
     group = 'verification'
-    description = 'Starts and cleanly stops all 13 dedicated-server targets, including real incompatible-client rejection.'
+    description = 'Runs all 13 real-server, incompatible-client, command, and observable two-client audio gates.'
     mustRunAfter('inspectReleaseArtifacts')
     workingDir(layout.projectDirectory)
     environment('JAMMARR_PROTOCOL_CLIENT_GATE', 'true')
+    environment('JAMMARR_COMMAND_CLIENT_GATE', 'true')
+    environment('JAMMARR_AUDIO_CLIENT_GATE', 'true')
+    environment('JAMMARR_AUDIO_SCENARIO_GATE', 'true')
     commandLine('bash', 'scripts/run-dedicated-server-gate.sh', 'all')
 }
 

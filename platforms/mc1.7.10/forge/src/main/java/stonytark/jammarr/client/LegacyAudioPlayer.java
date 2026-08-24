@@ -7,6 +7,7 @@ import stonytark.jammarr.Jammarr;
 import stonytark.jammarr.core.client.ChunkWindowTracker;
 import stonytark.jammarr.core.client.ClockSynchronizer;
 import stonytark.jammarr.core.client.DriftPolicy;
+import stonytark.jammarr.core.client.PcmGain;
 import stonytark.jammarr.core.network.Hashing;
 import stonytark.jammarr.core.platform.JammarrSettings;
 import stonytark.jammarr.core.protocol.StatePackets;
@@ -21,7 +22,7 @@ import java.util.UUID;
 final class LegacyAudioPlayer {
     private static final String SOURCE = "jammarr:global_music";
     private static final long START_BUFFER_MS = 5_000L;
-    private static final long TARGET_SOUND_QUEUE_MS = 5_000L;
+    private static final long TARGET_SOUND_QUEUE_MS = 1_000L;
     private static final long DRIFT_REBUFFER_MS = 500L;
     private static final long UNDERRUN_GRACE_MS = 1_500L;
     private static final int MAX_RECOVERY_ATTEMPTS = 3;
@@ -52,6 +53,10 @@ final class LegacyAudioPlayer {
 
     void manifest(TransportPackets.AudioManifest value) {
         if (value.totalChunks() == 0 || value.sessionId().equals(new UUID(0L, 0L))) { stop(); return; }
+        // Queue pause ahead of any timeline rebuffer/cleanup. Paulscode runs
+        // these commands asynchronously, and cleanup-first can let a fragment
+        // of the old raw stream escape after the shared state says PAUSED.
+        if (value.paused() && started && soundSystem != null) soundSystem.pause(SOURCE);
         if (manifest == null || !manifest.sessionId().equals(value.sessionId())) {
             resetAudio(); manifest = value; recoveryAttempts = 0; receivedChunks = 0; underruns = 0;
             lastHealthSentMs = 0L; lastHealthState = ""; recoveryFailed = false;
@@ -109,11 +114,7 @@ final class LegacyAudioPlayer {
             startSource(current, now);
         }
         if (started && soundSystem != null) {
-            float volume = JammarrSettings.enabled()
-                    ? (float) (JammarrSettings.volume() * minecraft.gameSettings.getSoundLevel(SoundCategory.MUSIC)) : 0.0F;
-            soundSystem.setVolume(SOURCE, volume);
-            if (manifest.paused()) soundSystem.pause(SOURCE); else soundSystem.play(SOURCE);
-            if (!manifest.paused()) feedPcm(now);
+            if (!manifest.paused() && !feedPcm(now)) return;
             if (!manifest.paused() && decoder.bufferedMillis() == 0L && !window.complete()
                     && now - lastAudioDataMs > UNDERRUN_GRACE_MS) {
                 underruns++; requestRebuffer("decoder starvation"); return;
@@ -142,24 +143,39 @@ final class LegacyAudioPlayer {
         sourceStartedPositionMs = Math.max(0L, firstChunkStartMs);
         queuedUntilLocalMs = now;
         started = true;
-        feedPcm(now);
+        // A live Paulscode source proves the previous recovery succeeded, so
+        // only consecutive failures consume the retry allowance.
+        recoveryAttempts = 0;
+        if (!feedPcm(now) || soundSystem == null) return;
         soundSystem.play(SOURCE);
     }
 
-    private void feedPcm(long now) {
-        if (soundSystem == null) return;
+    private boolean feedPcm(long now) {
+        if (soundSystem == null) return false;
         queuedUntilLocalMs = Math.max(now, queuedUntilLocalMs);
-        while (queuedUntilLocalMs - now < TARGET_SOUND_QUEUE_MS) {
-            byte[] pcm = decoder.drain(PCM_FEED_BYTES);
-            if (pcm == null) break;
-            soundSystem.feedRawAudioData(SOURCE, pcm);
-            queuedUntilLocalMs += decoder.durationMs(pcm);
+        try {
+            while (queuedUntilLocalMs - now < TARGET_SOUND_QUEUE_MS) {
+                byte[] pcm = decoder.drain(PCM_FEED_BYTES);
+                if (pcm == null) break;
+                PcmGain.apply(pcm, JammarrSettings.volume()
+                        * Minecraft.getMinecraft().gameSettings.getSoundLevel(SoundCategory.MUSIC));
+                soundSystem.feedRawAudioData(SOURCE, pcm);
+                queuedUntilLocalMs += decoder.durationMs(pcm);
+            }
+            return true;
+        } catch (RuntimeException unavailable) {
+            Jammarr.LOGGER.warn("Jammarr legacy sound engine changed during PCM feed", unavailable);
+            requestRebuffer("sound engine reload");
+            return false;
         }
     }
 
     void listeningChanged() {
         if (!JammarrSettings.enabled()) resetAudio();
-        else if (manifest != null && decoder == null) beginStreaming();
+        else if (manifest != null) {
+            resetAudio(); recovering = true;
+            LegacyNetwork.sendToServer(LegacyPacketTypes.MANIFEST_REQUEST, new StatePackets.ManifestRequest(true));
+        }
     }
 
     void retry() {
@@ -187,8 +203,35 @@ final class LegacyAudioPlayer {
         lastRecoveryMs = System.currentTimeMillis(); recovering = true;
         Jammarr.LOGGER.warn("Jammarr legacy audio recovery attempt {}/{}: {}",
                 recoveryAttempts, MAX_RECOVERY_ATTEMPTS, reason);
+        if (stonytark.jammarr.core.protocol.ProtocolLimits.audioProbeEnabled()) {
+            Jammarr.LOGGER.info("Acceptance audio state: RECOVERING reason={}", reason);
+        }
         resetAudio();
         LegacyNetwork.sendToServer(LegacyPacketTypes.MANIFEST_REQUEST, new StatePackets.ManifestRequest(true));
+    }
+
+    void acceptanceUnderrun() {
+        if (!stonytark.jammarr.core.protocol.ProtocolLimits.audioProbeEnabled()
+                || manifest == null || !started) return;
+        underruns++;
+        requestRebuffer("acceptance decoder starvation");
+    }
+
+    void acceptanceClockDrift() {
+        if (!stonytark.jammarr.core.protocol.ProtocolLimits.audioProbeEnabled()
+                || manifest == null || !started) return;
+        sourceStartedLocalMs -= DRIFT_REBUFFER_MS + 2_000L;
+        lastCorrectionMs = 0L;
+        Jammarr.LOGGER.info("Acceptance clock drift injected beyond {} ms", DRIFT_REBUFFER_MS);
+    }
+
+    void acceptanceExhaustRecovery() {
+        if (!stonytark.jammarr.core.protocol.ProtocolLimits.audioProbeEnabled() || manifest == null) return;
+        recoveryAttempts = 0;
+        recoveryFailed = false;
+        for (int attempt = 0; attempt <= MAX_RECOVERY_ATTEMPTS; attempt++) {
+            requestRebuffer("acceptance forced recovery failure");
+        }
     }
 
     private void rebuffer() { resetAudio(); beginStreaming(); }
@@ -232,9 +275,14 @@ final class LegacyAudioPlayer {
     }
 
     private void resetAudio() {
-        if (soundSystem != null) {
-            soundSystem.stop(SOURCE); soundSystem.flush(SOURCE); soundSystem.removeSource(SOURCE);
-            soundSystem = null;
+        SoundSystem previous = soundSystem;
+        soundSystem = null;
+        if (previous != null) {
+            try {
+                previous.stop(SOURCE); previous.flush(SOURCE); previous.removeSource(SOURCE);
+            } catch (RuntimeException unavailable) {
+                Jammarr.LOGGER.warn("Jammarr legacy sound engine changed during cleanup", unavailable);
+            }
         }
         if (decoder != null) { decoder.close(); decoder = null; }
         window = null; started = false; firstChunkStartMs = -1L;

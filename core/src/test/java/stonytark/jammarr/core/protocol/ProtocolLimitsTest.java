@@ -10,6 +10,10 @@ class ProtocolLimitsTest {
         System.clearProperty(ProtocolLimits.ACCEPTANCE_ENABLED_PROPERTY);
         System.clearProperty(ProtocolLimits.ACCEPTANCE_CLIENT_PROTOCOL_PROPERTY);
         System.clearProperty(ProtocolLimits.ACCEPTANCE_SUPPRESS_HELLO_PROPERTY);
+        System.clearProperty(ProtocolLimits.ACCEPTANCE_COMMAND_PROBE_PROPERTY);
+        System.clearProperty(ProtocolLimits.ACCEPTANCE_AUDIO_PROBE_PROPERTY);
+        System.clearProperty(ProtocolLimits.ACCEPTANCE_AUDIO_LEADER_PROPERTY);
+        System.clearProperty(ProtocolLimits.ACCEPTANCE_AUDIO_CONTROL_FILE_PROPERTY);
     }
 
     @Test void productionClientHelloIsAlwaysProtocolFive() {
@@ -36,5 +40,30 @@ class ProtocolLimitsTest {
         assertEquals(false, ProtocolLimits.clientHelloSuppressed());
         System.setProperty(ProtocolLimits.ACCEPTANCE_ENABLED_PROPERTY, "true");
         assertEquals(true, ProtocolLimits.clientHelloSuppressed());
+    }
+
+    @Test void commandProbeRequiresTheExplicitAcceptanceGate() {
+        System.setProperty(ProtocolLimits.ACCEPTANCE_COMMAND_PROBE_PROPERTY, "true");
+        assertEquals(false, ProtocolLimits.commandProbeEnabled());
+        System.setProperty(ProtocolLimits.ACCEPTANCE_ENABLED_PROPERTY, "true");
+        assertEquals(true, ProtocolLimits.commandProbeEnabled());
+    }
+
+    @Test void audioProbeAndLeaderRequireTheExplicitAcceptanceGate() {
+        System.setProperty(ProtocolLimits.ACCEPTANCE_AUDIO_PROBE_PROPERTY, "true");
+        System.setProperty(ProtocolLimits.ACCEPTANCE_AUDIO_LEADER_PROPERTY, "true");
+        assertEquals(false, ProtocolLimits.audioProbeEnabled());
+        assertEquals(false, ProtocolLimits.audioProbeLeader());
+        System.setProperty(ProtocolLimits.ACCEPTANCE_ENABLED_PROPERTY, "true");
+        assertEquals(true, ProtocolLimits.audioProbeEnabled());
+        assertEquals(true, ProtocolLimits.audioProbeLeader());
+    }
+
+    @Test void audioControlFileRequiresTheExplicitAudioGate() {
+        System.setProperty(ProtocolLimits.ACCEPTANCE_AUDIO_CONTROL_FILE_PROPERTY, "/tmp/probe");
+        assertEquals("", ProtocolLimits.audioControlFile());
+        System.setProperty(ProtocolLimits.ACCEPTANCE_ENABLED_PROPERTY, "true");
+        System.setProperty(ProtocolLimits.ACCEPTANCE_AUDIO_PROBE_PROPERTY, "true");
+        assertEquals("/tmp/probe", ProtocolLimits.audioControlFile());
     }
 }

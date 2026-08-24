@@ -6,14 +6,17 @@ import stonytark.jammarr.Jammarr;
 import stonytark.jammarr.core.client.ClockSynchronizer;
 import stonytark.jammarr.core.model.StationModels;
 import stonytark.jammarr.core.protocol.ControlPackets;
+import stonytark.jammarr.core.protocol.AcceptanceControlFile;
 import stonytark.jammarr.core.protocol.ProtocolLimits;
 import stonytark.jammarr.core.protocol.StatePackets;
 import stonytark.jammarr.core.protocol.TransportPackets;
 import stonytark.jammarr.network.LegacyNetwork;
 import stonytark.jammarr.network.LegacyPacketTypes;
+import stonytark.jammarr.core.platform.JammarrSettings;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -23,6 +26,7 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
     private final ClockSynchronizer clock = new ClockSynchronizer();
     private final LegacyAudioPlayer audio = new LegacyAudioPlayer(clock);
     private final AtomicLong timeNonce = new AtomicLong();
+    private final AcceptanceControlFile acceptanceControl = new AcceptanceControlFile();
     private StatePackets.PlaybackState playback = emptyPlayback();
     private StatePackets.StationState station = emptyStation();
     private StatePackets.AdventurePreview adventure = new StatePackets.AdventurePreview(
@@ -30,6 +34,10 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
     private ControlPackets.BrowseResults browse = new ControlPackets.BrowseResults(
             ControlPackets.BrowseKind.SEARCH, "", 0, false, Collections.<StationModels.MediaItem>emptyList());
     private boolean helloSent;
+    private boolean commandProbeSent;
+    private boolean operatorProbeSent;
+    private boolean acceptanceAudioQueued;
+    private String lastAcceptanceAudioState = "";
     private long lastTimeSync;
     private String notice = "";
 
@@ -39,10 +47,14 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
             minecraft.displayGuiScreen(new LegacyScreen(this));
         } else if (type == LegacyPacketTypes.SERVER_HELLO) {
             ControlPackets.ServerHello hello = (ControlPackets.ServerHello) message;
-            if (hello.protocolVersion() != Jammarr.PROTOCOL && minecraft.getNetHandler() != null) {
+            if (hello.protocolVersion() != ProtocolLimits.clientHelloVersion() && minecraft.getNetHandler() != null) {
                 minecraft.getNetHandler().getNetworkManager().closeChannel(
-                        new ChatComponentText("Jammarr protocol mismatch"));
-            } else requestTimeSync();
+                        new ChatComponentText("Jammarr protocol mismatch: server requires version "
+                                + hello.protocolVersion()));
+            } else {
+                requestTimeSync();
+                queueAcceptanceAudio();
+            }
         } else if (type == LegacyPacketTypes.TIME_SYNC_RESPONSE) {
             ControlPackets.TimeSyncResponse response = (ControlPackets.TimeSyncResponse) message;
             clock.accept(response.clientSentEpochMs(), response.serverEpochMs(), System.currentTimeMillis());
@@ -51,17 +63,26 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
             screenResultsChanged();
         } else if (type == LegacyPacketTypes.PLAYBACK_STATE) {
             playback = (StatePackets.PlaybackState) message;
+            logAcceptancePlayback(playback);
             if (playback.serverEpochMs() > 0L && !clock.initialized()) {
                 long now = System.currentTimeMillis();
                 clock.accept(now, playback.serverEpochMs(), now);
             }
             refreshQueueBrowse(); screenChanged();
         } else if (type == LegacyPacketTypes.STATION_STATE) {
-            station = (StatePackets.StationState) message; screenChanged();
+            station = (StatePackets.StationState) message;
+            if (ProtocolLimits.audioProbeEnabled()) Jammarr.LOGGER.info(
+                    "Acceptance station state: type={} active={} autoplay={} generation={} preview={}",
+                    station.stationType(), station.active(), station.autoplayEnabled(), station.generation(), station.preview().size());
+            screenChanged();
         } else if (type == LegacyPacketTypes.ADVENTURE_PREVIEW) {
             adventure = (StatePackets.AdventurePreview) message; screenChanged();
         } else if (type == LegacyPacketTypes.AUDIO_MANIFEST) {
-            audio.manifest((TransportPackets.AudioManifest) message);
+            TransportPackets.AudioManifest manifest = (TransportPackets.AudioManifest) message;
+            if (ProtocolLimits.audioProbeEnabled()) Jammarr.LOGGER.info(
+                    "Acceptance audio manifest: session={} title={} firstChunk={} paused={}",
+                    manifest.sessionId(), manifest.title(), manifest.firstChunk(), manifest.paused());
+            audio.manifest(manifest);
         } else if (type == LegacyPacketTypes.AUDIO_CHUNK) {
             audio.chunk((TransportPackets.AudioChunk) message);
         } else if (type == LegacyPacketTypes.ERROR) {
@@ -78,6 +99,15 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
             hello();
             return;
         }
+        if (ProtocolLimits.commandProbeEnabled() && !commandProbeSent
+                && Minecraft.getMinecraft().thePlayer != null) {
+            commandProbeSent = true;
+            Minecraft.getMinecraft().thePlayer.sendChatMessage("/jammarr status");
+            Minecraft.getMinecraft().thePlayer.sendChatMessage("/jammarr diagnostics");
+            Jammarr.LOGGER.info("Acceptance client issued non-operator command probes");
+        }
+        runAcceptanceControl();
+        logAcceptanceAudioState();
         long now = System.currentTimeMillis();
         if (now - lastTimeSync >= 10_000L) requestTimeSync();
         audio.tick();
@@ -90,11 +120,100 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
     }
 
     void stop() {
-        audio.stop(); clock.reset(); notice = ""; helloSent = false; lastTimeSync = 0L;
+        audio.stop(); clock.reset(); notice = ""; helloSent = false; commandProbeSent = false;
+        operatorProbeSent = false; lastTimeSync = 0L;
+        acceptanceAudioQueued = false; lastAcceptanceAudioState = "";
+        acceptanceControl.reset();
         playback = emptyPlayback(); station = emptyStation();
         browse = new ControlPackets.BrowseResults(ControlPackets.BrowseKind.SEARCH, "", 0,
                 false, Collections.<StationModels.MediaItem>emptyList());
         adventure = new StatePackets.AdventurePreview(0L, "", Collections.<StatePackets.QueueEntry>emptyList());
+    }
+
+    void operatorCommandProbe() {
+        if (!ProtocolLimits.commandProbeEnabled() || operatorProbeSent
+                || Minecraft.getMinecraft().thePlayer == null) return;
+        operatorProbeSent = true;
+        Minecraft.getMinecraft().thePlayer.sendChatMessage("/jammarr diagnostics");
+        Jammarr.LOGGER.info("Acceptance client issued: /jammarr diagnostics");
+    }
+
+    private void queueAcceptanceAudio() {
+        if (!ProtocolLimits.audioProbeLeader() || acceptanceAudioQueued) return;
+        acceptanceAudioQueued = true;
+        LegacyNetwork.sendToServer(LegacyPacketTypes.QUEUE_REQUEST, new ControlPackets.QueueRequest(
+                StationModels.ItemKind.TRACK, "42"));
+        Jammarr.LOGGER.info("Acceptance audio leader queued Plex track 42");
+    }
+
+    private void logAcceptanceAudioState() {
+        if (!ProtocolLimits.audioProbeEnabled()) return;
+        String state = audio.state();
+        if (state.equals(lastAcceptanceAudioState)) return;
+        lastAcceptanceAudioState = state;
+        Jammarr.LOGGER.info("Acceptance audio state: {}", state);
+    }
+
+    private void logAcceptancePlayback(StatePackets.PlaybackState value) {
+        if (!ProtocolLimits.audioProbeEnabled()) return;
+        StringBuilder queue = new StringBuilder();
+        for (StatePackets.QueueEntry entry : value.queue()) {
+            if (queue.length() != 0) queue.append(',');
+            queue.append(entry.key());
+        }
+        Jammarr.LOGGER.info("Acceptance playback state: status={} paused={} title={} origin={} queue={}",
+                value.status(), value.paused(), value.title(), value.origin(), queue);
+    }
+
+    private void runAcceptanceControl() {
+        String command = acceptanceControl.poll();
+        if (command.length() == 0) return;
+        try {
+            if (command.startsWith("queue:")) {
+                LegacyNetwork.sendToServer(LegacyPacketTypes.QUEUE_REQUEST, new ControlPackets.QueueRequest(
+                        StationModels.ItemKind.TRACK, command.substring("queue:".length())));
+            } else if (command.startsWith("control:")) {
+                String[] parts = command.split(":", -1);
+                int index = parts.length > 2 ? Integer.parseInt(parts[2]) : -1;
+                String expectedKey = parts.length > 3 ? parts[3] : "";
+                LegacyNetwork.sendToServer(LegacyPacketTypes.CONTROL_REQUEST, new ControlPackets.ControlRequest(
+                        ControlPackets.ControlAction.valueOf(parts[1].toUpperCase(java.util.Locale.ROOT)), index, expectedKey));
+            } else if ("mute".equals(command)) {
+                JammarrSettings.enabled(false); listeningChanged();
+            } else if ("unmute".equals(command)) {
+                JammarrSettings.enabled(true); listeningChanged();
+            } else if (command.startsWith("volume:")) {
+                JammarrSettings.volume(Double.parseDouble(command.substring("volume:".length())));
+            } else if ("station:library-shuffle".equals(command)) {
+                LegacyNetwork.sendToServer(LegacyPacketTypes.STATION_REQUEST, new ControlPackets.StationRequest(
+                        ControlPackets.StationAction.START, StationModels.StationType.LIBRARY_SHUFFLE,
+                        false, station.generation(), Collections.<StationModels.StationSeed>emptyList()));
+            } else if (command.startsWith("adventure:")) {
+                String[] keys = command.split(":", -1);
+                if (keys.length != 3) throw new IllegalArgumentException("Adventure needs two keys");
+                LegacyNetwork.sendToServer(LegacyPacketTypes.STATION_REQUEST, new ControlPackets.StationRequest(
+                        ControlPackets.StationAction.START_NOW, StationModels.StationType.SONIC_ADVENTURE,
+                        false, station.generation(), Arrays.asList(
+                        new StationModels.StationSeed(StationModels.ItemKind.TRACK, keys[1], "Gate Track " + keys[1], "Gate Artist"),
+                        new StationModels.StationSeed(StationModels.ItemKind.TRACK, keys[2], "Gate Track " + keys[2], "Gate Artist"))));
+            } else if ("reload".equals(command)) {
+                Minecraft.getMinecraft().refreshResources();
+                Jammarr.LOGGER.info("Acceptance resource reload complete: success=true");
+            } else if ("fault:underrun".equals(command)) {
+                audio.acceptanceUnderrun();
+            } else if ("fault:drift".equals(command)) {
+                audio.acceptanceClockDrift();
+            } else if ("fault:exhaust-retries".equals(command)) {
+                audio.acceptanceExhaustRecovery();
+            } else if ("retry".equals(command)) {
+                audio.retry();
+            } else {
+                throw new IllegalArgumentException("Unknown acceptance operation");
+            }
+            Jammarr.LOGGER.info("Acceptance control applied: {}", command);
+        } catch (RuntimeException error) {
+            Jammarr.LOGGER.error("Acceptance control failed: " + command, error);
+        }
     }
 
     StatePackets.PlaybackState playback() { return playback; }

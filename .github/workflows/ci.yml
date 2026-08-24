@@ -10,11 +10,27 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
+      - name: Install headless audio acceptance dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg iproute2 libasound2-plugins libgl1-mesa-dri libopenal1 pulseaudio pulseaudio-utils xvfb
+          pulseaudio --start --exit-idle-time=-1
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '26'
+      - name: Record Java 26 home
+        run: echo "JAMMARR_JAVA26_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
-      - name: Run tests, GameTests, and release verification
-        run: ./gradlew --no-daemon verifyAllTargets
+      - name: Record Java 21 home
+        run: echo "JAMMARR_JAVA21_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
+      - name: Run the complete 13-artifact release matrix
+        env:
+          JAMMARR_ALSA_PCM_TYPE: pulse
+        run: ./gradlew releaseMatrixGate --no-daemon --max-workers=1

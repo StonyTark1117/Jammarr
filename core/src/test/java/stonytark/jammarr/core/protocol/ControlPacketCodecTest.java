@@ -11,6 +11,16 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class ControlPacketCodecTest {
+    @Test void nonIndexedControlRoundTripsItsNegativeSentinel() {
+        ControlPackets.ControlRequest value = new ControlPackets.ControlRequest(
+                ControlPackets.ControlAction.PAUSE, -1, "");
+        ControlPackets.ControlRequest decoded = ControlPackets.CONTROL_REQUEST.decode(
+                new ByteArrayWireInput(encode(ControlPackets.CONTROL_REQUEST, value)));
+        assertEquals(ControlPackets.ControlAction.PAUSE, decoded.action());
+        assertEquals(-1, decoded.index());
+        assertEquals("", decoded.expectedKey());
+    }
+
     @Test void protocolFiveStationRequestMatchesGoldenVector() {
         ControlPackets.StationRequest request = new ControlPackets.StationRequest(
                 ControlPackets.StationAction.START_NOW, StationType.SONIC_ADVENTURE, false, 12,

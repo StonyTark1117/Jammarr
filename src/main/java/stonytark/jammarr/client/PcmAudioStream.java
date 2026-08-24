@@ -3,11 +3,14 @@ package stonytark.jammarr.client;
 import net.minecraft.client.sounds.AudioStream;
 import javax.sound.sampled.AudioFormat;
 import java.nio.ByteBuffer;
+import stonytark.jammarr.Jammarr;
+import stonytark.jammarr.core.protocol.ProtocolLimits;
 
 final class PcmAudioStream implements AudioStream {
     private final StreamingMp3Decoder decoder;
     private byte[] remainder;
     private int remainderOffset;
+    private int acceptanceReads;
 
     PcmAudioStream(StreamingMp3Decoder decoder) { this.decoder = decoder; }
     @Override public AudioFormat getFormat() { return decoder.format(); }
@@ -20,13 +23,17 @@ final class PcmAudioStream implements AudioStream {
             if (remainderOffset == remainder.length) remainder = null;
         }
         if (!wrote) {
-            // AudioStream treats null as end-of-stream. Keep the OpenAL
-            // source alive while the network/decoder catches up; the player
-            // will request a rebuffer if the decoder actually fails.
-            if (!decoder.finished()) return output;
+            // StreamingMp3Decoder.poll blocks until PCM arrives, recovery
+            // closes it, or the stream really finishes. An empty OpenAL
+            // buffer is treated like end-of-stream by some sound engines.
             return null;
         }
-        output.flip(); return output;
+        output.flip();
+        if (ProtocolLimits.audioProbeEnabled() && acceptanceReads++ < 12) {
+            Jammarr.LOGGER.info("Acceptance PCM read: requested={} returned={} finished={} bufferedMs={}",
+                    requested, output.remaining(), decoder.finished(), decoder.bufferedMillis());
+        }
+        return output;
     }
     @Override public void close() { decoder.close(); }
 }

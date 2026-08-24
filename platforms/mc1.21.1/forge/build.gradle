@@ -23,6 +23,7 @@ minecraft {
     runs {
         configureEach { workingDir = layout.projectDirectory.dir('run') }
         register('client') {
+            args '--mixin.config', 'jammarr.mixins.json'
             if (providers.gradleProperty('jammarrAcceptanceServer').isPresent()) {
                 workingDir = file(providers.gradleProperty('jammarrAcceptanceGameDir').get())
                 args '--username', providers.gradleProperty('jammarrAcceptanceUsername').get(),

@@ -12,8 +12,12 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.settings.KeyBinding;
 import net.minecraft.network.NetworkManager;
 import net.minecraft.util.IChatComponent;
+import net.minecraftforge.client.event.ClientChatReceivedEvent;
+import net.minecraftforge.client.event.sound.SoundLoadEvent;
+import net.minecraftforge.common.MinecraftForge;
 import org.lwjgl.input.Keyboard;
 import stonytark.jammarr.Jammarr;
+import stonytark.jammarr.core.protocol.ProtocolLimits;
 import stonytark.jammarr.network.LegacyNetwork;
 
 @SideOnly(Side.CLIENT)
@@ -25,10 +29,26 @@ public final class LegacyClient {
 
     public static synchronized void register() {
         if (INSTANCE.registered) return;
+        awaitAcceptanceSoundStartup();
         ClientRegistry.registerKeyBinding(INSTANCE.open);
         LegacyNetwork.setClientListener(LegacyClientState.INSTANCE);
         FMLCommonHandler.instance().bus().register(INSTANCE);
+        MinecraftForge.EVENT_BUS.register(INSTANCE);
         INSTANCE.registered = true;
+    }
+
+    private static void awaitAcceptanceSoundStartup() {
+        if (!ProtocolLimits.audioProbeEnabled()) return;
+        long deadline = System.currentTimeMillis() + 10_000L;
+        while (LegacySoundAccess.soundSystem(Minecraft.getMinecraft()) == null
+                && System.currentTimeMillis() < deadline) {
+            try { Thread.sleep(25L); }
+            catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+        Jammarr.LOGGER.info("Acceptance client let the initial legacy sound loader settle before FML reload");
     }
 
     @SubscribeEvent public void keyInput(InputEvent.KeyInputEvent event) {
@@ -46,6 +66,19 @@ public final class LegacyClient {
     @SubscribeEvent public void disconnected(FMLNetworkEvent.ClientDisconnectionFromServerEvent event) {
         disconnectedManager = event.manager;
         LegacyClientState.INSTANCE.stop();
+    }
+
+    @SubscribeEvent public void chat(ClientChatReceivedEvent event) {
+        if (!ProtocolLimits.commandProbeEnabled()) return;
+        String message = event.message.getUnformattedText();
+        Jammarr.LOGGER.info("Acceptance command response: {}", message);
+        if (message.contains("JAMMARR_ACCEPTANCE_OPERATOR_READY")) {
+            LegacyClientState.INSTANCE.operatorCommandProbe();
+        }
+    }
+
+    @SubscribeEvent public void soundLoaded(SoundLoadEvent event) {
+        LegacyClientState.INSTANCE.audioEngineReloaded();
     }
 
     private void logDisconnectReason() {

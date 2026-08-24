@@ -15,27 +15,25 @@ public final class ByteArrayWireInput implements WireInput {
     @Override public int readVarInt() {
         int value = 0;
         int position = 0;
-        byte current;
-        do {
-            current = readByte();
+        while (true) {
+            byte current = readByte();
             value |= (current & 0x7f) << position;
+            if ((current & 0x80) == 0) return value;
             position += 7;
             if (position >= 35) throw new ProtocolException("VarInt is too large");
-        } while ((current & 0x80) != 0);
-        return value;
+        }
     }
 
     @Override public long readVarLong() {
         long value = 0;
         int position = 0;
-        byte current;
-        do {
-            current = readByte();
+        while (true) {
+            byte current = readByte();
             value |= (long) (current & 0x7f) << position;
+            if ((current & 0x80) == 0) return value;
             position += 7;
             if (position >= 70) throw new ProtocolException("VarLong is too large");
-        } while ((current & 0x80) != 0);
-        return value;
+        }
     }
 
     @Override public long readLong() { return buffer(8).getLong(); }

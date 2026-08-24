@@ -1,9 +1,13 @@
 package stonytark.jammarr.client;
 
+import com.mojang.brigadier.tree.CommandNode;
 import stonytark.jammarr.core.client.ClockSynchronizer;
 import net.minecraft.client.Minecraft;
+import stonytark.jammarr.Jammarr;
 import stonytark.jammarr.core.protocol.JammarrMessage;
+import stonytark.jammarr.core.protocol.AcceptanceControlFile;
 import stonytark.jammarr.core.protocol.ProtocolLimits;
+import stonytark.jammarr.core.platform.JammarrSettings;
 import stonytark.jammarr.network.JammarrNetwork;
 import stonytark.jammarr.network.JammarrPayloads;
 import java.util.List;
@@ -15,6 +19,7 @@ public final class JammarrClientState {
     private final ClockSynchronizer clock = new ClockSynchronizer();
     private final JammarrAudioPlayer audio = new JammarrAudioPlayer(clock);
     private final AtomicLong timeNonce = new AtomicLong();
+    private final AcceptanceControlFile acceptanceControl = new AcceptanceControlFile();
     private JammarrPayloads.PlaybackState playback = new JammarrPayloads.PlaybackState(JammarrPayloads.PlaybackStatus.IDLE, "", "", "", true, 0, 0, 0, false, List.of());
     private JammarrPayloads.StationState station = new JammarrPayloads.StationState(JammarrPayloads.StationType.NONE, false, false, 0,
             JammarrPayloads.SonicCapability.CHECKING, "Checking Plex sonic capability", "", List.of(), List.of());
@@ -22,6 +27,10 @@ public final class JammarrClientState {
     private JammarrPayloads.BrowseResults browse = new JammarrPayloads.BrowseResults(JammarrPayloads.BrowseKind.SEARCH, "", 0, false, List.of());
     private long lastTimeSync;
     private String notice = "";
+    private boolean nonOperatorCommandsVerified;
+    private boolean operatorCommandsVerified;
+    private boolean acceptanceAudioQueued;
+    private AudioPlaybackState lastAcceptanceAudioState;
 
     public void accept(JammarrMessage payload) {
         Minecraft minecraft = Minecraft.getInstance();
@@ -29,15 +38,20 @@ public final class JammarrClientState {
             minecraft.setScreen(new JammarrScreen(this));
             JammarrNetwork.sendToServer(new JammarrPayloads.BrowseRequest(JammarrPayloads.BrowseKind.SEARCH, "", 0));
         } else if (payload instanceof JammarrPayloads.ServerHello value) {
-            if (!JammarrNetwork.protocolMatches(value.protocolVersion()) && minecraft.getConnection() != null) {
-                minecraft.getConnection().getConnection().disconnect(net.minecraft.network.chat.Component.literal("Jammarr protocol mismatch"));
-            } else requestTimeSync();
+            if (value.protocolVersion() != ProtocolLimits.clientHelloVersion() && minecraft.getConnection() != null) {
+                minecraft.getConnection().getConnection().disconnect(net.minecraft.network.chat.Component.literal(
+                        "Jammarr protocol mismatch: server requires version " + value.protocolVersion()));
+            } else {
+                requestTimeSync();
+                queueAcceptanceAudio();
+            }
         } else if (payload instanceof JammarrPayloads.TimeSyncResponse value) {
             clock.accept(value.clientSentEpochMs(), value.serverEpochMs(), System.currentTimeMillis());
         } else if (payload instanceof JammarrPayloads.BrowseResults value) {
             browse = value; refreshScreen(minecraft);
         } else if (payload instanceof JammarrPayloads.PlaybackState value) {
             playback = value;
+            logAcceptancePlayback(value);
             if (value.serverEpochMs() > 0 && !clock.initialized()) clock.accept(System.currentTimeMillis(), value.serverEpochMs(), System.currentTimeMillis());
             boolean queueBrowseChanged = refreshQueueBrowse();
             if (minecraft.screen instanceof JammarrScreen screen) {
@@ -46,11 +60,17 @@ public final class JammarrClientState {
             }
         } else if (payload instanceof JammarrPayloads.StationState value) {
             station = value;
+            if (ProtocolLimits.audioProbeEnabled()) Jammarr.LOGGER.info(
+                    "Acceptance station state: type={} active={} autoplay={} generation={} preview={}",
+                    value.stationType(), value.active(), value.autoplayEnabled(), value.generation(), value.preview().size());
             if (minecraft.screen instanceof JammarrScreen screen) screen.stationChanged();
         } else if (payload instanceof JammarrPayloads.AdventurePreview value) {
             adventurePreview = value;
             if (minecraft.screen instanceof JammarrScreen screen) screen.adventurePreviewChanged();
         } else if (payload instanceof JammarrPayloads.AudioManifest value) {
+            if (ProtocolLimits.audioProbeEnabled()) Jammarr.LOGGER.info(
+                    "Acceptance audio manifest: session={} title={} firstChunk={} paused={}",
+                    value.sessionId(), value.title(), value.firstChunk(), value.paused());
             audio.manifest(value);
         } else if (payload instanceof JammarrPayloads.AudioChunk value) {
             audio.chunk(value);
@@ -92,6 +112,9 @@ public final class JammarrClientState {
         return true;
     }
     public void tick() {
+        probeCommandPermissions();
+        runAcceptanceControl();
+        logAcceptanceAudioState();
         long now = System.currentTimeMillis();
         if (now - lastTimeSync >= 10_000) requestTimeSync();
         audio.tick();
@@ -103,6 +126,9 @@ public final class JammarrClientState {
     public void audioEngineReloaded() { audio.audioEngineReloaded(); }
     public void stop() {
         audio.stop(); clock.reset(); notice = ""; lastTimeSync = 0;
+        nonOperatorCommandsVerified = false; operatorCommandsVerified = false;
+        acceptanceAudioQueued = false; lastAcceptanceAudioState = null;
+        acceptanceControl.reset();
         playback = new JammarrPayloads.PlaybackState(JammarrPayloads.PlaybackStatus.IDLE, "", "", "", true, 0, 0, 0, false, List.of());
         station = new JammarrPayloads.StationState(JammarrPayloads.StationType.NONE, false, false, 0,
                 JammarrPayloads.SonicCapability.CHECKING, "Checking Plex sonic capability", "", List.of(), List.of());
@@ -114,6 +140,96 @@ public final class JammarrClientState {
         long now = System.currentTimeMillis();
         JammarrNetwork.sendToServer(new JammarrPayloads.TimeSyncRequest(timeNonce.incrementAndGet(), now));
         lastTimeSync = now;
+    }
+    private void probeCommandPermissions() {
+        if (!ProtocolLimits.commandProbeEnabled()) return;
+        net.minecraft.client.multiplayer.ClientPacketListener connection = Minecraft.getInstance().getConnection();
+        if (connection == null) return;
+        CommandNode<?> root = connection.getCommands().getRoot().getChild("jammarr");
+        if (root == null || root.getChild("status") == null) return;
+        boolean operatorVisible = root.getChild("diagnostics") != null;
+        if (!nonOperatorCommandsVerified && !operatorVisible) {
+            nonOperatorCommandsVerified = true;
+            Jammarr.LOGGER.info("Acceptance command permissions: non-operator public=true operator=false");
+        } else if (nonOperatorCommandsVerified && !operatorCommandsVerified && operatorVisible) {
+            operatorCommandsVerified = true;
+            Jammarr.LOGGER.info("Acceptance command permissions: operator public=true operator=true");
+            connection.sendCommand("jammarr diagnostics");
+            Jammarr.LOGGER.info("Acceptance client issued: /jammarr diagnostics");
+        }
+    }
+    private void queueAcceptanceAudio() {
+        if (!ProtocolLimits.audioProbeLeader() || acceptanceAudioQueued) return;
+        acceptanceAudioQueued = true;
+        JammarrNetwork.sendToServer(new JammarrPayloads.QueueRequest(JammarrPayloads.ItemKind.TRACK, "42"));
+        Jammarr.LOGGER.info("Acceptance audio leader queued Plex track 42");
+    }
+    private void logAcceptanceAudioState() {
+        if (!ProtocolLimits.audioProbeEnabled()) return;
+        AudioPlaybackState state = audio.state();
+        if (state == lastAcceptanceAudioState) return;
+        lastAcceptanceAudioState = state;
+        Jammarr.LOGGER.info("Acceptance audio state: {}", state);
+    }
+    private void logAcceptancePlayback(JammarrPayloads.PlaybackState value) {
+        if (!ProtocolLimits.audioProbeEnabled()) return;
+        StringBuilder queue = new StringBuilder();
+        for (JammarrPayloads.QueueEntry entry : value.queue()) {
+            if (queue.length() != 0) queue.append(',');
+            queue.append(entry.key());
+        }
+        Jammarr.LOGGER.info("Acceptance playback state: status={} paused={} title={} origin={} queue={}",
+                value.status(), value.paused(), value.title(), value.origin(), queue);
+    }
+    private void runAcceptanceControl() {
+        String command = acceptanceControl.poll();
+        if (command.isEmpty()) return;
+        try {
+            if (command.startsWith("queue:")) {
+                JammarrNetwork.sendToServer(new JammarrPayloads.QueueRequest(
+                        JammarrPayloads.ItemKind.TRACK, command.substring("queue:".length())));
+            } else if (command.startsWith("control:")) {
+                String[] parts = command.split(":", -1);
+                int index = parts.length > 2 ? Integer.parseInt(parts[2]) : -1;
+                String expectedKey = parts.length > 3 ? parts[3] : "";
+                JammarrNetwork.sendToServer(new JammarrPayloads.ControlRequest(
+                        JammarrPayloads.ControlAction.valueOf(parts[1].toUpperCase(java.util.Locale.ROOT)), index, expectedKey));
+            } else if (command.equals("mute")) {
+                JammarrSettings.enabled(false); listeningChanged();
+            } else if (command.equals("unmute")) {
+                JammarrSettings.enabled(true); listeningChanged();
+            } else if (command.startsWith("volume:")) {
+                JammarrSettings.volume(Double.parseDouble(command.substring("volume:".length())));
+            } else if (command.equals("station:library-shuffle")) {
+                JammarrNetwork.sendToServer(new JammarrPayloads.StationRequest(
+                        JammarrPayloads.StationAction.START, JammarrPayloads.StationType.LIBRARY_SHUFFLE,
+                        false, station.generation(), List.of()));
+            } else if (command.startsWith("adventure:")) {
+                String[] keys = command.split(":", -1);
+                if (keys.length != 3) throw new IllegalArgumentException("Adventure needs two keys");
+                JammarrNetwork.sendToServer(new JammarrPayloads.StationRequest(
+                        JammarrPayloads.StationAction.START_NOW, JammarrPayloads.StationType.SONIC_ADVENTURE,
+                        false, station.generation(), List.of(
+                        new JammarrPayloads.StationSeed(JammarrPayloads.ItemKind.TRACK, keys[1], "Gate Track " + keys[1], "Gate Artist"),
+                        new JammarrPayloads.StationSeed(JammarrPayloads.ItemKind.TRACK, keys[2], "Gate Track " + keys[2], "Gate Artist"))));
+            } else if (command.equals("reload")) {
+                Minecraft.getInstance().reloadResourcePacks().whenComplete((unused, error) ->
+                        Jammarr.LOGGER.info("Acceptance resource reload complete: success={}", error == null));
+            } else if (command.equals("fault:underrun")) {
+                audio.acceptanceUnderrun();
+            } else if (command.equals("fault:drift")) {
+                audio.acceptanceClockDrift();
+            } else if (command.equals("fault:exhaust-retries")) {
+                audio.acceptanceExhaustRecovery();
+            } else if (command.equals("retry")) {
+                audio.retry();
+            } else {
+                throw new IllegalArgumentException("Unknown acceptance operation");
+            }
+            Jammarr.LOGGER.info("Acceptance control applied: {}", command);
+        } catch (RuntimeException error) {
+            Jammarr.LOGGER.error("Acceptance control failed: {}", command, error);
+        }
     }
     private static void refreshScreen(Minecraft minecraft) { if (minecraft.screen instanceof JammarrScreen screen) screen.resultsChanged(); }
     private JammarrClientState() {}

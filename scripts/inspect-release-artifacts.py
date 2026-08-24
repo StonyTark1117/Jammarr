@@ -213,7 +213,11 @@ def verify_jar(path: Path, minecraft: str, loader: str, java: int, expected_majo
             if "jammarr.mixins.json" not in names:
                 fail(f"{filename} is missing Mixin metadata")
             mixin = json.loads(archive.read("jammarr.mixins.json"))
-            if mixin.get("compatibilityLevel") != f"JAVA_{java}":
+            # Forge 26.1.2 still embeds Mixin 0.8.7, whose highest declared
+            # compatibility constant is JAVA_21. The classes themselves are
+            # independently required to be Java 25 bytecode above.
+            mixin_java = 21 if minecraft == "26.1.2" and loader == "forge" else java
+            if mixin.get("compatibilityLevel") != f"JAVA_{mixin_java}":
                 fail(f"{filename} has incorrect Mixin Java compatibility")
             nested_prefix = "META-INF/jars" if loader == "fabric" else "META-INF/jarjar"
             core_candidates = sorted(name for name in names if name.startswith(f"{nested_prefix}/")

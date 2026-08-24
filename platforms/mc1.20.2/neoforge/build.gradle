@@ -22,8 +22,13 @@ runs {
     configureEach {
         workingDirectory project.file('run')
         modSource sourceSets.main
+        dependencies {
+            runtime libs.jlayer
+            runtime libs.jump3r
+        }
     }
     client {
+        arguments '--mixin.config', 'jammarr.mixins.json'
         if (providers.gradleProperty('jammarrAcceptanceServer').isPresent()) {
             workingDirectory file(providers.gradleProperty('jammarrAcceptanceGameDir').get())
             arguments '--username', providers.gradleProperty('jammarrAcceptanceUsername').get(),

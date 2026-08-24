@@ -27,6 +27,14 @@ public final class LegacyCommands extends CommandBase {
     }
     @Override public int getRequiredPermissionLevel() { return 0; }
 
+    /**
+     * Vanilla 1.7.10 denies every non-whitelisted slash command to non-ops even
+     * when its declared permission level is zero. Keep the root available so
+     * public screen/status actions work, then enforce operator-only subcommands
+     * in {@link #requireOperator(ICommandSender)}.
+     */
+    @Override public boolean canCommandSenderUseCommand(ICommandSender sender) { return true; }
+
     @Override
     public void processCommand(ICommandSender sender, String[] arguments) throws CommandException {
         if (arguments.length == 0) {

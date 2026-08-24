@@ -25,6 +25,7 @@ minecraft {
             systemProperty 'eventbus.api.strictRuntimeChecks', 'true'
         }
         register('client') {
+            args '--mixin.config', 'jammarr.mixins.json'
             if (providers.gradleProperty('jammarrAcceptanceServer').isPresent()) {
                 workingDir = file(providers.gradleProperty('jammarrAcceptanceGameDir').get())
                 args '--username', providers.gradleProperty('jammarrAcceptanceUsername').get(),
@@ -96,7 +97,6 @@ tasks.withType(Test).configureEach { useJUnitPlatform() }
 tasks.named('processResources') {
     inputs.property 'version', artifactVersion
     filesMatching('META-INF/mods.toml') { expand version: artifactVersion }
-    filesMatching('jammarr.mixins.json') { filter { it.replace('"JAVA_21"', '"JAVA_25"') } }
 }
 
 tasks.named('jar', Jar) {
@@ -132,8 +132,8 @@ tasks.register('verifyRelease') {
                     || !metadata.contains('versionRange="[64,65)"') || !metadata.contains('displayTest="MATCH_VERSION"')) {
                 throw new GradleException('Forge metadata does not enforce the expected mod, Minecraft, and loader versions')
             }
-            if (!zip.getInputStream(zip.getEntry('jammarr.mixins.json')).getText('UTF-8').contains('"JAVA_25"')) {
-                throw new GradleException('Forge 26.1.2 mixin metadata does not target Java 25')
+            if (!zip.getInputStream(zip.getEntry('jammarr.mixins.json')).getText('UTF-8').contains('"JAVA_21"')) {
+                throw new GradleException('Forge 26.1.2 mixin metadata exceeds upstream Mixin 0.8.7 compatibility')
             }
             byte[] platformHeader = zip.getInputStream(zip.getEntry('stonytark/jammarr/Jammarr.class')).readNBytes(8)
             int platformMajor = ((platformHeader[6] & 0xff) << 8) | (platformHeader[7] & 0xff)
