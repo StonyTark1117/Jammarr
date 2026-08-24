@@ -11,6 +11,8 @@ fake_plex_pid=""
 active_config=""
 active_config_backup=""
 active_config_existed=0
+active_properties=""
+active_properties_backup=""
 
 targets=(
   "1.7.10-forge|platforms/mc1.7.10/forge|/usr/lib/jvm/java-26-openjdk|25695"
@@ -43,8 +45,17 @@ restore_server_config() {
   active_config_existed=0
 }
 
+restore_server_properties() {
+  if [[ -z "$active_properties" ]]; then return; fi
+  cp -- "$active_properties_backup" "$active_properties"
+  rm -f -- "$active_properties_backup"
+  active_properties=""
+  active_properties_backup=""
+}
+
 cleanup_all() {
   restore_server_config
+  restore_server_properties
   if [[ -n "$fake_plex_pid" ]]; then
     kill "$fake_plex_pid" 2>/dev/null || true
     wait "$fake_plex_pid" 2>/dev/null || true
@@ -85,6 +96,13 @@ fake_plex_requests_complete() {
   ' "$fake_plex_request_log"
 }
 
+missing_client_rejection_logged() {
+  local latest_log=$1
+  local console_log=$2
+  grep -Eiq 'Jammarr is required on the client|Jammarr protocol (handshake )?timed out|Disconnecting VANILLA connection attempt:.*require (Forge|NeoForge)|incompatible.*Jammarr' \
+    "$latest_log" "$console_log" 2>/dev/null
+}
+
 install_fake_plex_config() {
   local run_dir=$1
   local label=$2
@@ -110,6 +128,23 @@ install_fake_plex_config() {
     'audioBitrateKbps = 160' \
     'cacheSizeMiB = 1024' \
     'stationMetadataFallbackEnabled = false' > "$active_config"
+}
+
+install_invalid_config() {
+  local run_dir=$1
+  local label=$2
+  local level_name=$3
+  active_config="$run_dir/$level_name/serverconfig/jammarr-server.toml"
+  active_config_backup=$(mktemp "$output_root/$label.invalid-config.XXXXXX")
+  active_config_existed=0
+  mkdir -p "$(dirname "$active_config")"
+  if [[ -f "$active_config" ]]; then
+    cp -- "$active_config" "$active_config_backup"
+    active_config_existed=1
+  fi
+  printf '%s\n' \
+    '# Intentionally invalid; installed temporarily by the Jammarr dedicated-server gate.' \
+    'plexUrl = "http://private-user:private-pass@127.0.0.1:32400"' > "$active_config"
 }
 
 group_alive() {
@@ -151,6 +186,72 @@ ensure_runtime_files() {
   fi
 }
 
+run_invalid_config_check() {
+  local label=$1
+  local target_dir=$2
+  local run_dir=$3
+  local java_home=$4
+  local port=$5
+  local level_name=$6
+  local console_log="$output_root/$label.invalid-config.console.log"
+  local latest_log="$run_dir/logs/latest.log"
+  local pid result=0
+  local -a cache_args=()
+  case "$label" in
+    1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge)
+      cache_args+=(--no-configuration-cache)
+      ;;
+  esac
+
+  install_invalid_config "$run_dir" "$label" "$level_name"
+  (
+    cd "$target_dir" || exit 1
+    exec setsid env JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
+      JAMMARR_PLEX_TOKEN="$fake_plex_token" \
+      ./gradlew runServer --no-daemon --max-workers=1 --console=plain "${cache_args[@]}" \
+      < /dev/null > "$console_log" 2>&1
+  ) &
+  pid=$!
+
+  local deadline=$((SECONDS + 180))
+  while group_alive "$pid"; do
+    if grep -Fq 'Invalid Jammarr configuration value for plexUrl' "$console_log" 2>/dev/null; then
+      break
+    fi
+    if (( SECONDS >= deadline )); then
+      echo "$label: invalid-configuration rejection timed out" >&2
+      result=1
+      break
+    fi
+    sleep 1
+  done
+
+  if ! wait_for_group_exit "$pid" 60; then
+    echo "$label: server did not fail closed after rejecting invalid Jammarr configuration" >&2
+    stop_group "$pid" TERM
+    wait_for_group_exit "$pid" 10 || stop_group "$pid" KILL
+    result=1
+  fi
+  wait "$pid" 2>/dev/null || true
+  if ! grep -Fq 'Invalid Jammarr configuration value for plexUrl' "$latest_log" "$console_log" 2>/dev/null; then
+    echo "$label: invalid configuration failure did not identify the rejected key" >&2
+    result=1
+  fi
+  if grep -Fq 'private-pass' "$latest_log" "$console_log" 2>/dev/null; then
+    echo "$label: invalid configuration diagnostics leaked a credential" >&2
+    result=1
+  fi
+  if ss -ltnH "sport = :$port" | grep -q .; then
+    echo "$label: port $port remains open after invalid-configuration rejection" >&2
+    result=1
+  fi
+  restore_server_config
+  if (( result == 0 )); then
+    echo "$label: invalid configuration rejected without leaking its value"
+  fi
+  return "$result"
+}
+
 set_property() {
   local file=$1
   local key=$2
@@ -162,6 +263,14 @@ set_property() {
   fi
 }
 
+backup_server_properties() {
+  local properties=$1
+  local label=$2
+  active_properties="$properties"
+  active_properties_backup=$(mktemp "$output_root/$label.server-properties.XXXXXX")
+  cp -- "$active_properties" "$active_properties_backup"
+}
+
 run_target() {
   local label=$1
   local relative_dir=$2
@@ -171,8 +280,9 @@ run_target() {
   local run_dir="$target_dir/run"
   local latest_log="$run_dir/logs/latest.log"
   local console_log="$output_root/$label.console.log"
-  local fifo_dir fifo fifo_fd pid server_pid port rcon_port rcon_password start_epoch result=0
-  local fake_plex_port fake_request_start plex_deadline level_name
+  local fifo_dir fifo fifo_fd pid server_pid port rcon_port rcon_password result=0
+  local fake_plex_port fake_request_start plex_deadline level_name probe_output
+  local -a probe_args=()
   local -a cache_args=()
 
   if [[ ! -x "$java_home/bin/java" ]]; then
@@ -185,14 +295,24 @@ run_target() {
     echo "$label: unable to resolve server port" >&2
     return 1
   fi
-  level_name=$(sed -n 's/^level-name=\(.*\)$/\1/p' "$run_dir/server.properties" | tail -n 1)
-  level_name=${level_name:-world}
   if ss -ltnH "sport = :$port" | grep -q .; then
     echo "$label: port $port is already in use" >&2
     return 1
   fi
   rcon_port=$((default_port + 1000))
   rcon_password="jammarr-gate-${default_port}"
+  if [[ "$label" != "1.7.10-forge" ]] && ss -ltnH "sport = :$rcon_port" | grep -q .; then
+    echo "$label: RCON port $rcon_port is already in use" >&2
+    return 1
+  fi
+  backup_server_properties "$run_dir/server.properties" "$label"
+  # Keep the gate isolated from developer worlds and from damage left by an
+  # interrupted prior run. The run directories are ignored build state.
+  level_name=jammarr-gate-world
+  set_property "$run_dir/server.properties" level-name "$level_name"
+  set_property "$run_dir/server.properties" online-mode false
+  set_property "$run_dir/server.properties" enforce-secure-profile false
+  set_property "$run_dir/server.properties" sync-chunk-writes false
   if [[ "$label" == "1.7.10-forge" ]]; then
     # Vanilla 1.7.10 closes an RCON connection after its authentication packet,
     # so use its working console input instead of weakening clean-shutdown proof.
@@ -201,16 +321,17 @@ run_target() {
     set_property "$run_dir/server.properties" enable-rcon true
     set_property "$run_dir/server.properties" rcon.port "$rcon_port"
     set_property "$run_dir/server.properties" rcon.password "$rcon_password"
-    if ss -ltnH "sport = :$rcon_port" | grep -q .; then
-      echo "$label: RCON port $rcon_port is already in use" >&2
-      return 1
-    fi
   fi
   case "$label" in
     1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge)
       cache_args+=(--no-configuration-cache)
       ;;
   esac
+
+  if ! run_invalid_config_check "$label" "$target_dir" "$run_dir" "$java_home" "$port" "$level_name"; then
+    restore_server_properties
+    return 1
+  fi
 
   fake_plex_port=$(<"$fake_plex_port_file")
   fake_request_start=$(wc -l < "$fake_plex_request_log")
@@ -220,7 +341,6 @@ run_target() {
   fifo="$fifo_dir/stdin"
   mkfifo "$fifo"
   exec {fifo_fd}<>"$fifo"
-  start_epoch=$(date +%s)
   echo "$label: starting on port $port"
   (
     cd "$target_dir" || exit 1
@@ -233,8 +353,7 @@ run_target() {
 
   local startup_deadline=$((SECONDS + 180))
   while :; do
-    if [[ -f "$latest_log" ]] && (( $(stat -c %Y "$latest_log") >= start_epoch )) \
-        && grep -Eq 'Done \([^)]*\)! For help' "$latest_log"; then
+    if grep -Eq 'Done \([^)]*\)! For help' "$console_log" 2>/dev/null; then
       break
     fi
     if ! kill -0 "$pid" 2>/dev/null; then
@@ -262,6 +381,31 @@ run_target() {
     done
   fi
 
+  if (( result == 0 )) && [[ "$label" != "1.7.10-forge" ]]; then
+    probe_output="$output_root/$label.missing-client.json"
+    if [[ "$label" == 26.1.2-* ]]; then
+      # Minecraft 26.1 can close legacy protocol -1 status queries before a
+      # response; use the protocol declared by these pinned target builds.
+      probe_args+=(--protocol 775 --version 26.1.2)
+    fi
+    if ! python3 "$repo_root/scripts/minecraft-login-probe.py" 127.0.0.1 "$port" --timeout 35 \
+        "${probe_args[@]}" \
+        > "$probe_output" 2>&1; then
+      if grep -Fq '"closed": true' "$probe_output" \
+          && missing_client_rejection_logged "$latest_log" "$console_log"; then
+        printf '%s\n' 'Socket closure paired with the server client-facing required-mod rejection log.' \
+          > "$output_root/$label.missing-client.server.txt"
+      else
+        echo "$label: missing-client probe did not observe a clear required-mod disconnect; see $probe_output" >&2
+        result=1
+      fi
+    fi
+    # Let the server finish its disconnect/player-removal tick before the
+    # shutdown probe begins; newer versions otherwise may overlap chunk unload
+    # with the immediate save-all performed by stop.
+    sleep 2
+  fi
+
   if [[ "$label" == "1.7.10-forge" ]]; then
     printf 'stop\n' >&"$fifo_fd"
   elif ! python3 "$repo_root/scripts/minecraft-rcon.py" 127.0.0.1 "$rcon_port" "$rcon_password" stop \
@@ -269,7 +413,8 @@ run_target() {
     printf 'stop\n' >&"$fifo_fd"
   fi
   if ! wait_for_group_exit "$pid" 60; then
-    server_pid=$(ss -ltnp "sport = :$port" | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' | head -n 1)
+    server_pid=$(ss -ltnp "sport = :$port or sport = :$rcon_port" \
+      | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' | head -n 1)
     if [[ -n "$server_pid" ]]; then
       kill -TERM "$server_pid" 2>/dev/null || true
     else
@@ -318,6 +463,7 @@ run_target() {
   fi
 
   restore_server_config
+  restore_server_properties
 
   if (( result == 0 )); then
     echo "$label: ready, clean shutdown, no lingering process or port"

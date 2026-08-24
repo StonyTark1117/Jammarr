@@ -26,7 +26,7 @@ import java.util.Map;
         modid = Jammarr.MOD_ID,
         name = Jammarr.MOD_NAME,
         version = Jammarr.VERSION,
-        acceptableRemoteVersions = Jammarr.VERSION,
+        acceptableRemoteVersions = "*",
         guiFactory = "stonytark.jammarr.client.LegacyGuiFactory"
 )
 public final class Jammarr {
@@ -93,6 +93,11 @@ public final class Jammarr {
 
     @NetworkCheckHandler
     public boolean requireMatchingClient(Map<String, String> remoteVersions, Side remoteSide) {
+        if (remoteSide == Side.CLIENT) {
+            // Let an absent/older client reach LegacyNetwork's explicit protocol-5 hello gate so
+            // it receives Jammarr's clear timeout/mismatch text instead of FML's generic timeout.
+            return true;
+        }
         return remoteVersions != null && VERSION.equals(remoteVersions.get(MOD_ID));
     }
 }

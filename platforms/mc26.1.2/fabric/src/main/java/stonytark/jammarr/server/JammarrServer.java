@@ -34,17 +34,15 @@ public final class JammarrServer {
                 Path configDirectory = FabricLoader.getInstance().getConfigDir();
                 Path canonical = server.getWorldPath(LevelResource.ROOT).resolve("serverconfig")
                         .resolve(CanonicalConfigFiles.SERVER_FILE_NAME);
-                CanonicalConfigFiles.ServerConfig config = CanonicalConfigFiles.loadServer(canonical,
-                        configDirectory.resolve(CanonicalConfigFiles.SERVER_FILE_NAME),
-                        configDirectory.resolve("jammarr-server-fabric.toml"),
-                        configDirectory.resolve("pampmod-server.toml"));
+                CanonicalConfigFiles.ServerConfig config = CanonicalConfigFiles.loadServerForLoader(
+                        canonical, configDirectory, "fabric");
                 JammarrSettings.installServer(config);
                 if (config.importedFrom() != null) {
                     Jammarr.LOGGER.info("Imported legacy Jammarr server settings from {}", config.importedFrom());
                 }
                 INSTANCE.player = new GlobalPlayer(server);
             }
-            catch (Exception error) { Jammarr.LOGGER.error("Unable to initialize Jammarr", error); }
+            catch (Exception error) { throw new IllegalStateException("Unable to initialize Jammarr", error); }
         });
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
             if (INSTANCE.player != null) { INSTANCE.player.close(); INSTANCE.player = null; }

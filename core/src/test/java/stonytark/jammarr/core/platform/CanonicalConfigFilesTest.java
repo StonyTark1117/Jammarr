@@ -24,15 +24,15 @@ class CanonicalConfigFilesTest {
         assertNull(config.importedFrom());
     }
 
-    @Test void importsLegacyOnceWithoutModifyingSourceAndNormalizesBounds() throws Exception {
+    @Test void importsLegacyOnceWithoutModifyingSource() throws Exception {
         Path canonical = temporary.resolve("world/serverconfig/jammarr-server.toml");
         Path legacy = temporary.resolve("config/jammarr-server-fabric.toml");
         Files.createDirectories(legacy.getParent());
         String source = "plexUrl = \"https://plex.lan:32400/\" # old loader\n"
                 + "plexToken = \"private-token\"\nmusicLibrary = \"Music\"\n"
                 + "restartMode = \"resume-position\"\npauseWhenNoPlayers = false\n"
-                + "operatorPermissionLevel = 99\nqueueLimit = -8\naudioBitrateKbps = 999\n"
-                + "cacheSizeMiB = 2\nstationMetadataFallbackEnabled = true\nunknown = \"ignored\"\n";
+                + "operatorPermissionLevel = 4\nqueueLimit = 8\naudioBitrateKbps = 320\n"
+                + "cacheSizeMiB = 64\nstationMetadataFallbackEnabled = true\nunknown = \"ignored\"\n";
         Files.write(legacy, source.getBytes(StandardCharsets.UTF_8));
 
         CanonicalConfigFiles.ServerConfig imported = CanonicalConfigFiles.loadServer(canonical, legacy);
@@ -42,7 +42,7 @@ class CanonicalConfigFilesTest {
         assertEquals(RestartMode.RESUME_POSITION, imported.restartMode());
         assertFalse(imported.pauseWhenEmpty());
         assertEquals(4, imported.operatorPermissionLevel());
-        assertEquals(1, imported.queueLimit());
+        assertEquals(8, imported.queueLimit());
         assertEquals(320, imported.audioBitrateKbps());
         assertEquals(64, imported.cacheSizeMiB());
         assertTrue(imported.stationMetadataFallbackEnabled());
@@ -51,30 +51,45 @@ class CanonicalConfigFilesTest {
         Files.write(legacy, "queueLimit = 2\n".getBytes(StandardCharsets.UTF_8));
         CanonicalConfigFiles.ServerConfig loadedAgain = CanonicalConfigFiles.loadServer(canonical, legacy);
         assertNull(loadedAgain.importedFrom());
-        assertEquals(1, loadedAgain.queueLimit(), "canonical file wins after one-time import");
+        assertEquals(8, loadedAgain.queueLimit(), "canonical file wins after one-time import");
         assertFalse(new String(Files.readAllBytes(canonical), StandardCharsets.UTF_8).contains("unknown"));
     }
 
-    @Test void rejectsInvalidServerScalarsAndCredentialsInUrl() throws Exception {
-        Path canonical = temporary.resolve("jammarr-server.toml");
-        Files.write(canonical, ("plexUrl = \"http://user:pass@plex.lan:32400\"\n"
-                + "restartMode = \"bogus\"\npauseWhenNoPlayers = perhaps\n"
-                + "operatorPermissionLevel = nope\n").getBytes(StandardCharsets.UTF_8));
-        CanonicalConfigFiles.ServerConfig config = CanonicalConfigFiles.loadServer(canonical);
-        assertEquals("http://127.0.0.1:32400", config.plexUrl());
-        assertEquals(RestartMode.RESTART_TRACK, config.restartMode());
-        assertTrue(config.pauseWhenEmpty());
-        assertEquals(2, config.operatorPermissionLevel());
+    @Test void rejectsInvalidServerValuesWithoutLeakingOrRewritingThem() throws Exception {
+        String[] invalidLines = new String[] {
+                "plexUrl = \"http://private-user:private-pass@plex.lan:32400\"\n",
+                "plexUrl = \"http://plex.lan:32400?X-Plex-Token=private-token\"\n",
+                "restartMode = \"bogus\"\n",
+                "pauseWhenNoPlayers = perhaps\n",
+                "operatorPermissionLevel = nope\n",
+                "operatorPermissionLevel = 5\n",
+                "queueLimit = 0\n",
+                "audioBitrateKbps = 321\n",
+                "cacheSizeMiB = 63\n",
+                "stationMetadataFallbackEnabled = perhaps\n",
+                "plexToken = \"unterminated\n"
+        };
+        for (int index = 0; index < invalidLines.length; index++) {
+            final String invalidLine = invalidLines[index];
+            Path canonical = temporary.resolve("invalid-" + index + ".toml");
+            byte[] original = invalidLine.getBytes(StandardCharsets.UTF_8);
+            Files.write(canonical, original);
+            CanonicalConfigFiles.ConfigValidationException error = assertThrows(
+                    CanonicalConfigFiles.ConfigValidationException.class,
+                    () -> CanonicalConfigFiles.loadServer(canonical), invalidLine);
+            assertFalse(error.getMessage().contains("private"), invalidLine);
+            assertArrayEquals(original, Files.readAllBytes(canonical), invalidLine);
+        }
     }
 
-    @Test void clientSettingsPersistAtomicallyAndClamp() throws Exception {
+    @Test void clientSettingsPersistAtomically() throws Exception {
         Path canonical = temporary.resolve("config/jammarr-client.toml");
         Path legacy = temporary.resolve("config/jammarr-client-fabric.toml");
         Files.createDirectories(legacy.getParent());
-        Files.write(legacy, "enabled = false\nvolume = 4.5\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(legacy, "enabled = false\nvolume = 0.75\n".getBytes(StandardCharsets.UTF_8));
         CanonicalConfigFiles.ClientConfig config = CanonicalConfigFiles.loadClient(canonical, legacy);
         assertFalse(config.enabled());
-        assertEquals(1.0, config.volume());
+        assertEquals(0.75, config.volume());
         assertEquals(legacy, config.importedFrom());
 
         config.enabled(true);
@@ -84,6 +99,19 @@ class CanonicalConfigFilesTest {
         assertTrue(restored.enabled());
         assertEquals(0.25, restored.volume());
         assertNull(restored.importedFrom());
+    }
+
+    @Test void rejectsInvalidClientSettingsWithoutRewritingThem() throws Exception {
+        String[] invalid = {"enabled = perhaps\n", "volume = 1.01\n", "volume = nan\n"};
+        for (int index = 0; index < invalid.length; index++) {
+            final String invalidValue = invalid[index];
+            Path canonical = temporary.resolve("invalid-client-" + index + ".toml");
+            byte[] original = invalidValue.getBytes(StandardCharsets.UTF_8);
+            Files.write(canonical, original);
+            assertThrows(CanonicalConfigFiles.ConfigValidationException.class,
+                    () -> CanonicalConfigFiles.loadClient(canonical), invalidValue);
+            assertArrayEquals(original, Files.readAllBytes(canonical), invalidValue);
+        }
     }
 
     @Test void importsNeoForgeFabricForgeAndLegacyFixturesWithoutChangingThem() throws Exception {
@@ -123,6 +151,32 @@ class CanonicalConfigFilesTest {
             assertArrayEquals(original, Files.readAllBytes(source), fixture.name + " source changed");
             assertEquals(source, actual.importedFrom(), fixture.name);
         }
+    }
+
+    @Test void runtimeDiscoveryImportsAcrossLoadersAndPrefersTheActiveLoader() throws Exception {
+        Path configDirectory = temporary.resolve("config");
+        Files.createDirectories(configDirectory);
+        Files.write(configDirectory.resolve("jammarr-server-fabric.toml"),
+                "musicLibrary = \"Fabric Music\"\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(configDirectory.resolve("jammarr-server-neoforge.toml"),
+                "musicLibrary = \"NeoForge Music\"\n".getBytes(StandardCharsets.UTF_8));
+        Path canonical = temporary.resolve("world/serverconfig/jammarr-server.toml");
+
+        CanonicalConfigFiles.ServerConfig server = CanonicalConfigFiles.loadServerForLoader(
+                canonical, configDirectory, "neoforge");
+
+        assertEquals("NeoForge Music", server.musicLibrary());
+        assertEquals(configDirectory.resolve("jammarr-server-neoforge.toml"), server.importedFrom());
+
+        Path clientDirectory = temporary.resolve("client-config");
+        Files.createDirectories(clientDirectory);
+        Files.write(clientDirectory.resolve("jammarr-client-forge.toml"),
+                "enabled = false\nvolume = 0.4\n".getBytes(StandardCharsets.UTF_8));
+        CanonicalConfigFiles.ClientConfig client = CanonicalConfigFiles.loadClientForLoader(
+                clientDirectory, "fabric");
+        assertFalse(client.enabled());
+        assertEquals(0.4, client.volume());
+        assertEquals(clientDirectory.resolve("jammarr-client-forge.toml"), client.importedFrom());
     }
 
     private static final class Fixture {

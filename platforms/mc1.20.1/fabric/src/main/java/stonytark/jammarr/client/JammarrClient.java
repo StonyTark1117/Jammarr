@@ -57,17 +57,13 @@ public final class JammarrClient implements ClientModInitializer {
     private static void installClientSettings() {
         Path configDirectory = FabricLoader.getInstance().getConfigDir();
         try {
-            CanonicalConfigFiles.ClientConfig config = CanonicalConfigFiles.loadClient(
-                    configDirectory.resolve(CanonicalConfigFiles.CLIENT_FILE_NAME),
-                    configDirectory.resolve("jammarr-client-fabric.toml"),
-                    configDirectory.resolve("pampmod-client.toml"));
+            CanonicalConfigFiles.ClientConfig config = CanonicalConfigFiles.loadClientForLoader(
+                    configDirectory, "fabric");
             JammarrSettings.installClient(config);
             if (config.importedFrom() != null) {
                 Jammarr.LOGGER.info("Imported legacy Jammarr client settings from {}", config.importedFrom());
             }
-        } catch (Exception error) {
-            Jammarr.LOGGER.error("Unable to load Jammarr client settings; using safe defaults", error);
-        }
+        } catch (Exception error) { throw new IllegalStateException("Unable to load Jammarr client settings", error); }
     }
 
     private void tick(Minecraft minecraft) {

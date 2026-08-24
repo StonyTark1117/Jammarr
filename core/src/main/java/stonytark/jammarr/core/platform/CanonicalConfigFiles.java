@@ -35,14 +35,24 @@ public final class CanonicalConfigFiles {
     public static final String SERVER_FILE_NAME = "jammarr-server.toml";
     public static final String CLIENT_FILE_NAME = "jammarr-client.toml";
 
+    public static ServerConfig loadServerForLoader(Path canonical, Path configDirectory, String preferredLoader)
+            throws IOException {
+        return loadServer(canonical, migrationCandidates(configDirectory, "server", preferredLoader));
+    }
+
+    public static ClientConfig loadClientForLoader(Path configDirectory, String preferredLoader) throws IOException {
+        return loadClient(configDirectory.resolve(CLIENT_FILE_NAME),
+                migrationCandidates(configDirectory, "client", preferredLoader));
+    }
+
     public static ServerConfig loadServer(Path canonical, Path... legacyCandidates) throws IOException {
         Path source = chooseSource(canonical, legacyCandidates);
         Map<String, String> values = source == null ? Collections.<String, String>emptyMap() : parse(source);
         ServerConfig config = new ServerConfig(canonical,
-                validatedUrl(string(values, "plexUrl", "http://127.0.0.1:32400")),
-                bounded(string(values, "plexToken", ""), 4_096),
-                bounded(string(values, "musicLibrary", ""), 256),
-                restartMode(values.get(normalize("restartMode"))),
+                validatedUrl(string(values, "plexUrl", "http://127.0.0.1:32400", 2_048)),
+                string(values, "plexToken", "", 4_096),
+                string(values, "musicLibrary", "", 256),
+                restartMode(values, "restartMode"),
                 bool(values, "pauseWhenNoPlayers", true),
                 integer(values, "operatorPermissionLevel", 2, 0, 4),
                 integer(values, "queueLimit", 500, 1, 500),
@@ -166,6 +176,25 @@ public final class CanonicalConfigFiles {
         return null;
     }
 
+    private static Path[] migrationCandidates(Path configDirectory, String side, String preferredLoader) {
+        List<Path> candidates = new ArrayList<Path>();
+        if ("server".equals(side)) candidates.add(configDirectory.resolve(SERVER_FILE_NAME));
+        List<String> loaders = loaderOrder(preferredLoader);
+        for (String loader : loaders) candidates.add(configDirectory.resolve("jammarr-" + side + "-" + loader + ".toml"));
+        for (String loader : loaders) candidates.add(configDirectory.resolve("pampmod-" + side + "-" + loader + ".toml"));
+        candidates.add(configDirectory.resolve("pampmod-" + side + ".toml"));
+        candidates.add(configDirectory.resolve("jammarr.toml"));
+        candidates.add(configDirectory.resolve("pampmod.toml"));
+        return candidates.toArray(new Path[candidates.size()]);
+    }
+
+    private static List<String> loaderOrder(String preferredLoader) {
+        List<String> loaders = new ArrayList<String>(Arrays.asList("fabric", "forge", "neoforge", "legacy"));
+        String preferred = preferredLoader == null ? "" : preferredLoader.trim().toLowerCase(Locale.ROOT);
+        if (loaders.remove(preferred)) loaders.add(0, preferred);
+        return loaders;
+    }
+
     private static Map<String, String> parse(Path path) throws IOException {
         Map<String, String> values = new LinkedHashMap<String, String>();
         BufferedReader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8);
@@ -178,7 +207,7 @@ public final class CanonicalConfigFiles {
                 if (equals <= 0) continue;
                 String key = normalize(line.substring(0, equals));
                 if (!recognized(key)) continue;
-                values.put(key, scalar(line.substring(equals + 1).trim()));
+                values.put(key, scalar(line.substring(equals + 1).trim(), key));
             }
         } finally { reader.close(); }
         return values;
@@ -201,7 +230,9 @@ public final class CanonicalConfigFiles {
         return line;
     }
 
-    private static String scalar(String value) {
+    private static String scalar(String value, String key) throws ConfigValidationException {
+        if (value.isEmpty()) throw invalid(key);
+        if ((value.charAt(0) == '"') != (value.charAt(value.length() - 1) == '"')) throw invalid(key);
         if (value.length() >= 2 && value.charAt(0) == '"' && value.charAt(value.length() - 1) == '"') {
             StringBuilder decoded = new StringBuilder();
             boolean escaped = false;
@@ -222,53 +253,67 @@ public final class CanonicalConfigFiles {
         return value;
     }
 
-    private static String string(Map<String, String> values, String key, String fallback) {
+    private static String string(Map<String, String> values, String key, String fallback, int maximum)
+            throws ConfigValidationException {
         String value = values.get(normalize(key));
-        return value == null ? fallback : value.trim();
+        String selected = value == null ? fallback : value.trim();
+        if (selected.length() > maximum) throw invalid(key);
+        return selected;
     }
 
-    private static boolean bool(Map<String, String> values, String key, boolean fallback) {
+    private static boolean bool(Map<String, String> values, String key, boolean fallback)
+            throws ConfigValidationException {
         String value = values.get(normalize(key));
+        if (value == null) return fallback;
         if ("true".equalsIgnoreCase(value)) return true;
         if ("false".equalsIgnoreCase(value)) return false;
-        return fallback;
+        throw invalid(key);
     }
 
-    private static int integer(Map<String, String> values, String key, int fallback, int minimum, int maximum) {
+    private static int integer(Map<String, String> values, String key, int fallback, int minimum, int maximum)
+            throws ConfigValidationException {
         String value = values.get(normalize(key));
-        try { return value == null ? fallback : clamp(Integer.parseInt(value.replace("_", "")), minimum, maximum); }
-        catch (NumberFormatException ignored) { return fallback; }
-    }
-
-    private static double decimal(Map<String, String> values, String key, double fallback, double minimum, double maximum) {
-        String value = values.get(normalize(key));
+        if (value == null) return fallback;
         try {
-            double parsed = value == null ? fallback : Double.parseDouble(value.replace("_", ""));
-            return Double.isFinite(parsed) ? clamp(parsed, minimum, maximum) : fallback;
-        } catch (NumberFormatException ignored) { return fallback; }
+            int parsed = Integer.parseInt(value.replace("_", ""));
+            if (parsed < minimum || parsed > maximum) throw invalid(key);
+            return parsed;
+        } catch (NumberFormatException ignored) { throw invalid(key); }
     }
 
-    private static RestartMode restartMode(String value) {
+    private static double decimal(Map<String, String> values, String key, double fallback, double minimum, double maximum)
+            throws ConfigValidationException {
+        String value = values.get(normalize(key));
+        if (value == null) return fallback;
+        try {
+            double parsed = Double.parseDouble(value.replace("_", ""));
+            if (!Double.isFinite(parsed) || parsed < minimum || parsed > maximum) throw invalid(key);
+            return parsed;
+        } catch (NumberFormatException ignored) { throw invalid(key); }
+    }
+
+    private static RestartMode restartMode(Map<String, String> values, String key) throws ConfigValidationException {
+        String value = values.get(normalize(key));
         if (value == null) return RestartMode.RESTART_TRACK;
         try { return RestartMode.valueOf(value.trim().toUpperCase(Locale.ROOT).replace('-', '_').replace(' ', '_')); }
-        catch (IllegalArgumentException ignored) { return RestartMode.RESTART_TRACK; }
+        catch (IllegalArgumentException ignored) { throw invalid(key); }
     }
 
-    private static String validatedUrl(String value) {
-        String bounded = bounded(value, 2_048);
+    private static String validatedUrl(String value) throws ConfigValidationException {
         try {
-            URI uri = new URI(bounded);
+            URI uri = new URI(value);
             String scheme = uri.getScheme();
             if (("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))
-                    && uri.getHost() != null && uri.getUserInfo() == null) {
-                return bounded.endsWith("/") ? bounded.substring(0, bounded.length() - 1) : bounded;
+                    && uri.getHost() != null && uri.getUserInfo() == null && uri.getQuery() == null
+                    && uri.getFragment() == null) {
+                return value.endsWith("/") ? value.substring(0, value.length() - 1) : value;
             }
         } catch (URISyntaxException ignored) {}
-        return "http://127.0.0.1:32400";
+        throw invalid("plexUrl");
     }
 
-    private static String bounded(String value, int maximum) {
-        return value.length() <= maximum ? value : value.substring(0, maximum);
+    private static ConfigValidationException invalid(String key) {
+        return new ConfigValidationException("Invalid Jammarr configuration value for " + key);
     }
 
     private static String normalize(String key) {
@@ -324,6 +369,10 @@ public final class CanonicalConfigFiles {
             normalize("operatorPermissionLevel"), normalize("queueLimit"), normalize("audioBitrateKbps"),
             normalize("cacheSizeMiB"), normalize("stationMetadataFallbackEnabled"));
     private static final List<String> CLIENT_KEYS = Arrays.asList(normalize("enabled"), normalize("volume"));
+
+    public static final class ConfigValidationException extends IOException {
+        public ConfigValidationException(String message) { super(message); }
+    }
 
     private CanonicalConfigFiles() {}
 }

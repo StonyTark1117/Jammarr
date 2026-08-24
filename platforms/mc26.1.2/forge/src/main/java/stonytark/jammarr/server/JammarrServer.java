@@ -30,17 +30,15 @@ public final class JammarrServer {
             java.nio.file.Path configDirectory = FMLPaths.CONFIGDIR.get();
             java.nio.file.Path canonical = event.getServer().getWorldPath(LevelResource.ROOT)
                     .resolve("serverconfig").resolve(CanonicalConfigFiles.SERVER_FILE_NAME);
-            CanonicalConfigFiles.ServerConfig config = CanonicalConfigFiles.loadServer(canonical,
-                    configDirectory.resolve(CanonicalConfigFiles.SERVER_FILE_NAME),
-                    configDirectory.resolve("jammarr-server-forge.toml"),
-                    configDirectory.resolve("pampmod-server.toml"));
+            CanonicalConfigFiles.ServerConfig config = CanonicalConfigFiles.loadServerForLoader(
+                    canonical, configDirectory, "forge");
             JammarrSettings.installServer(config);
             if (config.importedFrom() != null) {
                 Jammarr.LOGGER.info("Imported legacy Jammarr server settings from {}", config.importedFrom());
             }
             player = new GlobalPlayer(event.getServer());
         }
-        catch (Exception error) { Jammarr.LOGGER.error("Unable to initialize Jammarr", error); }
+        catch (Exception error) { throw new IllegalStateException("Unable to initialize Jammarr", error); }
     }
     public void stopping(ServerStoppingEvent event) { if (player != null) { player.close(); player = null; } }
     public void tick(TickEvent.ServerTickEvent.Post event) { if (player != null) player.tick(); }
