@@ -23,6 +23,24 @@ minecraft {
     extraRunJvmArguments.add('-ea:stonytark.jammarr')
 }
 
+def acceptanceServer = providers.gradleProperty('jammarrAcceptanceServer').orNull
+def acceptanceUsername = providers.gradleProperty('jammarrAcceptanceUsername').orNull
+def acceptanceGameDir = providers.gradleProperty('jammarrAcceptanceGameDir').orNull
+
+tasks.named('runClient') {
+    if (acceptanceUsername != null) username.set(acceptanceUsername)
+    if (acceptanceGameDir != null) workingDir(file(acceptanceGameDir))
+    if (acceptanceServer != null) {
+        int separator = acceptanceServer.lastIndexOf(':')
+        if (separator <= 0 || separator == acceptanceServer.length() - 1) {
+            throw new GradleException('jammarrAcceptanceServer must use host:port syntax')
+        }
+        String host = acceptanceServer.substring(0, separator)
+        String port = acceptanceServer.substring(separator + 1)
+        extraArgs.addAll(['--server', host, '--port', port])
+    }
+}
+
 repositories {
     mavenCentral()
 }

@@ -42,7 +42,11 @@ public final class JammarrClient implements ClientModInitializer {
         });
         registerReceivers();
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> JammarrClientState.INSTANCE.hello());
-        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> JammarrClientState.INSTANCE.stop());
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+            net.minecraft.network.chat.Component reason = handler.getConnection().getDisconnectedReason();
+            if (reason != null) Jammarr.LOGGER.info("Client disconnected with reason: {}", reason.getString());
+            JammarrClientState.INSTANCE.stop();
+        });
         ClientTickEvents.END_CLIENT_TICK.register(this::tick);
         ResourceManagerHelper.get(PackType.CLIENT_RESOURCES).registerReloadListener(new SimpleSynchronousResourceReloadListener() {
             @Override public ResourceLocation getFabricId() {

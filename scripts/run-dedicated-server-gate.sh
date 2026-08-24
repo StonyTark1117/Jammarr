@@ -8,6 +8,10 @@ fake_plex_token="jammarr-dedicated-gate-token"
 fake_plex_port_file="$output_root/fake-plex.port"
 fake_plex_request_log="$output_root/fake-plex.requests.tsv"
 fake_plex_pid=""
+active_client_pid=""
+active_server_pid=""
+active_game_port=""
+active_rcon_port=""
 active_config=""
 active_config_backup=""
 active_config_existed=0
@@ -55,6 +59,20 @@ restore_server_properties() {
 }
 
 cleanup_all() {
+  if [[ -n "$active_client_pid" ]]; then
+    stop_process_tree "$active_client_pid" TERM
+    wait_for_process_tree_exit "$active_client_pid" 10 || stop_process_tree "$active_client_pid" KILL
+    active_client_pid=""
+  fi
+  if [[ -n "$active_server_pid" ]]; then
+    stop_process_tree "$active_server_pid" TERM
+    wait_for_process_tree_exit "$active_server_pid" 10 || stop_process_tree "$active_server_pid" KILL
+    active_server_pid=""
+  fi
+  stop_listening_port "$active_game_port"
+  stop_listening_port "$active_rcon_port"
+  active_game_port=""
+  active_rcon_port=""
   restore_server_config
   restore_server_properties
   if [[ -n "$fake_plex_pid" ]]; then
@@ -62,6 +80,18 @@ cleanup_all() {
     wait "$fake_plex_pid" 2>/dev/null || true
   fi
   rm -f -- "$fake_plex_port_file"
+}
+
+stop_listening_port() {
+  local port=$1
+  local pid deadline
+  if [[ -z "$port" ]]; then return; fi
+  pid=$(ss -ltnp "sport = :$port" | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' | head -n 1)
+  if [[ -z "$pid" ]]; then return; fi
+  kill -TERM "$pid" 2>/dev/null || true
+  deadline=$((SECONDS + 10))
+  while kill -0 "$pid" 2>/dev/null && (( SECONDS < deadline )); do sleep 1; done
+  if kill -0 "$pid" 2>/dev/null; then kill -KILL "$pid" 2>/dev/null || true; fi
 }
 
 trap cleanup_all EXIT
@@ -110,9 +140,37 @@ run_wrong_protocol_client() {
   local java_home=$3
   local port=$4
   local server_console=$5
-  local client_dir="$output_root/$label.wrong-protocol-client"
-  local client_console="$output_root/$label.wrong-protocol-client.console.log"
-  local evidence="$output_root/$label.wrong-protocol-client.server.txt"
+  run_acceptance_client "$label" "$target_dir" "$java_home" "$port" "$server_console" \
+    wrong-protocol-client JammarrMismatch \
+    '-Djammarr.acceptance.enabled=true -Djammarr.acceptance.clientProtocol=4 -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
+    'Jammarr protocol mismatch: server requires'
+}
+
+run_missing_hello_client() {
+  local label=$1
+  local target_dir=$2
+  local java_home=$3
+  local port=$4
+  local server_console=$5
+  run_acceptance_client "$label" "$target_dir" "$java_home" "$port" "$server_console" \
+    missing-client JammarrMissing \
+    '-Djammarr.acceptance.enabled=true -Djammarr.acceptance.suppressClientHello=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
+    'Jammarr protocol handshake timed out'
+}
+
+run_acceptance_client() {
+  local label=$1
+  local target_dir=$2
+  local java_home=$3
+  local port=$4
+  local server_console=$5
+  local scenario=$6
+  local username=$7
+  local java_tool_options=$8
+  local rejection=$9
+  local client_dir="$output_root/$label.$scenario"
+  local client_console="$output_root/$label.$scenario.console.log"
+  local evidence="$output_root/$label.$scenario.server.txt"
   local pid deadline result=0
 
   mkdir -p "$client_dir"
@@ -126,26 +184,27 @@ run_wrong_protocol_client() {
     cd "$target_dir" || exit 1
     exec setsid xvfb-run -a env \
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
-      JAVA_TOOL_OPTIONS='-Djammarr.acceptance.enabled=true -Djammarr.acceptance.clientProtocol=4 -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
+      JAVA_TOOL_OPTIONS="$java_tool_options" \
       LIBGL_ALWAYS_SOFTWARE=1 \
       ./gradlew runClient --no-daemon --max-workers=1 --console=plain \
-      -PjammarrAcceptanceUsername=JammarrMismatch \
+      -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="127.0.0.1:${port}" \
       -PjammarrAcceptanceGameDir="$client_dir" \
       > "$client_console" 2>&1
   ) &
   pid=$!
+  active_client_pid=$pid
 
   deadline=$((SECONDS + 600))
-  while ! grep -Fq 'Jammarr protocol mismatch: server requires' "$server_console" 2>/dev/null \
-      || ! grep -Fq 'Client disconnected with reason: Jammarr protocol mismatch: server requires' "$client_console" 2>/dev/null; do
+  while ! grep -Fq "$rejection" "$server_console" 2>/dev/null \
+      || ! grep -Fq "Client disconnected with reason: $rejection" "$client_console" 2>/dev/null; do
     if ! group_alive "$pid"; then
-      echo "$label: wrong-protocol client exited before the server rejected its hello; see $client_console" >&2
+      echo "$label: $scenario exited before the server rejected it; see $client_console" >&2
       result=1
       break
     fi
     if (( SECONDS >= deadline )); then
-      echo "$label: wrong-protocol client was not rejected within 600 seconds; see $client_console" >&2
+      echo "$label: $scenario was not rejected within 600 seconds; see $client_console" >&2
       result=1
       break
     fi
@@ -154,8 +213,8 @@ run_wrong_protocol_client() {
 
   if (( result == 0 )); then
     {
-      grep -F 'Jammarr protocol mismatch: server requires' "$server_console" | tail -n 1
-      grep -F 'Client disconnected with reason: Jammarr protocol mismatch: server requires' "$client_console" | tail -n 1
+      grep -F "$rejection" "$server_console" | tail -n 1
+      grep -F "Client disconnected with reason: $rejection" "$client_console" | tail -n 1
     } > "$evidence"
   fi
   stop_process_tree "$pid" TERM
@@ -164,6 +223,7 @@ run_wrong_protocol_client() {
     wait_for_process_tree_exit "$pid" 10 || result=1
   fi
   wait "$pid" 2>/dev/null || true
+  active_client_pid=""
   return "$result"
 }
 
@@ -310,6 +370,7 @@ run_invalid_config_check() {
       < /dev/null > "$console_log" 2>&1
   ) &
   pid=$!
+  active_server_pid=$pid
 
   local deadline=$((SECONDS + 180))
   while group_alive "$pid"; do
@@ -331,6 +392,7 @@ run_invalid_config_check() {
     result=1
   fi
   wait "$pid" 2>/dev/null || true
+  active_server_pid=""
   if ! grep -Fq 'Invalid Jammarr configuration value for plexUrl' "$latest_log" "$console_log" 2>/dev/null; then
     echo "$label: invalid configuration failure did not identify the rejected key" >&2
     result=1
@@ -403,6 +465,8 @@ run_target() {
     echo "$label: RCON port $rcon_port is already in use" >&2
     return 1
   fi
+  active_game_port=$port
+  if [[ "$label" != "1.7.10-forge" ]]; then active_rcon_port=$rcon_port; fi
   backup_server_properties "$run_dir/server.properties" "$label"
   # Keep the gate isolated from developer worlds and from damage left by an
   # interrupted prior run. The run directories are ignored build state.
@@ -485,7 +549,11 @@ run_target() {
     fi
   fi
 
-  if (( result == 0 )) && [[ "$label" != "1.7.10-forge" ]]; then
+  if (( result == 0 )) && [[ "$label" == "1.7.10-forge" ]]; then
+    if ! run_missing_hello_client "$label" "$target_dir" "$java_home" "$port" "$console_log"; then
+      result=1
+    fi
+  elif (( result == 0 )); then
     probe_output="$output_root/$label.missing-client.json"
     if [[ "$label" == 26.1.2-* ]]; then
       # Minecraft 26.1 can close legacy protocol -1 status queries before a
@@ -565,6 +633,8 @@ run_target() {
     echo "$label: process group $pid remains alive after shutdown" >&2
     result=1
   fi
+  active_game_port=""
+  active_rcon_port=""
 
   restore_server_config
   restore_server_properties

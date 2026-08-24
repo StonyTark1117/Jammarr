@@ -400,9 +400,10 @@ tasks.register('inspectReleaseArtifacts', Exec) {
 
 tasks.register('verifyDedicatedServers', Exec) {
     group = 'verification'
-    description = 'Starts and cleanly stops all 13 dedicated-server targets and rejects lingering processes or ports.'
+    description = 'Starts and cleanly stops all 13 dedicated-server targets, including real incompatible-client rejection.'
     mustRunAfter('inspectReleaseArtifacts')
     workingDir(layout.projectDirectory)
+    environment('JAMMARR_PROTOCOL_CLIENT_GATE', 'true')
     commandLine('bash', 'scripts/run-dedicated-server-gate.sh', 'all')
 }
 

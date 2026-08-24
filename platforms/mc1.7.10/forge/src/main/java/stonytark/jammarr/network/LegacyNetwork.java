@@ -96,7 +96,6 @@ public final class LegacyNetwork {
     @SubscribeEvent
     public void clientConnected(FMLNetworkEvent.ClientConnectedToServerEvent event) {
         CLIENT_INBOX.clear();
-        sendToServer(LegacyPacketTypes.CLIENT_HELLO, new ControlPackets.ClientHello(ProtocolLimits.clientHelloVersion()));
     }
 
     @SubscribeEvent

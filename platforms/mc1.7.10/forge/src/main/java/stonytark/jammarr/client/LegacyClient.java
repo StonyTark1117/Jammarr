@@ -10,13 +10,17 @@ import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.settings.KeyBinding;
+import net.minecraft.network.NetworkManager;
+import net.minecraft.util.IChatComponent;
 import org.lwjgl.input.Keyboard;
+import stonytark.jammarr.Jammarr;
 import stonytark.jammarr.network.LegacyNetwork;
 
 @SideOnly(Side.CLIENT)
 public final class LegacyClient {
     private static final LegacyClient INSTANCE = new LegacyClient();
     private final KeyBinding open = new KeyBinding("key.jammarr.open", Keyboard.KEY_P, "key.categories.jammarr");
+    private NetworkManager disconnectedManager;
     private boolean registered;
 
     public static synchronized void register() {
@@ -34,13 +38,23 @@ public final class LegacyClient {
     }
 
     @SubscribeEvent public void clientTick(TickEvent.ClientTickEvent event) {
-        if (event.phase == TickEvent.Phase.END && Minecraft.getMinecraft().theWorld != null) {
-            LegacyClientState.INSTANCE.tick();
-        }
+        if (event.phase != TickEvent.Phase.END) return;
+        logDisconnectReason();
+        if (Minecraft.getMinecraft().theWorld != null) LegacyClientState.INSTANCE.tick();
     }
 
     @SubscribeEvent public void disconnected(FMLNetworkEvent.ClientDisconnectionFromServerEvent event) {
+        disconnectedManager = event.manager;
         LegacyClientState.INSTANCE.stop();
+    }
+
+    private void logDisconnectReason() {
+        NetworkManager manager = disconnectedManager;
+        if (manager == null) return;
+        IChatComponent reason = manager.getExitMessage();
+        if (reason == null) return;
+        Jammarr.LOGGER.info("Client disconnected with reason: {}", reason.getUnformattedText());
+        disconnectedManager = null;
     }
 
     private LegacyClient() {}

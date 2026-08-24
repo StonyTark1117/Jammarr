@@ -29,6 +29,7 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
             0L, "", Collections.<StatePackets.QueueEntry>emptyList());
     private ControlPackets.BrowseResults browse = new ControlPackets.BrowseResults(
             ControlPackets.BrowseKind.SEARCH, "", 0, false, Collections.<StationModels.MediaItem>emptyList());
+    private boolean helloSent;
     private long lastTimeSync;
     private String notice = "";
 
@@ -73,18 +74,23 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
     }
 
     void tick() {
+        if (!helloSent) {
+            hello();
+            return;
+        }
         long now = System.currentTimeMillis();
         if (now - lastTimeSync >= 10_000L) requestTimeSync();
         audio.tick();
     }
 
-    void hello() {
+    private void hello() {
+        if (ProtocolLimits.clientHelloSuppressed()) return;
         LegacyNetwork.sendToServer(LegacyPacketTypes.CLIENT_HELLO, new ControlPackets.ClientHello(ProtocolLimits.clientHelloVersion()));
-        requestTimeSync();
+        helloSent = true;
     }
 
     void stop() {
-        audio.stop(); clock.reset(); notice = ""; lastTimeSync = 0L;
+        audio.stop(); clock.reset(); notice = ""; helloSent = false; lastTimeSync = 0L;
         playback = emptyPlayback(); station = emptyStation();
         browse = new ControlPackets.BrowseResults(ControlPackets.BrowseKind.SEARCH, "", 0,
                 false, Collections.<StationModels.MediaItem>emptyList());

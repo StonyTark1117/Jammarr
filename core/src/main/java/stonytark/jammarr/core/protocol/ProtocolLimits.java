@@ -4,6 +4,7 @@ public final class ProtocolLimits {
     public static final int VERSION = 5;
     public static final String ACCEPTANCE_ENABLED_PROPERTY = "jammarr.acceptance.enabled";
     public static final String ACCEPTANCE_CLIENT_PROTOCOL_PROPERTY = "jammarr.acceptance.clientProtocol";
+    public static final String ACCEPTANCE_SUPPRESS_HELLO_PROPERTY = "jammarr.acceptance.suppressClientHello";
     public static final int MAX_BROWSE_RESULTS = 50;
     public static final int MAX_STATION_SEEDS = 5;
     public static final int MAX_PLAYBACK_ENTRIES = 504;
@@ -26,6 +27,12 @@ public final class ProtocolLimits {
         } catch (NumberFormatException ignored) {
             return VERSION;
         }
+    }
+
+    /** Allows a real client to exercise the server's missing-hello timeout. */
+    public static boolean clientHelloSuppressed() {
+        return Boolean.getBoolean(ACCEPTANCE_ENABLED_PROPERTY)
+                && Boolean.getBoolean(ACCEPTANCE_SUPPRESS_HELLO_PROPERTY);
     }
 
     private ProtocolLimits() {}
