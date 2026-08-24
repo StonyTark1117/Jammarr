@@ -2,3 +2,5 @@
 minecraft = "1.7.10"
 java = "8"
 forge = "10.13.4.1614-1.7.10"
+retrofutura-gradle = "2.0.3"
+gradle = "9.5.0"

@@ -1,0 +1,166 @@
+plugins {
+    id 'java-library'
+    id 'com.gtnewhorizons.retrofuturagradle' version '2.0.3'
+}
+
+def modVersionValue = providers.gradleProperty('mod_version').get()
+def minecraftVersionValue = providers.gradleProperty('minecraft_version').get()
+
+group = 'stonytark'
+version = modVersionValue
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(8)
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+minecraft {
+    mcVersion.set(minecraftVersionValue)
+    javaCompatibilityVersion.set(8)
+    jvmLanguageVersion.set(JavaLanguageVersion.of(8))
+    username.set('JammarrDeveloper')
+    extraRunJvmArguments.add('-ea:stonytark.jammarr')
+}
+
+repositories {
+    mavenCentral()
+}
+
+configurations {
+    embeddedLibraries
+    implementation.extendsFrom(embeddedLibraries)
+}
+
+dependencyLocking {
+    lockAllConfigurations()
+}
+
+dependencies {
+    embeddedLibraries('javazoom:jlayer:1.0.1')
+    embeddedLibraries('de.sciss:jump3r:1.0.5')
+    testImplementation(platform('org.junit:junit-bom:5.10.2'))
+    testImplementation('org.junit.jupiter:junit-jupiter')
+    testRuntimeOnly('org.junit.platform:junit-platform-launcher')
+}
+
+sourceSets {
+    main {
+        java {
+            srcDirs = ['src/main/java', '../../../core/src/main/java']
+        }
+        resources {
+            srcDirs = ['src/main/resources', '../../../src/main/resources']
+            exclude 'jammarr.mixins.json'
+        }
+    }
+    test {
+        java.srcDirs = ['src/test/java', '../../../core/src/test/java']
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+}
+
+def canonicalBaseName = "jammarr-${modVersionValue}+mc${minecraftVersionValue}-forge"
+
+tasks.named('processResources', ProcessResources) {
+    inputs.property('modVersion', modVersionValue)
+    filesMatching('mcmod.info') {
+        expand(modVersion: modVersionValue)
+    }
+}
+
+tasks.named('jar', Jar) {
+    archiveBaseName.set(canonicalBaseName)
+    archiveVersion.set('')
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from {
+        configurations.embeddedLibraries.collect { zipTree(it) }
+    }
+    exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', 'META-INF/INDEX.LIST', 'module-info.class'
+    from('../../../LICENSE') {
+        into 'META-INF'
+        rename { 'LICENSE-Jammarr-CC0-1.0.txt' }
+    }
+    from('../../../LICENSE-LGPL-2.1-or-later.txt') {
+        into 'META-INF'
+    }
+    from('../../../THIRD_PARTY_NOTICES.md') {
+        into 'META-INF'
+    }
+    manifest.attributes(
+            'FMLCorePluginContainsFMLMod': 'true',
+            'Implementation-Title': 'Jammarr',
+            'Implementation-Version': modVersionValue
+    )
+}
+
+tasks.named('reobfJar') {
+    archiveBaseName.set(canonicalBaseName)
+    archiveVersion.set('')
+}
+
+def releaseArchive = tasks.named('reobfJar').flatMap { it.archiveFile }
+tasks.register('verifyRelease') {
+    dependsOn(tasks.named('test'), tasks.named('reobfJar'))
+    inputs.file(releaseArchive)
+    doLast {
+        File archive = releaseArchive.get().asFile
+        if (archive.name != "${canonicalBaseName}.jar") {
+            throw new GradleException("Unexpected legacy artifact name: ${archive.name}")
+        }
+        new java.util.zip.ZipFile(archive).withCloseable { zip ->
+            Set<String> found = zip.entries().collect { it.name } as Set
+            [
+                    'mcmod.info',
+                    'assets/jammarr/lang/en_us.json',
+                    'jammarr.png',
+                    'META-INF/LICENSE-Jammarr-CC0-1.0.txt',
+                    'META-INF/LICENSE-LGPL-2.1-or-later.txt',
+                    'META-INF/THIRD_PARTY_NOTICES.md',
+                    'stonytark/jammarr/Jammarr.class',
+                    'stonytark/jammarr/core/server/ChunkTransferPolicy.class',
+                    'stonytark/jammarr/network/LegacyNetwork.class',
+                    'stonytark/jammarr/server/LegacySavedData.class',
+                    'javazoom/jl/decoder/Decoder.class',
+                    'de/sciss/jump3r/mp3/Lame.class'
+            ].each { entry ->
+                if (!found.contains(entry)) {
+                    throw new GradleException("Legacy release archive is missing ${entry}")
+                }
+            }
+            found.findAll { it.startsWith('stonytark/jammarr/') && it.endsWith('.class') }.each { entry ->
+                InputStream stream = zip.getInputStream(zip.getEntry(entry))
+                byte[] header = new byte[8]
+                if (stream.read(header) != header.length) {
+                    throw new GradleException("Unable to inspect ${entry}")
+                }
+                stream.close()
+                int major = ((header[6] & 0xff) << 8) | (header[7] & 0xff)
+                if (major != 52) {
+                    throw new GradleException("Legacy release contains non-Java-8 bytecode: ${entry} has class major ${major}")
+                }
+            }
+            String metadata = zip.getInputStream(zip.getEntry('mcmod.info')).getText('UTF-8')
+            [
+                    '"modid": "jammarr"',
+                    '"version": "1.0.0"',
+                    '"mcversion": "1.7.10"'
+            ].each { required ->
+                if (!metadata.contains(required)) throw new GradleException("Legacy metadata is missing ${required}")
+            }
+            if (found.contains('jammarr.mixins.json')) {
+                throw new GradleException('Legacy release must not contain modern Mixin metadata')
+            }
+            if (metadata.toLowerCase(Locale.ROOT).contains('pampmod')) {
+                throw new GradleException('Legacy metadata contains the retired PAmpMod identifier')
+            }
+        }
+    }
+}
