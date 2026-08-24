@@ -1,0 +1,12 @@
+# NeoForge-style server fixture
+[general]
+plexUrl = "https://neo.plex.lan:32400/"
+plexToken = "neo-token"
+musicLibrary = "Neo Music"
+restartMode = "resume_position"
+pauseWhenNoPlayers = false
+operatorPermissionLevel = 3
+queueLimit = 321
+audioBitrateKbps = 192
+cacheSizeMiB = 2048
+stationMetadataFallbackEnabled = true

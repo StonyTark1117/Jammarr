@@ -7,13 +7,24 @@ import stonytark.jammarr.core.model.QueueTrack;
 import stonytark.jammarr.core.model.StationModels;
 import stonytark.jammarr.core.protocol.StatePackets;
 
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class LegacySavedDataTest {
+    @Test
+    void migratesSharedSchemasOneThroughThreeAndRoundTripsSchemaFour() throws Exception {
+        assertSchemaOne(roundTrip("schema-1.snbt"));
+        assertSchemaTwo(roundTrip("schema-2.snbt"));
+        assertSchemaThree(roundTrip("schema-3.snbt"));
+    }
+
     @Test
     void roundTripsSchema4AdventureAutoplayAndHistory() {
         LegacySavedData source = new LegacySavedData();
@@ -89,6 +100,74 @@ class LegacySavedDataTest {
         assertEquals(500, restored.queue().size());
         assertEquals(5, restored.station().seeds().size());
         assertEquals(256, restored.station().name().length());
+    }
+
+    private static LegacySavedData roundTrip(String fixture) throws Exception {
+        LegacySavedData migrated = new LegacySavedData();
+        migrated.readFromNBT((NBTTagCompound) net.minecraft.nbt.JsonToNBT.func_150315_a(readFixture(fixture)));
+        NBTTagCompound canonical = new NBTTagCompound();
+        migrated.writeToNBT(canonical);
+        assertEquals(4, canonical.getInteger("schemaVersion"), fixture);
+        LegacySavedData restored = new LegacySavedData();
+        restored.readFromNBT(canonical);
+        assertEquivalent(migrated, restored, fixture);
+        return restored;
+    }
+
+    private static String readFixture(String fixture) throws Exception {
+        InputStream stream = LegacySavedDataTest.class.getResourceAsStream("/saved-data/" + fixture);
+        assertNotNull(stream, fixture);
+        try {
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            byte[] buffer = new byte[1024];
+            for (int count = stream.read(buffer); count >= 0; count = stream.read(buffer)) output.write(buffer, 0, count);
+            return new String(output.toByteArray(), StandardCharsets.UTF_8);
+        } finally { stream.close(); }
+    }
+
+    private static void assertSchemaOne(LegacySavedData state) {
+        assertEquals("v1-current", state.current().key());
+        assertEquals(StatePackets.PlaybackOrigin.MANUAL, state.currentOrigin());
+        assertEquals("Manual request", state.currentSourceName());
+        assertEquals("v1-next", state.queue().get(0).key());
+        assertEquals(111, state.checkpointMs());
+        assertTrue(state.paused());
+    }
+
+    private static void assertSchemaTwo(LegacySavedData state) {
+        assertEquals("v2-current", state.current().key());
+        assertEquals(StatePackets.PlaybackOrigin.STATION, state.currentOrigin());
+        assertEquals("Station", state.currentSourceName());
+        assertEquals("v2-next", state.queue().get(0).key());
+        assertEquals(222, state.checkpointMs());
+        assertTrue(state.paused());
+    }
+
+    private static void assertSchemaThree(LegacySavedData state) {
+        assertEquals("v3-current", state.current().key());
+        assertEquals(StatePackets.PlaybackOrigin.ADVENTURE, state.currentOrigin());
+        assertEquals("Sonic Adventure: Fixture Route", state.currentSourceName());
+        assertEquals(StationModels.StationType.SONIC_ADVENTURE, state.station().type());
+        assertEquals(17, state.station().generation());
+        assertEquals(2, state.station().seeds().size());
+        assertTrue(state.autoplayEnabled());
+        assertEquals("history-a", state.history().get(0).key());
+        assertFalse(state.paused());
+    }
+
+    private static void assertEquivalent(LegacySavedData expected, LegacySavedData actual, String fixture) {
+        assertEquals(expected.queue(), actual.queue(), fixture + " queue");
+        assertEquals(expected.history(), actual.history(), fixture + " history");
+        assertEquals(expected.current(), actual.current(), fixture + " current");
+        assertEquals(expected.currentOrigin(), actual.currentOrigin(), fixture + " origin");
+        assertEquals(expected.currentSourceName(), actual.currentSourceName(), fixture + " source");
+        assertEquals(expected.station().type(), actual.station().type(), fixture + " station type");
+        assertEquals(expected.station().name(), actual.station().name(), fixture + " station name");
+        assertEquals(expected.station().generation(), actual.station().generation(), fixture + " generation");
+        assertEquals(expected.station().seeds().size(), actual.station().seeds().size(), fixture + " seeds");
+        assertEquals(expected.autoplayEnabled(), actual.autoplayEnabled(), fixture + " autoplay");
+        assertEquals(expected.checkpointMs(), actual.checkpointMs(), fixture + " checkpoint");
+        assertEquals(expected.paused(), actual.paused(), fixture + " paused");
     }
 
     private static QueueTrack track(String key) { return new QueueTrack(key, key, "artist", "album", 5_000L); }

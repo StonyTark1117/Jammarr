@@ -3,6 +3,7 @@ package stonytark.jammarr.network;
 import io.netty.buffer.Unpooled;
 import net.minecraft.network.FriendlyByteBuf;
 import org.junit.jupiter.api.Test;
+import stonytark.jammarr.core.protocol.ProtocolGoldenVectors;
 
 import java.util.List;
 
@@ -26,7 +27,7 @@ class JammarrFabricNetworkTest {
                 false, 12, List.of(new JammarrPayloads.StationSeed(
                 JammarrPayloads.ItemKind.TRACK, "42", "Song", "Artist")));
         value.write(buffer);
-        assertEquals("0107000c010002343204536f6e6706417274697374", hex(buffer));
+        assertEquals(ProtocolGoldenVectors.STATION_REQUEST, hex(buffer));
         buffer.readerIndex(0);
         assertEquals(value, JammarrPayloads.StationRequest.read(buffer));
     }
@@ -36,7 +37,7 @@ class JammarrFabricNetworkTest {
         JammarrPayloads.BrowseRequest value = new JammarrPayloads.BrowseRequest(
                 JammarrPayloads.BrowseKind.SEARCH, "A&B", 2);
         value.write(buffer);
-        assertEquals("000341264202", hex(buffer));
+        assertEquals(ProtocolGoldenVectors.BROWSE_REQUEST, hex(buffer));
         buffer.readerIndex(0);
         assertEquals(value, JammarrPayloads.BrowseRequest.read(buffer));
     }

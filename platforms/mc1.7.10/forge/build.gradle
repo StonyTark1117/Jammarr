@@ -56,6 +56,10 @@ sourceSets {
     }
     test {
         java.srcDirs = ['src/test/java', '../../../core/src/test/java']
+        resources {
+            srcDir '../../../test-fixtures'
+            exclude 'java/**'
+        }
     }
 }
 

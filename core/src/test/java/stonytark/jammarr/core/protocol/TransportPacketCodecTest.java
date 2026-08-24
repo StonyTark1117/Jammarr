@@ -14,7 +14,7 @@ class TransportPacketCodecTest {
     @Test void chunkRequestMatchesTheProtocolFiveGoldenVector() {
         TransportPackets.ChunkRequest value = new TransportPackets.ChunkRequest(SESSION, 300, 17, 8);
         byte[] encoded = encode(TransportPackets.CHUNK_REQUEST, value);
-        assertEquals("00112233445566778899aabbccddeeffac021108", hex(encoded));
+        assertEquals(ProtocolGoldenVectors.CHUNK_REQUEST, hex(encoded));
         TransportPackets.ChunkRequest decoded = TransportPackets.CHUNK_REQUEST.decode(new ByteArrayWireInput(encoded));
         assertEquals(SESSION, decoded.sessionId()); assertEquals(300, decoded.requestId());
         assertEquals(17, decoded.startIndex()); assertEquals(8, decoded.count());
@@ -38,6 +38,13 @@ class TransportPacketCodecTest {
 
     @Test void malformedVarIntIsRejected() {
         assertThrows(ProtocolException.class, () -> new ByteArrayWireInput(new byte[]{-128, -128, -128, -128, -128, 0}).readVarInt());
+    }
+
+    @Test void truncatedDeclaredFieldLengthIsRejected() {
+        assertThrows(ProtocolException.class,
+                () -> new ByteArrayWireInput(new byte[] { 5, 'a' }).readUtf(16));
+        assertThrows(ProtocolException.class,
+                () -> new ByteArrayWireInput(new byte[] { 4, 1, 2 }).readByteArray(16));
     }
 
     @Test void audioChunkRoundTripsBinaryData() {

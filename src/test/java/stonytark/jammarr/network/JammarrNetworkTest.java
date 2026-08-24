@@ -5,6 +5,7 @@ import net.minecraft.core.RegistryAccess;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.neoforged.neoforge.network.connection.ConnectionType;
 import org.junit.jupiter.api.Test;
+import stonytark.jammarr.core.protocol.ProtocolGoldenVectors;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.IntStream;
@@ -35,7 +36,7 @@ class JammarrNetworkTest {
         JammarrPayloads.ChunkRequest.CODEC.encode(buffer, new JammarrPayloads.ChunkRequest(
                 UUID.fromString("00112233-4455-6677-8899-aabbccddeeff"), 300, 17, 8));
         byte[] encoded = new byte[buffer.readableBytes()]; buffer.getBytes(0, encoded);
-        assertEquals("00112233445566778899aabbccddeeffac021108", hex(encoded));
+        assertEquals(ProtocolGoldenVectors.CHUNK_REQUEST, hex(encoded));
     }
 
     @Test void neoForgeStationAdapterMatchesTheSharedProtocolFiveGoldenVector() {
@@ -46,7 +47,7 @@ class JammarrNetworkTest {
                         JammarrPayloads.ItemKind.TRACK, "42", "Song", "Artist"))));
         byte[] encoded = new byte[buffer.readableBytes()];
         buffer.getBytes(0, encoded);
-        assertEquals("0107000c010002343204536f6e6706417274697374", hex(encoded));
+        assertEquals(ProtocolGoldenVectors.STATION_REQUEST, hex(encoded));
     }
 
     @Test void neoForgeBrowseAdapterMatchesTheSharedProtocolFiveGoldenVector() {
@@ -55,7 +56,7 @@ class JammarrNetworkTest {
                 new JammarrPayloads.BrowseRequest(JammarrPayloads.BrowseKind.SEARCH, "A&B", 2));
         byte[] encoded = new byte[buffer.readableBytes()];
         buffer.getBytes(0, encoded);
-        assertEquals("000341264202", hex(encoded));
+        assertEquals(ProtocolGoldenVectors.BROWSE_REQUEST, hex(encoded));
     }
 
     @Test void neoForgeStateAdapterMatchesTheSharedProtocolFiveGoldenVector() {
@@ -67,7 +68,7 @@ class JammarrNetworkTest {
                 new JammarrPayloads.AdventurePreview(0, "", List.of(entry)));
         byte[] encoded = new byte[buffer.readableBytes()];
         buffer.getBytes(0, encoded);
-        assertEquals("000001013101540141e8070300", hex(encoded));
+        assertEquals(ProtocolGoldenVectors.ADVENTURE_PREVIEW_WITH_QUEUE_ENTRY, hex(encoded));
     }
 
     @Test void stationStateCodecPreservesCapabilitySourceAndPreview() {

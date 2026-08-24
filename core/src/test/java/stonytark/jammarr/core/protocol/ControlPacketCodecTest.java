@@ -16,7 +16,7 @@ class ControlPacketCodecTest {
                 ControlPackets.StationAction.START_NOW, StationType.SONIC_ADVENTURE, false, 12,
                 Collections.singletonList(new StationSeed(ItemKind.TRACK, "42", "Song", "Artist")));
         byte[] bytes = encode(ControlPackets.STATION_REQUEST, request);
-        assertEquals("0107000c010002343204536f6e6706417274697374", hex(bytes));
+        assertEquals(ProtocolGoldenVectors.STATION_REQUEST, hex(bytes));
         ControlPackets.StationRequest decoded = ControlPackets.STATION_REQUEST.decode(new ByteArrayWireInput(bytes));
         assertEquals(ControlPackets.StationAction.START_NOW, decoded.action());
         assertEquals(StationType.SONIC_ADVENTURE, decoded.stationType());
@@ -26,7 +26,7 @@ class ControlPacketCodecTest {
     @Test void browseRequestMatchesGoldenVector() {
         byte[] bytes = encode(ControlPackets.BROWSE_REQUEST,
                 new ControlPackets.BrowseRequest(ControlPackets.BrowseKind.SEARCH, "A&B", 2));
-        assertEquals("000341264202", hex(bytes));
+        assertEquals(ProtocolGoldenVectors.BROWSE_REQUEST, hex(bytes));
     }
 
     @Test void rejectsInvalidEnumOrdinal() {

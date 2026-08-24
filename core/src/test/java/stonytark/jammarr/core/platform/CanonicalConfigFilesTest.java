@@ -7,6 +7,7 @@ import stonytark.jammarr.core.model.RestartMode;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -83,5 +84,74 @@ class CanonicalConfigFilesTest {
         assertTrue(restored.enabled());
         assertEquals(0.25, restored.volume());
         assertNull(restored.importedFrom());
+    }
+
+    @Test void importsNeoForgeFabricForgeAndLegacyFixturesWithoutChangingThem() throws Exception {
+        Fixture[] fixtures = new Fixture[] {
+                new Fixture("neoforge-server.toml", "https://neo.plex.lan:32400", "neo-token", "Neo Music",
+                        RestartMode.RESUME_POSITION, false, 3, 321, 192, 2_048, true),
+                new Fixture("fabric-server.toml", "http://fabric.plex.lan:32400", "fabric-token", "Fabric Music",
+                        RestartMode.RESUME_POSITION, false, 1, 111, 160, 1_024, true),
+                new Fixture("forge-server.toml", "http://forge.plex.lan:32400", "forge-token", "Forge Music",
+                        RestartMode.RESTART_TRACK, true, 2, 222, 128, 512, false),
+                new Fixture("legacy-server.toml", "http://legacy.plex.lan:32400", "legacy-token", "Legacy Music",
+                        RestartMode.RESTART_TRACK, true, 4, 77, 96, 256, false)
+        };
+        for (Fixture fixture : fixtures) {
+            Path source = temporary.resolve("sources").resolve(fixture.name);
+            Files.createDirectories(source.getParent());
+            java.io.InputStream resource = getClass().getResourceAsStream("/config/" + fixture.name);
+            assertNotNull(resource, fixture.name);
+            try { Files.copy(resource, source, StandardCopyOption.REPLACE_EXISTING); }
+            finally { resource.close(); }
+            byte[] original = Files.readAllBytes(source);
+            Path canonical = temporary.resolve("canonical").resolve(fixture.name)
+                    .resolve("world/serverconfig/jammarr-server.toml");
+
+            CanonicalConfigFiles.ServerConfig actual = CanonicalConfigFiles.loadServer(canonical, source);
+
+            assertEquals(fixture.url, actual.plexUrl(), fixture.name);
+            assertEquals(fixture.token, actual.plexToken(), fixture.name);
+            assertEquals(fixture.library, actual.musicLibrary(), fixture.name);
+            assertEquals(fixture.restartMode, actual.restartMode(), fixture.name);
+            assertEquals(fixture.pauseWhenEmpty, actual.pauseWhenEmpty(), fixture.name);
+            assertEquals(fixture.permission, actual.operatorPermissionLevel(), fixture.name);
+            assertEquals(fixture.queueLimit, actual.queueLimit(), fixture.name);
+            assertEquals(fixture.bitrate, actual.audioBitrateKbps(), fixture.name);
+            assertEquals(fixture.cacheMiB, actual.cacheSizeMiB(), fixture.name);
+            assertEquals(fixture.metadataFallback, actual.stationMetadataFallbackEnabled(), fixture.name);
+            assertArrayEquals(original, Files.readAllBytes(source), fixture.name + " source changed");
+            assertEquals(source, actual.importedFrom(), fixture.name);
+        }
+    }
+
+    private static final class Fixture {
+        private final String name;
+        private final String url;
+        private final String token;
+        private final String library;
+        private final RestartMode restartMode;
+        private final boolean pauseWhenEmpty;
+        private final int permission;
+        private final int queueLimit;
+        private final int bitrate;
+        private final long cacheMiB;
+        private final boolean metadataFallback;
+
+        private Fixture(String name, String url, String token, String library, RestartMode restartMode,
+                        boolean pauseWhenEmpty, int permission, int queueLimit, int bitrate, long cacheMiB,
+                        boolean metadataFallback) {
+            this.name = name;
+            this.url = url;
+            this.token = token;
+            this.library = library;
+            this.restartMode = restartMode;
+            this.pauseWhenEmpty = pauseWhenEmpty;
+            this.permission = permission;
+            this.queueLimit = queueLimit;
+            this.bitrate = bitrate;
+            this.cacheMiB = cacheMiB;
+            this.metadataFallback = metadataFallback;
+        }
     }
 }

@@ -4,6 +4,7 @@ import io.netty.buffer.Unpooled;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import org.junit.jupiter.api.Test;
+import stonytark.jammarr.core.protocol.ProtocolGoldenVectors;
 
 import java.util.List;
 
@@ -28,7 +29,7 @@ class JammarrForgeNetworkTest {
                         JammarrPayloads.ItemKind.TRACK, "42", "Song", "Artist"))));
         byte[] encoded = new byte[buffer.readableBytes()];
         buffer.getBytes(0, encoded);
-        assertEquals("0107000c010002343204536f6e6706417274697374", hex(encoded));
+        assertEquals(ProtocolGoldenVectors.STATION_REQUEST, hex(encoded));
     }
 
     @Test void browseCodecMatchesTheSharedGoldenVector() {
@@ -37,7 +38,7 @@ class JammarrForgeNetworkTest {
                 new JammarrPayloads.BrowseRequest(JammarrPayloads.BrowseKind.SEARCH, "A&B", 2));
         byte[] encoded = new byte[buffer.readableBytes()];
         buffer.getBytes(0, encoded);
-        assertEquals("000341264202", hex(encoded));
+        assertEquals(ProtocolGoldenVectors.BROWSE_REQUEST, hex(encoded));
     }
 
     @Test void malformedOversizedStationListIsRejected() {

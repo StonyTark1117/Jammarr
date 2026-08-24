@@ -1,0 +1,11 @@
+# Fabric-style flat TOML fixture
+plex-url = "http://fabric.plex.lan:32400"
+plex-token = "fabric-token"
+music-library = "Fabric Music"
+restart-mode = "resume-position"
+pause-when-no-players = false
+operator-permission-level = 1
+queue-limit = 111
+audio-bitrate-kbps = 160
+cache-size-mib = 1024
+station-metadata-fallback-enabled = true

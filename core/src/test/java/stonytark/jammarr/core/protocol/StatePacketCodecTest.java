@@ -10,7 +10,7 @@ class StatePacketCodecTest {
         StatePackets.QueueEntry entry = new StatePackets.QueueEntry("1", "T", "A", 1_000,
                 StatePackets.PlaybackOrigin.ADVENTURE, false);
         byte[] bytes = encode(StatePackets.QUEUE_ENTRY, entry);
-        assertEquals("013101540141e8070300", hex(bytes));
+        assertEquals(ProtocolGoldenVectors.QUEUE_ENTRY, hex(bytes));
         StatePackets.QueueEntry decoded = StatePackets.QUEUE_ENTRY.decode(new ByteArrayWireInput(bytes));
         assertEquals(StatePackets.PlaybackOrigin.ADVENTURE, decoded.source());
         assertEquals(1_000, decoded.durationMs());

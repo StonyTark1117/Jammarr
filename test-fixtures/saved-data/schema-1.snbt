@@ -1,0 +1,1 @@
+{schemaVersion:1,queue:[{key:"v1-current",title:"Schema One Current",artist:"Artist One",album:"Album One",duration:1000L},{key:"v1-next",title:"Schema One Next",artist:"Artist Two",album:"Album Two",duration:2000L}],checkpointMs:111L,paused:1b}

@@ -1,0 +1,11 @@
+# Forge 1.7.10 legacy/common fixture
+plexUrl="http://legacy.plex.lan:32400"
+plexToken="legacy-token"
+musicLibrary="Legacy Music"
+restartMode="restart_track"
+pauseWhenNoPlayers=true
+operatorPermissionLevel=4
+queueLimit=77
+audioBitrateKbps=96
+cacheSizeMiB=256
+stationMetadataFallbackEnabled=false

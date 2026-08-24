@@ -5,6 +5,7 @@ import io.netty.buffer.Unpooled;
 import org.junit.jupiter.api.Test;
 import stonytark.jammarr.core.protocol.ControlPackets;
 import stonytark.jammarr.core.protocol.ProtocolException;
+import stonytark.jammarr.core.protocol.ProtocolGoldenVectors;
 import stonytark.jammarr.core.protocol.TransportPackets;
 
 import java.util.UUID;
@@ -25,7 +26,7 @@ class LegacyEnvelopeTest {
         ControlPackets.ClientHello decoded = (ControlPackets.ClientHello) incoming.decode(LegacyPacketTypes.Direction.SERVERBOUND);
 
         assertEquals(LegacyPacketTypes.CLIENT_HELLO.id(), incoming.messageId());
-        assertArrayEquals(new byte[] { 5 }, incoming.payload());
+        assertEquals(ProtocolGoldenVectors.CLIENT_HELLO, hex(incoming.payload()));
         assertEquals(5, decoded.protocolVersion());
         assertEquals(0, buffer.readableBytes());
     }
@@ -44,6 +45,23 @@ class LegacyEnvelopeTest {
         assertEquals(900L, decoded.startMs());
         assertEquals("abcd", decoded.sha256());
         assertArrayEquals(audio, decoded.data());
+    }
+
+    @Test
+    void legacyAdapterConsumesTheSharedBrowseStationAndChunkVectors() {
+        assertEquals(ProtocolGoldenVectors.BROWSE_REQUEST, hex(LegacyEnvelope.encodePayload(
+                LegacyPacketTypes.BROWSE_REQUEST,
+                new ControlPackets.BrowseRequest(ControlPackets.BrowseKind.SEARCH, "A&B", 2))));
+        assertEquals(ProtocolGoldenVectors.STATION_REQUEST, hex(LegacyEnvelope.encodePayload(
+                LegacyPacketTypes.STATION_REQUEST,
+                new ControlPackets.StationRequest(ControlPackets.StationAction.START_NOW,
+                        stonytark.jammarr.core.model.StationModels.StationType.SONIC_ADVENTURE, false, 12,
+                        java.util.Collections.singletonList(new stonytark.jammarr.core.model.StationModels.StationSeed(
+                                stonytark.jammarr.core.model.StationModels.ItemKind.TRACK, "42", "Song", "Artist"))))));
+        assertEquals(ProtocolGoldenVectors.CHUNK_REQUEST, hex(LegacyEnvelope.encodePayload(
+                LegacyPacketTypes.CHUNK_REQUEST,
+                new TransportPackets.ChunkRequest(
+                        UUID.fromString("00112233-4455-6677-8899-aabbccddeeff"), 300, 17, 8))));
     }
 
     @Test
@@ -71,5 +89,11 @@ class LegacyEnvelopeTest {
         cpw.mods.fml.common.network.ByteBufUtils.writeVarInt(oversized, LegacyPacketTypes.AUDIO_CHUNK.id(), 5);
         cpw.mods.fml.common.network.ByteBufUtils.writeVarInt(oversized, LegacyEnvelope.MAX_ENVELOPE_BYTES + 1, 5);
         assertThrows(ProtocolException.class, () -> new LegacyEnvelope().fromBytes(oversized));
+    }
+
+    private static String hex(byte[] value) {
+        StringBuilder result = new StringBuilder(value.length * 2);
+        for (byte item : value) result.append(String.format("%02x", item & 0xff));
+        return result.toString();
     }
 }

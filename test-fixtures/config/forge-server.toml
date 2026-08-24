@@ -1,0 +1,11 @@
+# Forge-style server fixture
+plex_url = "http://forge.plex.lan:32400"
+plex_token = "forge-token"
+music_library = "Forge Music"
+restart_mode = "restart-track"
+pause_when_no_players = true
+operator_permission_level = 2
+queue_limit = 222
+audio_bitrate_kbps = 128
+cache_size_mib = 512
+station_metadata_fallback_enabled = false

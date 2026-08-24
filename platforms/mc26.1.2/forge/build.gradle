@@ -83,6 +83,8 @@ sourceSets {
 }
 
 tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
+sourceSets.test.java.srcDir(file('../../../test-fixtures/java/mc26.1.2'))
+sourceSets.test.resources { srcDir file('../../../test-fixtures'); exclude 'java/**' }
 tasks.withType(Test).configureEach { useJUnitPlatform() }
 
 tasks.named('processResources') {

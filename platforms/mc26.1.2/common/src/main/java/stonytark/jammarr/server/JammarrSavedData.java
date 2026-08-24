@@ -83,7 +83,7 @@ public final class JammarrSavedData extends SavedData {
         this.checkpointMs = Math.max(0, checkpointMs); this.paused = paused; setDirty();
     }
 
-    private CompoundTag saveTag() {
+    CompoundTag saveTag() {
         CompoundTag tag = new CompoundTag();
         tag.putInt("schemaVersion", SCHEMA_VERSION);
         ListTag list = new ListTag(); queue.forEach(track -> list.add(QueueTrackCodec.save(track))); tag.put("queue", list);

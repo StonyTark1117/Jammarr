@@ -65,6 +65,11 @@ neoForge {
 }
 
 sourceSets.main.resources { srcDir 'src/generated/resources' }
+sourceSets.test.java.srcDir('test-fixtures/java/mc1.21')
+sourceSets.test.resources {
+    srcDir 'test-fixtures'
+    exclude 'java/**'
+}
 
 def emptyGameTestInput = layout.projectDirectory.file('gradle/empty-gametest.nbt.b64')
 def emptyGameTestOutput = layout.buildDirectory.dir('generated/gametestResources')
@@ -157,14 +162,14 @@ def verifyFabric1211 = tasks.register('verifyFabric1211', Exec) {
     group = 'verification'
     description = 'Runs the isolated Minecraft 1.21.1 Fabric release gate.'
     workingDir(layout.projectDirectory.dir('platforms/mc1.21.1/fabric'))
-    commandLine('./gradlew', 'verifyRelease', '--no-daemon', '--max-workers=1')
+    commandLine('./gradlew', 'verifyRelease', ':core:test', '--no-daemon', '--max-workers=1')
 }
 
 def verifyForge1211 = tasks.register('verifyForge1211', Exec) {
     group = 'verification'
     description = 'Runs the isolated Minecraft 1.21.1 Forge release gate.'
     workingDir(layout.projectDirectory.dir('platforms/mc1.21.1/forge'))
-    commandLine('./gradlew', 'verifyRelease', '--no-daemon', '--max-workers=1')
+    commandLine('./gradlew', 'verifyRelease', ':core:test', '--no-daemon', '--max-workers=1')
     mustRunAfter(verifyFabric1211)
 }
 
@@ -172,14 +177,14 @@ def verifyFabric1201 = tasks.register('verifyFabric1201', Exec) {
     group = 'verification'
     description = 'Runs the isolated Minecraft 1.20.1 Fabric release gate.'
     workingDir(layout.projectDirectory.dir('platforms/mc1.20.1/fabric'))
-    commandLine('./gradlew', 'verifyRelease', '--no-daemon', '--max-workers=1')
+    commandLine('./gradlew', 'verifyRelease', ':core:test', '--no-daemon', '--max-workers=1')
 }
 
 def verifyForge1201 = tasks.register('verifyForge1201', Exec) {
     group = 'verification'
     description = 'Runs the isolated Minecraft 1.20.1 Forge release gate.'
     workingDir(layout.projectDirectory.dir('platforms/mc1.20.1/forge'))
-    commandLine('./gradlew', 'verifyRelease', '--no-daemon', '--max-workers=1', '--no-configuration-cache')
+    commandLine('./gradlew', 'verifyRelease', ':core:test', '--no-daemon', '--max-workers=1', '--no-configuration-cache')
     mustRunAfter(verifyFabric1201)
 }
 
@@ -187,7 +192,7 @@ def verifyNeoForge1201 = tasks.register('verifyNeoForge1201', Exec) {
     group = 'verification'
     description = 'Runs the isolated Minecraft 1.20.1 transitional NeoForge release gate.'
     workingDir(layout.projectDirectory.dir('platforms/mc1.20.1/neoforge'))
-    commandLine('./gradlew', 'verifyRelease', '--no-daemon', '--max-workers=1', '--no-configuration-cache')
+    commandLine('./gradlew', 'verifyRelease', ':core:test', '--no-daemon', '--max-workers=1', '--no-configuration-cache')
     mustRunAfter(verifyForge1201)
 }
 
@@ -195,14 +200,14 @@ def verifyFabric1202 = tasks.register('verifyFabric1202', Exec) {
     group = 'verification'
     description = 'Runs the isolated Minecraft 1.20.2 Fabric release gate.'
     workingDir(layout.projectDirectory.dir('platforms/mc1.20.2/fabric'))
-    commandLine('./gradlew', 'verifyRelease', '--no-daemon', '--max-workers=1')
+    commandLine('./gradlew', 'verifyRelease', ':core:test', '--no-daemon', '--max-workers=1')
 }
 
 def verifyForge1202 = tasks.register('verifyForge1202', Exec) {
     group = 'verification'
     description = 'Runs the isolated Minecraft 1.20.2 Forge release gate.'
     workingDir(layout.projectDirectory.dir('platforms/mc1.20.2/forge'))
-    commandLine('./gradlew', 'verifyRelease', '--no-daemon', '--max-workers=1', '--no-configuration-cache')
+    commandLine('./gradlew', 'verifyRelease', ':core:test', '--no-daemon', '--max-workers=1', '--no-configuration-cache')
     mustRunAfter(verifyFabric1202)
 }
 
@@ -210,7 +215,7 @@ def verifyNeoForge1202 = tasks.register('verifyNeoForge1202', Exec) {
     group = 'verification'
     description = 'Runs the isolated Minecraft 1.20.2 NeoForge release gate.'
     workingDir(layout.projectDirectory.dir('platforms/mc1.20.2/neoforge'))
-    commandLine('./gradlew', 'verifyRelease', '--no-daemon', '--max-workers=1', '--no-configuration-cache')
+    commandLine('./gradlew', 'verifyRelease', ':core:test', '--no-daemon', '--max-workers=1', '--no-configuration-cache')
     mustRunAfter(verifyForge1202)
 }
 
@@ -223,7 +228,7 @@ def verifyFabric2612 = tasks.register('verifyFabric2612', Exec) {
     workingDir(layout.projectDirectory.dir('platforms/mc26.1.2/fabric'))
     environment 'JAVA_HOME', java26Home
     environment 'PATH', java26Path
-    commandLine('./gradlew', 'verifyRelease', '--no-daemon', '--max-workers=1')
+    commandLine('./gradlew', 'verifyRelease', ':core:test', '--no-daemon', '--max-workers=1')
 }
 
 def verifyForge2612 = tasks.register('verifyForge2612', Exec) {
@@ -232,7 +237,7 @@ def verifyForge2612 = tasks.register('verifyForge2612', Exec) {
     workingDir(layout.projectDirectory.dir('platforms/mc26.1.2/forge'))
     environment 'JAVA_HOME', java26Home
     environment 'PATH', java26Path
-    commandLine('./gradlew', 'verifyRelease', '--no-daemon', '--max-workers=1')
+    commandLine('./gradlew', 'verifyRelease', ':core:test', '--no-daemon', '--max-workers=1')
     mustRunAfter(verifyFabric2612)
 }
 
@@ -242,7 +247,7 @@ def verifyNeoForge2612 = tasks.register('verifyNeoForge2612', Exec) {
     workingDir(layout.projectDirectory.dir('platforms/mc26.1.2/neoforge'))
     environment 'JAVA_HOME', java26Home
     environment 'PATH', java26Path
-    commandLine('./gradlew', 'verifyRelease', '--no-daemon', '--max-workers=1')
+    commandLine('./gradlew', 'verifyRelease', ':core:test', '--no-daemon', '--max-workers=1')
     mustRunAfter(verifyForge2612)
 }
 

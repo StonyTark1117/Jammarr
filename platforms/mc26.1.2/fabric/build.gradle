@@ -35,6 +35,9 @@ dependencies {
     include libs.jlayer
     implementation libs.jump3r
     include libs.jump3r
+    testImplementation platform(libs.junit.bom)
+    testImplementation libs.junit.jupiter
+    testRuntimeOnly libs.junit.launcher
 }
 
 dependencyLocking { lockAllConfigurations() }
@@ -69,6 +72,9 @@ sourceSets {
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
 }
+sourceSets.test.java.srcDir(file('../../../test-fixtures/java/mc26.1.2'))
+sourceSets.test.resources { srcDir file('../../../test-fixtures'); exclude 'java/**' }
+tasks.withType(Test).configureEach { useJUnitPlatform() }
 
 tasks.named('processResources') {
     inputs.property 'version', artifactVersion
