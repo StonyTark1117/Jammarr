@@ -130,8 +130,7 @@ isolate_audio_cache() {
 cleanup_all() {
   cleanup_audio_processes
   if [[ -n "$active_client_pid" ]]; then
-    stop_process_tree "$active_client_pid" TERM
-    wait_for_process_tree_exit "$active_client_pid" 10 || stop_process_tree "$active_client_pid" KILL
+    terminate_client_launch "$active_client_pid" 10 || true
     active_client_pid=""
   fi
   if [[ -n "$active_server_pid" ]]; then
@@ -163,9 +162,7 @@ cleanup_all() {
 cleanup_audio_processes() {
   local pid module
   for pid in "${active_audio_client_pids[@]}"; do
-    stop_process_tree "$pid" TERM
-    wait_for_process_tree_exit "$pid" 10 || stop_process_tree "$pid" KILL
-    wait "$pid" 2>/dev/null || true
+    terminate_client_launch "$pid" 10 || true
   done
   for pid in "${active_audio_recorder_pids[@]}"; do
     kill -TERM "$pid" 2>/dev/null || true
@@ -326,12 +323,7 @@ run_acceptance_client() {
       grep -F "Client disconnected with reason: $rejection" "$client_console" | tail -n 1
     } > "$evidence"
   fi
-  stop_process_tree "$pid" TERM
-  if ! wait_for_process_tree_exit "$pid" 20; then
-    stop_process_tree "$pid" KILL
-    wait_for_process_tree_exit "$pid" 10 || result=1
-  fi
-  wait "$pid" 2>/dev/null || true
+  terminate_client_launch "$pid" 20 || result=1
   active_client_pid=""
   return "$result"
 }
@@ -483,17 +475,13 @@ run_command_client() {
     } > "$evidence"
   fi
 
-  stop_process_tree "$pid" TERM
-  if ! wait_for_process_tree_exit "$pid" 20; then
-    stop_process_tree "$pid" KILL
-    wait_for_process_tree_exit "$pid" 10 || result=1
-  fi
-  wait "$pid" 2>/dev/null || true
+  terminate_client_launch "$pid" 20 || result=1
   active_client_pid=""
   return "$result"
 }
 
 started_audio_client_pid=""
+ready_audio_client_pid=""
 
 start_audio_client() {
   local label=$1
@@ -575,19 +563,64 @@ wait_for_audio_playing() {
   local role=$2
   local pid=$3
   local client_console="$output_root/$label.audio-$role.console.log"
+  local initialized=0
+  local initialization_deadline=$((SECONDS + 180))
   local deadline=$((SECONDS + 600))
   while ! grep -Fq 'Acceptance audio state: PLAYING' "$client_console" 2>/dev/null; do
+    if grep -Fq 'Acceptance audio state:' "$client_console" 2>/dev/null; then initialized=1; fi
     if grep -Eq 'Acceptance audio state: ERROR|Failed to open OpenAL device|Error starting SoundSystem|NoClassDefFoundError: (javazoom|de/sciss)' \
         "$client_console" 2>/dev/null; then
       echo "$label: $role client failed before playback; see $client_console" >&2
+      return 2
+    fi
+    if ! group_alive "$pid"; then
+      echo "$label: $role client did not reach real Jammarr PLAYING state; see $client_console" >&2
+      (( initialized == 0 )) && return 1 || return 2
+    fi
+    if (( initialized == 0 && SECONDS >= initialization_deadline )); then
+      echo "$label: $role client did not initialize Jammarr within 180 seconds; see $client_console" >&2
       return 1
     fi
-    if ! group_alive "$pid" || (( SECONDS >= deadline )); then
-      echo "$label: $role client did not reach real Jammarr PLAYING state; see $client_console" >&2
-      return 1
+    if (( SECONDS >= deadline )); then
+      echo "$label: $role client initialized but did not reach real Jammarr PLAYING state; see $client_console" >&2
+      return 2
     fi
     sleep 1
   done
+}
+
+launch_audio_client() {
+  local label=$1
+  local target_dir=$2
+  local java_home=$3
+  local port=$4
+  local role=$5
+  local username=$6
+  local sink=$7
+  local attempt pid status existing
+  local -a remaining=()
+
+  ready_audio_client_pid=""
+  for attempt in 1 2; do
+    start_audio_client "$label" "$target_dir" "$java_home" "$port" "$role" "$username" "$sink"
+    pid=$started_audio_client_pid
+    wait_for_audio_playing "$label" "$role" "$pid"
+    status=$?
+    if (( status == 0 )); then
+      ready_audio_client_pid=$pid
+      return 0
+    fi
+    if (( status != 1 || attempt == 2 )); then return 1; fi
+
+    echo "$label: retrying $role client once after a pre-Jammarr initialization stall" >&2
+    terminate_client_launch "$pid" 20 || return 1
+    remaining=()
+    for existing in "${active_audio_client_pids[@]}"; do
+      if [[ "$existing" != "$pid" ]]; then remaining+=("$existing"); fi
+    done
+    active_audio_client_pids=("${remaining[@]}")
+  done
+  return 1
 }
 
 audio_capture_is_audible() {
@@ -608,12 +641,15 @@ audio_capture_is_audible() {
 audio_capture_is_silent() {
   local raw=$1
   local metrics=$2
-  local mean
-  ffmpeg -hide_banner -loglevel info -f s16le -ar 48000 -ac 2 -i "$raw" \
-    -af 'highpass=f=970,lowpass=f=1025,volumedetect' -f null - \
+  local samples
+  # Ignore the recorder's bounded startup tail and isolate the synthetic Plex
+  # program tone. Require a sustained tone before declaring a leak so bounded
+  # transition tails and ordinary broadband game sounds cannot masquerade as playback.
+  ffmpeg -hide_banner -loglevel info -ss 1 -f s16le -ar 48000 -ac 2 -i "$raw" \
+    -af 'bandpass=f=1000:w=10,silenceremove=start_periods=1:start_duration=1.5:start_threshold=-50dB,volumedetect' -f null - \
     > /dev/null 2> "$metrics" || return 1
-  mean=$(sed -n 's/.*mean_volume: \([^ ]*\) dB.*/\1/p' "$metrics" | tail -n 1)
-  [[ "$mean" == "-inf" ]] || awk -v value="$mean" 'BEGIN { exit !(value < -65.0) }'
+  samples=$(sed -n 's/.*n_samples: \([0-9][0-9]*\).*/\1/p' "$metrics" | tail -n 1)
+  [[ "$samples" == "0" ]]
 }
 
 audio_capture_is_attenuated() {
@@ -923,16 +959,10 @@ run_audio_control_scenarios() {
   printf 'Consecutive failures reached final ERROR; manual retry restored audible playback.\n' \
     >> "$scenario_evidence"
 
-  stop_process_tree "$follower_pid" TERM
-  if ! wait_for_process_tree_exit "$follower_pid" 20; then
-    stop_process_tree "$follower_pid" KILL
-    wait_for_process_tree_exit "$follower_pid" 10 || result=1
-  fi
-  wait "$follower_pid" 2>/dev/null || true
+  terminate_client_launch "$follower_pid" 20 || result=1
   active_audio_client_pids=("$leader_pid")
-  start_audio_client "$label" "$target_dir" "$java_home" "$port" follower JammarrAudioB "$sink_follower"
-  follower_pid=$started_audio_client_pid
-  if ! wait_for_audio_playing "$label" follower "$follower_pid"; then return 1; fi
+  if ! launch_audio_client "$label" "$target_dir" "$java_home" "$port" follower JammarrAudioB "$sink_follower"; then return 1; fi
+  follower_pid=$ready_audio_client_pid
   sleep 1
   capture_audio_sink "$sink_follower" "$raw" 4
   if ! audio_capture_is_audible "$raw" "$metrics"; then
@@ -979,13 +1009,17 @@ run_two_client_audio() {
     > "$raw_follower" &
   recorder_pid=$!; active_audio_recorder_pids+=("$recorder_pid")
 
-  start_audio_client "$label" "$target_dir" "$java_home" "$port" leader JammarrAudioA "$sink_leader"
-  leader_pid=$started_audio_client_pid
-  if ! wait_for_audio_playing "$label" leader "$leader_pid"; then result=1; fi
+  if launch_audio_client "$label" "$target_dir" "$java_home" "$port" leader JammarrAudioA "$sink_leader"; then
+    leader_pid=$ready_audio_client_pid
+  else
+    result=1
+  fi
   if (( result == 0 )); then
-    start_audio_client "$label" "$target_dir" "$java_home" "$port" follower JammarrAudioB "$sink_follower"
-    follower_pid=$started_audio_client_pid
-    if ! wait_for_audio_playing "$label" follower "$follower_pid"; then result=1; fi
+    if launch_audio_client "$label" "$target_dir" "$java_home" "$port" follower JammarrAudioB "$sink_follower"; then
+      follower_pid=$ready_audio_client_pid
+    else
+      result=1
+    fi
   fi
   if (( result == 0 )); then sleep 5; fi
 
@@ -1125,6 +1159,42 @@ wait_for_process_tree_exit() {
     if (( SECONDS >= deadline )); then return 1; fi
     sleep 1
   done
+}
+
+terminate_client_launch() {
+  local root=$1
+  local seconds=$2
+  local pid group deadline live result=0
+  local -a pids=() groups=()
+  mapfile -t pids < <({ printf '%s\n' "$root"; process_tree_pids "$root"; } | sort -un)
+  for pid in "${pids[@]}"; do
+    group=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
+    if [[ -n "$group" ]]; then groups+=("$group"); fi
+  done
+  mapfile -t groups < <(printf '%s\n' "${groups[@]}" | sed '/^$/d' | sort -unr)
+
+  for group in "${groups[@]}"; do stop_group "$group" TERM; done
+  deadline=$((SECONDS + seconds))
+  while true; do
+    live=0
+    for group in "${groups[@]}"; do group_alive "$group" && live=1; done
+    if (( live == 0 )); then break; fi
+    if (( SECONDS >= deadline )); then result=1; break; fi
+    sleep 1
+  done
+  if (( result != 0 )); then
+    for group in "${groups[@]}"; do stop_group "$group" KILL; done
+    deadline=$((SECONDS + 10))
+    while true; do
+      live=0
+      for group in "${groups[@]}"; do group_alive "$group" && live=1; done
+      if (( live == 0 )); then result=0; break; fi
+      if (( SECONDS >= deadline )); then break; fi
+      sleep 1
+    done
+  fi
+  wait "$root" 2>/dev/null || true
+  return "$result"
 }
 
 ensure_runtime_files() {

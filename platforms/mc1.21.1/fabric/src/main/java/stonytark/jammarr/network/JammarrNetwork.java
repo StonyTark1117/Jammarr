@@ -6,6 +6,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import stonytark.jammarr.Jammarr;
 import stonytark.jammarr.core.protocol.ProtocolLimits;
 import stonytark.jammarr.core.protocol.JammarrMessage;
 import stonytark.jammarr.server.JammarrServer;
@@ -59,8 +60,9 @@ public final class JammarrNetwork {
 
         ServerPlayNetworking.registerGlobalReceiver(JammarrPayloads.ClientHello.TYPE, (payload, context) -> {
             if (!protocolMatches(payload.protocolVersion())) {
-                context.player().connection.disconnect(Component.literal(
-                        "Jammarr protocol mismatch: server requires version " + PROTOCOL));
+                String reason = "Jammarr protocol mismatch: server requires version " + PROTOCOL;
+                Jammarr.LOGGER.warn("Disconnecting {}: {}", context.player().getGameProfile().getName(), reason);
+                context.player().connection.disconnect(Component.literal(reason));
             } else JammarrServer.instance().hello(context.player());
         });
         ServerPlayNetworking.registerGlobalReceiver(JammarrPayloads.TimeSyncRequest.TYPE, (p, c) -> {

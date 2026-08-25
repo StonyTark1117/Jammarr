@@ -61,6 +61,124 @@ def class_major(data: bytes, label: str) -> int:
     return struct.unpack(">H", data[6:8])[0]
 
 
+def class_contract(data: bytes, label: str) -> tuple[set[tuple[str, str]], tuple[str, ...]]:
+    """Returns declared method signatures and directly implemented interfaces."""
+    class_major(data, label)
+    offset = 8
+
+    def take(size: int) -> bytes:
+        nonlocal offset
+        end = offset + size
+        if end > len(data):
+            fail(f"{label} has a truncated class structure")
+        value = data[offset:end]
+        offset = end
+        return value
+
+    def u1() -> int:
+        return take(1)[0]
+
+    def u2() -> int:
+        return struct.unpack(">H", take(2))[0]
+
+    def u4() -> int:
+        return struct.unpack(">I", take(4))[0]
+
+    constant_count = u2()
+    constants: list[object | None] = [None] * constant_count
+    index = 1
+    while index < constant_count:
+        tag = u1()
+        if tag == 1:
+            length = u2()
+            constants[index] = take(length).decode("utf-8", "strict")
+        elif tag in (3, 4):
+            take(4)
+        elif tag in (5, 6):
+            take(8)
+            index += 1
+        elif tag in (7, 8, 16, 19, 20):
+            constants[index] = (tag, u2())
+        elif tag in (9, 10, 11, 12, 17, 18):
+            take(4)
+        elif tag == 15:
+            take(3)
+        else:
+            fail(f"{label} has unknown constant-pool tag {tag}")
+        index += 1
+
+    def utf8(constant_index: int) -> str:
+        value = constants[constant_index] if 0 < constant_index < len(constants) else None
+        if not isinstance(value, str):
+            fail(f"{label} has an invalid UTF-8 constant reference")
+        return value
+
+    def class_name(constant_index: int) -> str:
+        value = constants[constant_index] if 0 < constant_index < len(constants) else None
+        if not isinstance(value, tuple) or value[0] != 7:
+            fail(f"{label} has an invalid class constant reference")
+        return utf8(value[1])
+
+    take(2)  # access_flags
+    take(2)  # this_class
+    take(2)  # super_class
+    interfaces = tuple(class_name(u2()) for _ in range(u2()))
+
+    def skip_attributes() -> None:
+        for _ in range(u2()):
+            take(2)
+            take(u4())
+
+    for _ in range(u2()):
+        take(2)  # access_flags
+        take(2)  # name_index
+        take(2)  # descriptor_index
+        skip_attributes()
+
+    methods: set[tuple[str, str]] = set()
+    for _ in range(u2()):
+        take(2)  # access_flags
+        name = utf8(u2())
+        descriptor = utf8(u2())
+        methods.add((name, descriptor))
+        skip_attributes()
+    return methods, interfaces
+
+
+def verify_direct_interface(archive: zipfile.ZipFile, interface_name: str,
+                            implementation_name: str, filename: str) -> None:
+    """Ensures a reobfuscated adapter still declares every shared-interface method."""
+    implementation_entry = implementation_name + ".class"
+    try:
+        implementation_data = archive.read(implementation_entry)
+    except KeyError:
+        fail(f"{filename} is missing mapped adapter {implementation_entry}")
+    implementation_methods, _ = class_contract(
+        implementation_data, f"{filename}:{implementation_entry}")
+
+    interface_methods: set[tuple[str, str]] = set()
+    pending = [interface_name]
+    visited: set[str] = set()
+    while pending:
+        current = pending.pop()
+        if current in visited:
+            continue
+        visited.add(current)
+        entry = current + ".class"
+        try:
+            interface_data = archive.read(entry)
+        except KeyError:
+            fail(f"{filename} is missing shared interface {entry}")
+        methods, parents = class_contract(interface_data, f"{filename}:{entry}")
+        interface_methods.update(methods)
+        pending.extend(parents)
+    required = {signature for signature in interface_methods if not signature[0].startswith("<")}
+    missing = required - implementation_methods
+    if missing:
+        rendered = ", ".join(name + descriptor for name, descriptor in sorted(missing))
+        fail(f"{filename}:{implementation_entry} loses shared-interface methods after reobfuscation: {rendered}")
+
+
 def safe_entries(archive: zipfile.ZipFile, filename: str) -> set[str]:
     names = [entry.filename for entry in archive.infolist()]
     if len(names) != len(set(names)):
@@ -209,6 +327,23 @@ def verify_jar(path: Path, minecraft: str, loader: str, java: int, expected_majo
                     major = class_major(archive.read(name), f"{filename}:{name}")
                     if major != 52:
                         fail(f"{filename}:{name} is class major {major}, expected Java 8 major 52")
+            # The shared core is compiled against stable names while Forge 1.7.10
+            # reobfuscates Minecraft methods in adapters. Require each adapter to
+            # declare its full shared contract so an inherited MCP-named method
+            # cannot disappear from the production linkage (as markDirty once did).
+            for interface_name, implementation_name in (
+                ("stonytark/jammarr/core/server/PlaybackStore",
+                 "stonytark/jammarr/server/LegacySavedData"),
+                ("stonytark/jammarr/core/server/CoordinatorRuntime",
+                 "stonytark/jammarr/server/LegacyGlobalPlayer$1"),
+                ("stonytark/jammarr/core/platform/CoreLogger",
+                 "stonytark/jammarr/server/LegacyGlobalPlayer$1$1"),
+                ("stonytark/jammarr/core/server/PlexGateway",
+                 "stonytark/jammarr/core/server/PlexService"),
+                ("stonytark/jammarr/core/network/HttpTransport",
+                 "stonytark/jammarr/core/network/UrlConnectionHttpTransport"),
+            ):
+                verify_direct_interface(archive, interface_name, implementation_name, filename)
         else:
             if "jammarr.mixins.json" not in names:
                 fail(f"{filename} is missing Mixin metadata")

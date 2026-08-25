@@ -206,6 +206,6 @@ public final class GlobalPlayer implements AutoCloseable {
         @Override public void remember(QueueTrack track) { delegate.remember(track); }
         @Override public void update(long checkpointMs, boolean paused) { delegate.update(checkpointMs, paused); }
         @Override public void clearAll() { delegate.clearAll(); }
-        @Override public void markDirty() { delegate.setDirty(); }
+        @Override public void markChanged() { delegate.setDirty(); }
     }
 }

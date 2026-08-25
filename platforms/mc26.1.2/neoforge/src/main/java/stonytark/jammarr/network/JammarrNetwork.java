@@ -1,12 +1,14 @@
 package stonytark.jammarr.network;
 
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.common.ClientboundDisconnectPacket;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.client.network.ClientPacketDistributor;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
+import stonytark.jammarr.Jammarr;
 import stonytark.jammarr.server.JammarrServer;
 import stonytark.jammarr.core.protocol.ProtocolLimits;
 import stonytark.jammarr.core.protocol.JammarrMessage;
@@ -36,7 +38,12 @@ public final class JammarrNetwork {
         registrar.playToClient(JammarrPayloads.ErrorMessage.TYPE, JammarrPayloads.ErrorMessage.CODEC, JammarrNetwork::client);
         registrar.playToServer(JammarrPayloads.ClientHello.TYPE, JammarrPayloads.ClientHello.CODEC, (payload, context) -> {
             if (!protocolMatches(payload.protocolVersion())) {
-                context.disconnect(Component.literal("Jammarr protocol mismatch: server requires version " + PROTOCOL));
+                ServerPlayer player = (ServerPlayer)context.player();
+                String reason = "Jammarr protocol mismatch: server requires version " + PROTOCOL;
+                Jammarr.LOGGER.warn("Disconnecting {}: {}", player.getGameProfile().name(), reason);
+                // Immediate context.disconnect() can close before its terminal
+                // packet is delivered. The client closes itself on receipt.
+                player.connection.send(new ClientboundDisconnectPacket(Component.literal(reason)));
             } else {
                 context.enqueueWork(() -> JammarrServer.instance().hello((ServerPlayer)context.player()));
             }

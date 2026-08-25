@@ -5,9 +5,11 @@ import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.common.ClientboundDisconnectPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import stonytark.jammarr.Jammarr;
 import stonytark.jammarr.core.protocol.JammarrMessage;
 import stonytark.jammarr.core.protocol.ProtocolLimits;
 import stonytark.jammarr.server.JammarrServer;
@@ -44,7 +46,12 @@ public final class JammarrNetwork {
     public static void register() {
         receive(JammarrPayloads.ClientHello.ID, JammarrPayloads.ClientHello::read, (player, payload) -> {
             if (!protocolMatches(payload.protocolVersion())) {
-                player.connection.disconnect(Component.literal("Jammarr protocol mismatch: server requires version " + PROTOCOL));
+                String message = "Jammarr protocol mismatch: server requires version " + PROTOCOL;
+                Component reason = Component.literal(message);
+                Jammarr.LOGGER.warn("Disconnecting {}: {}", player.getGameProfile().getName(), message);
+                // An immediate disconnect can close before the terminal packet is
+                // delivered, leaving this client version with only "Disconnected".
+                player.connection.send(new ClientboundDisconnectPacket(reason));
             } else JammarrServer.instance().hello(player);
         });
         receive(JammarrPayloads.TimeSyncRequest.ID, JammarrPayloads.TimeSyncRequest::read, (player, payload) -> {

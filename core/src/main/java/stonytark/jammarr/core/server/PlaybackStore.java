@@ -23,5 +23,6 @@ public interface PlaybackStore {
     void remember(QueueTrack track);
     void update(long checkpointMs, boolean paused);
     void clearAll();
-    void markDirty();
+    /** Marks platform persistence dirty without exposing a remapped Minecraft method name. */
+    void markChanged();
 }

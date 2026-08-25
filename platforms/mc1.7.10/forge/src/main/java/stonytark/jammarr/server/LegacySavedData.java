@@ -58,6 +58,12 @@ public final class LegacySavedData extends WorldSavedData implements PlaybackSto
     public long checkpointMs() { return checkpointMs; }
     public boolean paused() { return paused; }
 
+    /**
+     * PlaybackStore deliberately avoids WorldSavedData.markDirty's MCP name:
+     * that inherited method is reobfuscated in the production 1.7.10 JAR.
+     */
+    @Override public void markChanged() { super.markDirty(); }
+
     public void current(QueueTrack track, StatePackets.PlaybackOrigin origin, String sourceName) {
         current = track;
         currentOrigin = track == null || origin == null ? StatePackets.PlaybackOrigin.NONE : origin;

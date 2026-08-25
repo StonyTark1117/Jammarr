@@ -236,7 +236,7 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
                     sendError(player, StatePackets.ErrorCode.QUEUE_FULL, "The global manual queue is full");
                     return;
                 }
-                saved.markDirty();
+                saved.markChanged();
                 prefetched = null;
                 chat(player, "Queued " + append.accepted() + (append.accepted() == 1 ? " track" : " tracks"));
                 broadcastState("Queued " + append.accepted() + (append.accepted() == 1 ? " track" : " tracks"));
@@ -270,7 +270,7 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
                             "Only pending manual requests can be removed");
                     return;
                 }
-                saved.queue().remove(pendingIndex); saved.markDirty(); prefetched = null; prefetchNext();
+                saved.queue().remove(pendingIndex); saved.markChanged(); prefetched = null; prefetchNext();
                 break;
             case MOVE_UP: movePending(request.index(), -1); break;
             case MOVE_DOWN: movePending(request.index(), 1); break;
@@ -670,7 +670,7 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
         int index = pendingIndex(visibleIndex), target = index + delta;
         if (index < 0 || target < 0 || index >= saved.queue().size() || target >= saved.queue().size()) return;
         QueueTrack value = saved.queue().remove(index); saved.queue().add(target, value);
-        saved.markDirty(); prefetched = null; prefetchNext();
+        saved.markChanged(); prefetched = null; prefetchNext();
     }
 
     private int pendingIndex(int visibleIndex) { return visibleIndex - (saved.current() == null ? 0 : 1); }

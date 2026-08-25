@@ -195,6 +195,18 @@ tasks.register('verifyRelease') {
             if (metadata.toLowerCase(Locale.ROOT).contains('pampmod')) {
                 throw new GradleException('Legacy metadata contains the retired PAmpMod identifier')
             }
+            byte[] playbackStore = zip.getInputStream(zip.getEntry(
+                    'stonytark/jammarr/core/server/PlaybackStore.class')).bytes
+            byte[] legacySavedData = zip.getInputStream(zip.getEntry(
+                    'stonytark/jammarr/server/LegacySavedData.class')).bytes
+            String storeConstants = new String(playbackStore, java.nio.charset.StandardCharsets.ISO_8859_1)
+            String adapterConstants = new String(legacySavedData, java.nio.charset.StandardCharsets.ISO_8859_1)
+            if (!storeConstants.contains('markChanged') || !adapterConstants.contains('markChanged')) {
+                throw new GradleException('Legacy playback persistence is missing its explicit reobfuscation-safe bridge')
+            }
+            if (storeConstants.contains('markDirty')) {
+                throw new GradleException('Legacy shared playback contract must not reference the MCP-mapped markDirty name')
+            }
         }
     }
 }

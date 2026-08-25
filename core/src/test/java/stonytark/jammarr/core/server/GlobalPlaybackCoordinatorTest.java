@@ -139,18 +139,18 @@ class GlobalPlaybackCoordinatorTest {
         @Override public boolean paused() { return paused; }
         @Override public void current(QueueTrack track, StatePackets.PlaybackOrigin value, String name) {
             current = track; origin = track == null ? StatePackets.PlaybackOrigin.NONE : value;
-            source = track == null ? "" : name; markDirty();
+            source = track == null ? "" : name; markChanged();
         }
-        @Override public void station(StationModels.StationDefinition value) { station = value; markDirty(); }
-        @Override public void autoplayEnabled(boolean enabled) { autoplay = enabled; markDirty(); }
-        @Override public void remember(QueueTrack track) { if (track != null) history.add(track); markDirty(); }
-        @Override public void update(long value, boolean isPaused) { checkpoint = value; paused = isPaused; markDirty(); }
+        @Override public void station(StationModels.StationDefinition value) { station = value; markChanged(); }
+        @Override public void autoplayEnabled(boolean enabled) { autoplay = enabled; markChanged(); }
+        @Override public void remember(QueueTrack track) { if (track != null) history.add(track); markChanged(); }
+        @Override public void update(long value, boolean isPaused) { checkpoint = value; paused = isPaused; markChanged(); }
         @Override public void clearAll() {
             queue.clear(); history.clear(); current = null; origin = StatePackets.PlaybackOrigin.NONE;
             source = ""; station = StationModels.StationDefinition.none(station.generation() + 1L);
-            autoplay = false; checkpoint = 0L; paused = false; markDirty();
+            autoplay = false; checkpoint = 0L; paused = false; markChanged();
         }
-        @Override public void markDirty() { dirtyCount++; }
+        @Override public void markChanged() { dirtyCount++; }
     }
 
     private static final class FakePlex implements PlexGateway {
