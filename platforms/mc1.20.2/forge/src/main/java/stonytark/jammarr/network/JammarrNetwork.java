@@ -2,6 +2,7 @@ package stonytark.jammarr.network;
 
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.common.ClientboundDisconnectPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.event.network.CustomPayloadEvent;
@@ -46,7 +47,10 @@ public final class JammarrNetwork {
                     if (!protocolMatches(payload.protocolVersion())) {
                         String reason = "Jammarr protocol mismatch: server requires version " + PROTOCOL;
                         Jammarr.LOGGER.warn("Disconnecting {}: {}", player.getGameProfile().getName(), reason);
-                        player.connection.disconnect(Component.literal(reason));
+                        // Forge 48 can close the connection before disconnect() flushes its
+                        // terminal packet, reducing the client-facing reason to "Disconnected".
+                        // Send the terminal packet explicitly; the client closes on receipt.
+                        player.connection.send(new ClientboundDisconnectPacket(Component.literal(reason)));
                     } else JammarrServer.instance().hello(player);
                 });
         server(id++, JammarrPayloads.TimeSyncRequest.class, JammarrPayloads.TimeSyncRequest::write, JammarrPayloads.TimeSyncRequest::read,
