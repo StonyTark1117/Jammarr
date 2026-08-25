@@ -16,6 +16,7 @@ def main() -> None:
     parser.add_argument("--request-log", required=True)
     parser.add_argument("--token", required=True)
     parser.add_argument("--audio-file")
+    parser.add_argument("--track-duration-ms", type=int, default=120000)
     parser.add_argument("--state-file")
     args = parser.parse_args()
 
@@ -29,7 +30,7 @@ def main() -> None:
             "title": f"Gate Track {key}",
             "grandparentTitle": f"Gate Artist {key % 3 + 1}",
             "parentTitle": f"Gate Album {key % 2 + 1}",
-            "duration": 120000, "musicAnalysisVersion": 1,
+            "duration": args.track_duration_ms, "musicAnalysisVersion": 1,
         }
         for key in range(42, 50)
     ]

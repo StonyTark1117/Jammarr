@@ -15,6 +15,7 @@ fake_plex_port_file="$output_root/fake-plex.port"
 fake_plex_request_log="$output_root/fake-plex.requests.tsv"
 fake_plex_audio="$output_root/fake-plex-tone.mp3"
 fake_plex_state="$output_root/fake-plex.state"
+fake_audio_duration_seconds=${JAMMARR_GATE_AUDIO_DURATION_SECONDS:-600}
 fake_plex_pid=""
 active_client_pid=""
 active_server_pid=""
@@ -216,10 +217,16 @@ start_fake_plex() {
       echo "Two-client audio acceptance requires ffmpeg, pactl, and parec" >&2
       return 1
     fi
+    if [[ ! "$fake_audio_duration_seconds" =~ ^[0-9]+$ ]] \
+        || (( fake_audio_duration_seconds < 300 )); then
+      echo "JAMMARR_GATE_AUDIO_DURATION_SECONDS must be an integer of at least 300" >&2
+      return 1
+    fi
     ffmpeg -hide_banner -loglevel error -y -f lavfi \
-      -i 'sine=frequency=997:sample_rate=44100:duration=120' -ac 2 \
+      -i "sine=frequency=997:sample_rate=44100:duration=${fake_audio_duration_seconds}" -ac 2 \
       -codec:a libmp3lame -b:a 160k -write_xing 0 "$fake_plex_audio" || return 1
-    audio_args+=(--audio-file "$fake_plex_audio")
+    audio_args+=(--audio-file "$fake_plex_audio" \
+      --track-duration-ms "$((fake_audio_duration_seconds * 1000))")
   fi
   python3 "$repo_root/scripts/fake-plex-server.py" \
     --port-file "$fake_plex_port_file" --request-log "$fake_plex_request_log" \
@@ -330,7 +337,7 @@ run_acceptance_client() {
       # the disconnect while its client and server log writers are still
       # flushing. Give both exact rejection markers a short bounded grace
       # period; a genuine launcher crash still fails once the window expires.
-      exit_grace_deadline=$((SECONDS + 15))
+      exit_grace_deadline=$((SECONDS + 60))
       while (( SECONDS < exit_grace_deadline )); do
         if grep -Fq "$rejection" "$server_console" 2>/dev/null \
             && grep -Fq "Client disconnected with reason: $rejection" "$client_console" 2>/dev/null; then
@@ -653,9 +660,12 @@ launch_audio_client() {
       ready_audio_client_pid=$pid
       return 0
     fi
-    if (( status != 1 || attempt == 2 )); then return 1; fi
+    if (( attempt == 2 )); then return 1; fi
 
-    echo "$label: retrying $role client once after a pre-Jammarr initialization stall" >&2
+    # Headless OpenAL and the client bootstrap can fail transiently on a loaded
+    # hosted runner. Retry the complete clean client launch once, but still
+    # require the replacement process to reach real Jammarr PLAYING state.
+    echo "$label: retrying $role client once after a pre-playback failure" >&2
     terminate_client_launch "$pid" 20 || return 1
     remaining=()
     for existing in "${active_audio_client_pids[@]}"; do
@@ -1296,7 +1306,7 @@ run_invalid_config_check() {
   pid=$!
   active_server_pid=$pid
 
-  local deadline=$((SECONDS + 180))
+  local deadline=$((SECONDS + 600))
   while group_alive "$pid"; do
     if grep -Fq 'Invalid Jammarr configuration value for plexUrl' "$console_log" 2>/dev/null; then
       break

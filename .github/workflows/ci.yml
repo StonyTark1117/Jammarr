@@ -34,3 +34,15 @@ jobs:
         env:
           JAMMARR_ALSA_PCM_TYPE: pulse
         run: ./gradlew releaseMatrixGate --no-daemon --max-workers=1
+      - name: Upload dedicated-server diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: dedicated-server-gate-${{ github.sha }}
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            build/dedicated-server-gate/**/*.log
+            build/dedicated-server-gate/**/*.txt
+            build/dedicated-server-gate/**/*.json
+            build/dedicated-server-gate/**/*.tsv
