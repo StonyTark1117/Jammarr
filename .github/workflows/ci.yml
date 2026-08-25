@@ -3,14 +3,117 @@ name: Jammarr CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  verify:
+  artifact:
+    strategy:
+      fail-fast: false
+      max-parallel: 16
+      matrix:
+        include:
+          - name: 1.7.10-forge
+            task: verifyLegacy1710
+            artifact: platforms/mc1.7.10/forge/build/libs/jammarr-1.0.0+mc1.7.10-forge.jar
+            runtime: 1.7.10-forge
+            quilt: ''
+            game-tests: false
+          - name: 1.20.1-fabric
+            task: verifyFabric1201
+            artifact: platforms/mc1.20.1/fabric/build/libs/jammarr-1.0.0+mc1.20.1-fabric.jar
+            runtime: 1.20.1-fabric
+            quilt: 1.20.1-quilt
+            game-tests: false
+          - name: 1.20.1-forge
+            task: verifyForge1201
+            artifact: platforms/mc1.20.1/forge/build/libs/jammarr-1.0.0+mc1.20.1-forge.jar
+            runtime: 1.20.1-forge
+            quilt: ''
+            game-tests: false
+          - name: 1.20.1-neoforge
+            task: verifyNeoForge1201
+            artifact: platforms/mc1.20.1/neoforge/build/libs/jammarr-1.0.0+mc1.20.1-neoforge.jar
+            runtime: 1.20.1-neoforge
+            quilt: ''
+            game-tests: false
+          - name: 1.20.2-fabric
+            task: verifyFabric1202
+            artifact: platforms/mc1.20.2/fabric/build/libs/jammarr-1.0.0+mc1.20.2-fabric.jar
+            runtime: 1.20.2-fabric
+            quilt: 1.20.2-quilt
+            game-tests: false
+          - name: 1.20.2-forge
+            task: verifyForge1202
+            artifact: platforms/mc1.20.2/forge/build/libs/jammarr-1.0.0+mc1.20.2-forge.jar
+            runtime: 1.20.2-forge
+            quilt: ''
+            game-tests: false
+          - name: 1.20.2-neoforge
+            task: verifyNeoForge1202
+            artifact: platforms/mc1.20.2/neoforge/build/libs/jammarr-1.0.0+mc1.20.2-neoforge.jar
+            runtime: 1.20.2-neoforge
+            quilt: ''
+            game-tests: false
+          - name: 1.21.1-fabric
+            task: verifyFabric1211
+            artifact: platforms/mc1.21.1/fabric/build/libs/jammarr-1.0.0+mc1.21.1-fabric.jar
+            runtime: 1.21.1-fabric
+            quilt: 1.21.1-quilt
+            game-tests: false
+          - name: 1.21.1-forge
+            task: verifyForge1211
+            artifact: platforms/mc1.21.1/forge/build/libs/jammarr-1.0.0+mc1.21.1-forge.jar
+            runtime: 1.21.1-forge
+            quilt: ''
+            game-tests: false
+          - name: 1.21.1-neoforge
+            task: verifyRelease
+            artifact: build/libs/jammarr-1.0.0+mc1.21.1-neoforge.jar
+            runtime: 1.21.1-neoforge
+            quilt: ''
+            game-tests: true
+          - name: 26.1.2-fabric
+            task: verifyFabric2612
+            artifact: platforms/mc26.1.2/fabric/build/libs/jammarr-1.0.0+mc26.1.2-fabric.jar
+            runtime: 26.1.2-fabric
+            quilt: 26.1.2-quilt
+            game-tests: false
+          - name: 26.1.2-forge
+            task: verifyForge2612
+            artifact: platforms/mc26.1.2/forge/build/libs/jammarr-1.0.0+mc26.1.2-forge.jar
+            runtime: 26.1.2-forge
+            quilt: ''
+            game-tests: false
+          - name: 26.1.2-neoforge
+            task: verifyNeoForge2612
+            artifact: platforms/mc26.1.2/neoforge/build/libs/jammarr-1.0.0+mc26.1.2-neoforge.jar
+            runtime: 26.1.2-neoforge
+            quilt: ''
+            game-tests: false
+          - name: 26.2-fabric
+            task: verifyFabric262
+            artifact: platforms/mc26.2/fabric/build/libs/jammarr-1.0.0+mc26.2-fabric.jar
+            runtime: 26.2-fabric
+            quilt: 26.2-quilt
+            game-tests: false
+          - name: 26.2-forge
+            task: verifyForge262
+            artifact: platforms/mc26.2/forge/build/libs/jammarr-1.0.0+mc26.2-forge.jar
+            runtime: 26.2-forge
+            quilt: ''
+            game-tests: false
+          - name: 26.2-neoforge
+            task: verifyNeoForge262
+            artifact: platforms/mc26.2/neoforge/build/libs/jammarr-1.0.0+mc26.2-neoforge.jar
+            runtime: 26.2-neoforge
+            quilt: ''
+            game-tests: false
+    name: ${{ matrix.name }}
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
       - name: Install headless audio acceptance dependencies
@@ -22,23 +125,69 @@ jobs:
         with:
           distribution: temurin
           java-version: '26'
+          cache: gradle
       - name: Record Java 26 home
         run: echo "JAMMARR_JAVA26_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
+          cache: gradle
       - name: Record Java 21 home
         run: echo "JAMMARR_JAVA21_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
-      - name: Run the complete 16-artifact, 21-runtime release matrix
+      - name: Build and inspect artifact
+        run: ./gradlew ${{ matrix.task }} --no-daemon --max-workers=1
+      - name: Upload verified artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-jar-${{ matrix.name }}
+          path: ${{ matrix.artifact }}
+          if-no-files-found: error
+          retention-days: 7
+      - name: Run GameTests
+        if: ${{ matrix.game-tests }}
+        run: bash scripts/run-gametest-gate.sh
+      - name: Validate ${{ matrix.runtime }} runtime
         env:
           JAMMARR_ALSA_PCM_TYPE: pulse
-        run: ./gradlew releaseMatrixGate --no-daemon --max-workers=1
-      - name: Upload dedicated-server diagnostics
+          JAMMARR_PROTOCOL_CLIENT_GATE: 'true'
+          JAMMARR_COMMAND_CLIENT_GATE: 'true'
+          JAMMARR_AUDIO_CLIENT_GATE: 'true'
+          JAMMARR_AUDIO_SCENARIO_GATE: 'true'
+        run: bash scripts/run-dedicated-server-gate.sh ${{ matrix.runtime }}
+      - name: Validate ${{ matrix.quilt }} runtime
+        if: ${{ matrix.quilt != '' }}
+        env:
+          JAMMARR_ALSA_PCM_TYPE: pulse
+          JAMMARR_GATE_OUTPUT_ROOT: ${{ github.workspace }}/build/quilt-gate
+          JAMMARR_PROTOCOL_CLIENT_GATE: 'true'
+          JAMMARR_COMMAND_CLIENT_GATE: 'true'
+          JAMMARR_AUDIO_CLIENT_GATE: 'true'
+          JAMMARR_AUDIO_SCENARIO_GATE: 'true'
+        run: bash scripts/run-dedicated-server-gate.sh ${{ matrix.quilt }}
+      - name: Validate ${{ matrix.quilt }} with Mod Menu
+        if: ${{ matrix.quilt != '' }}
+        env:
+          JAMMARR_ALSA_PCM_TYPE: pulse
+          JAMMARR_GATE_OUTPUT_ROOT: ${{ github.workspace }}/build/quilt-modmenu-gate
+          JAMMARR_QUILT_MODMENU_GATE: 'true'
+          JAMMARR_PROTOCOL_CLIENT_GATE: 'true'
+          JAMMARR_COMMAND_CLIENT_GATE: 'true'
+          JAMMARR_AUDIO_CLIENT_GATE: 'true'
+          JAMMARR_AUDIO_SCENARIO_GATE: 'true'
+        run: bash scripts/run-dedicated-server-gate.sh ${{ matrix.quilt }}
+      - name: Validate minimum Fabric Loader
+        if: ${{ matrix.quilt != '' }}
+        env:
+          JAMMARR_ALSA_PCM_TYPE: pulse
+          JAMMARR_GATE_OUTPUT_ROOT: ${{ github.workspace }}/build/fabric-loader-0.19.2-gate
+          JAMMARR_FABRIC_LOADER_VERSION: 0.19.2
+        run: bash scripts/run-dedicated-server-gate.sh ${{ matrix.runtime }}
+      - name: Upload runtime diagnostics
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: dedicated-server-gate-${{ github.sha }}
+          name: runtime-diagnostics-${{ matrix.name }}-${{ github.sha }}
           if-no-files-found: ignore
           retention-days: 7
           path: |
@@ -46,3 +195,48 @@ jobs:
             build/dedicated-server-gate/**/*.txt
             build/dedicated-server-gate/**/*.json
             build/dedicated-server-gate/**/*.tsv
+            build/quilt-gate/**/*.log
+            build/quilt-gate/**/*.txt
+            build/quilt-gate/**/*.json
+            build/quilt-gate/**/*.tsv
+            build/quilt-modmenu-gate/**/*.log
+            build/quilt-modmenu-gate/**/*.txt
+            build/quilt-modmenu-gate/**/*.json
+            build/quilt-modmenu-gate/**/*.tsv
+            build/fabric-loader-0.19.2-gate/**/*.log
+            build/fabric-loader-0.19.2-gate/**/*.txt
+            build/fabric-loader-0.19.2-gate/**/*.json
+            build/fabric-loader-0.19.2-gate/**/*.tsv
+            build/gametest-gate.log
+
+  release-gate:
+    name: 1.0 release gate
+    needs: artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Download all 16 verified artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-jar-*
+          path: build/prebuilt-release
+          merge-multiple: true
+      - name: Assemble and inspect release bundle
+        run: |
+          test "$(find build/prebuilt-release -maxdepth 1 -type f -name '*.jar' | wc -l)" -eq 16
+          ./gradlew indexReleaseArtifacts -PjammarrPrebuiltArtifactDir=build/prebuilt-release --no-daemon --max-workers=1
+          python3 scripts/inspect-release-artifacts.py build/releases
+          (cd build/releases && sha256sum -c SHA256SUMS)
+      - name: Upload 1.0 release candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: jammarr-1.0.0-${{ github.sha }}
+          path: build/releases
+          if-no-files-found: error
+          retention-days: 14

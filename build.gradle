@@ -384,12 +384,20 @@ def sha256 = { File file ->
     return digest.digest().collect { String.format('%02x', it & 0xff) }.join()
 }
 
-def assembleRelease = tasks.register('assembleReleaseArtifacts') {
+def prebuiltArtifactDirectory = providers.gradleProperty('jammarrPrebuiltArtifactDir')
+def canonicalArtifactSource = { artifact ->
+    String filename = "jammarr-${mod_version}+mc${artifact.minecraft}-${artifact.loader}.jar"
+    if (prebuiltArtifactDirectory.isPresent()) {
+        return layout.projectDirectory.dir(prebuiltArtifactDirectory.get()).file(filename).asFile
+    }
+    return layout.projectDirectory.file(artifact.path).asFile
+}
+
+def indexRelease = tasks.register('indexReleaseArtifacts') {
     group = 'verification'
-    description = 'Collects the 16 verified runtime JARs and writes release manifest/checksums.'
+    description = 'Indexes 16 prebuilt runtime JARs and writes the release manifest/checksums.'
     notCompatibleWithConfigurationCache('Release indexing reads the independently built target files at execution time')
-    dependsOn(tasks.named('verifyAllTargets'))
-    inputs.files(canonicalArtifacts.collect { artifact -> layout.projectDirectory.file(artifact.path) })
+    inputs.files(canonicalArtifacts.collect { artifact -> canonicalArtifactSource(artifact) })
     outputs.dir(layout.buildDirectory.dir('releases'))
     doLast {
         File releaseDirectory = layout.buildDirectory.dir('releases').get().asFile
@@ -399,7 +407,7 @@ def assembleRelease = tasks.register('assembleReleaseArtifacts') {
         releaseDirectory.mkdirs()
         List<Map<String, Object>> manifestArtifacts = []
         canonicalArtifacts.each { artifact ->
-            File source = layout.projectDirectory.file(artifact.path).asFile
+            File source = canonicalArtifactSource(artifact)
             if (!source.isFile()) throw new GradleException("Missing release artifact ${artifact.path}")
             String expected = "jammarr-${mod_version}+mc${artifact.minecraft}-${artifact.loader}.jar"
             if (source.name != expected) throw new GradleException("Non-canonical artifact name ${source.name}; expected ${expected}")
@@ -425,6 +433,15 @@ def assembleRelease = tasks.register('assembleReleaseArtifacts') {
             "${it.sha256}  ${it.filename}"
         }.join('\n') + '\n', 'UTF-8')
     }
+}
+
+def assembleRelease = tasks.register('assembleReleaseArtifacts') {
+    group = 'verification'
+    description = 'Builds all 16 runtime JARs, then indexes the release manifest/checksums.'
+    dependsOn(tasks.named('verifyAllTargets'), indexRelease)
+}
+indexRelease.configure {
+    mustRunAfter(tasks.named('verifyAllTargets'))
 }
 
 tasks.register('releaseMatrixGate') {

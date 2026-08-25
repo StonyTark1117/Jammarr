@@ -6,6 +6,13 @@ The automated root gate is:
 ./gradlew releaseMatrixGate --no-daemon --max-workers=1
 ```
 
+GitHub Actions runs the same release contract as 16 independent artifact jobs
+with fail-fast disabled. Fabric artifact jobs also cover their matching Quilt,
+Quilt with Mod Menu, and minimum-Fabric-Loader runtimes. The final `1.0 release
+gate` job downloads all successful JARs, rebuilds the manifest and checksums,
+and runs the centralized artifact inspector before publishing the candidate
+bundle.
+
 It must produce 16 JARs plus schema-2 `manifest.json` and `SHA256SUMS` under `build/releases/`, then exercise 21 loader/version runtimes. Run `sha256sum -c SHA256SUMS` from that directory before publication.
 
 The release gate observes each real client's decoded output through an isolated audio sink; PLAYING state or an allocated OpenAL source alone is not accepted. It also starts every modern Fabric artifact under Loader 0.19.2 as well as the pinned 0.19.3, and repeats all five Quilt client/audio scenarios with the pinned Mod Menu installed. Retain a result for every loader before publishing a Minecraft family:
