@@ -74,7 +74,9 @@ dependencies {
     if (quiltRuntime.get()) quiltRuntimeLibraries.each { implementation it }
     implementation libs.fabric.api
     compileOnly libs.modmenu
-    if (includeModMenu.get()) runtimeOnly libs.modmenu
+    if (includeModMenu.get()) runtimeOnly(libs.modmenu) {
+        exclude group: 'net.fabricmc', module: 'fabric-loader'
+    }
 
     implementation project(':core')
     include project(':core')
