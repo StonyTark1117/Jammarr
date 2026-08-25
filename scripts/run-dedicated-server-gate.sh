@@ -293,7 +293,7 @@ run_acceptance_client() {
   local client_dir="$output_root/$label.$scenario"
   local client_console="$output_root/$label.$scenario.console.log"
   local evidence="$output_root/$label.$scenario.server.txt"
-  local pid deadline result=0
+  local pid deadline exit_grace_deadline result=0
   local -a runtime_args=()
   [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
   [[ "$label" == *-quilt && "$quilt_modmenu_gate" == true ]] && runtime_args+=(-PjammarrIncludeModMenu=true)
@@ -326,6 +326,18 @@ run_acceptance_client() {
   while ! grep -Fq "$rejection" "$server_console" 2>/dev/null \
       || ! grep -Fq "Client disconnected with reason: $rejection" "$client_console" 2>/dev/null; do
     if ! group_alive "$pid"; then
+      # The cold Forge 1.7.10 client can terminate immediately after receiving
+      # the disconnect while its client and server log writers are still
+      # flushing. Give both exact rejection markers a short bounded grace
+      # period; a genuine launcher crash still fails once the window expires.
+      exit_grace_deadline=$((SECONDS + 15))
+      while (( SECONDS < exit_grace_deadline )); do
+        if grep -Fq "$rejection" "$server_console" 2>/dev/null \
+            && grep -Fq "Client disconnected with reason: $rejection" "$client_console" 2>/dev/null; then
+          break 2
+        fi
+        sleep 1
+      done
       echo "$label: $scenario exited before the server rejected it; see $client_console" >&2
       result=1
       break
@@ -857,10 +869,14 @@ run_audio_control_scenarios() {
   if [[ "$label" == "1.7.10-forge" ]]; then
     printf 'jammarr reload\n' >&"$fifo_fd"
   else
-    python3 "$repo_root/scripts/minecraft-rcon.py" 127.0.0.1 "$rcon_port" "$rcon_password" \
-      'jammarr reload' > /dev/null || return 1
+    if ! python3 "$repo_root/scripts/minecraft-rcon.py" 127.0.0.1 "$rcon_port" "$rcon_password" \
+        'jammarr reload' > /dev/null; then
+      printf 'online\n' > "$fake_plex_state"
+      return 1
+    fi
   fi
   if ! wait_for_marker_after "$server_log" "$first" 'Jammarr Plex validation failed' 60; then
+    printf 'online\n' > "$fake_plex_state"
     echo "$label: fake Plex outage was not observed by the live server" >&2; return 1
   fi
   transcodes_before=$(awk -F '\t' '$2 == "/music/:/transcode/universal/start.mp3" { count++ } END { print count + 0 }' \
@@ -868,18 +884,21 @@ run_audio_control_scenarios() {
   first=$(wc -l < "$leader_log")
   send_audio_control "$label" leader 'control:skip'
   if ! wait_for_marker_after "$leader_log" "$first" \
-      'title=Gate Track 44 origin=MANUAL queue=44,43' 60 \
-      || ! wait_for_marker_after "$leader_log" "$first" 'Acceptance audio state: PLAYING' 60; then
+      'title=Gate Track 44 origin=MANUAL queue=44,43' 120 \
+      || ! wait_for_marker_after "$leader_log" "$first" 'Acceptance audio state: PLAYING' 120; then
+    printf 'online\n' > "$fake_plex_state"
     echo "$label: skip did not advance into the cached pending track during Plex outage" >&2; return 1
   fi
   transcodes_after=$(awk -F '\t' '$2 == "/music/:/transcode/universal/start.mp3" { count++ } END { print count + 0 }' \
     "$fake_plex_request_log")
   if [[ "$transcodes_after" != "$transcodes_before" ]]; then
+    printf 'online\n' > "$fake_plex_state"
     echo "$label: cache-backed outage playback unexpectedly requested a new Plex transcode" >&2; return 1
   fi
   sleep 1
   capture_audio_sink "$sink_leader" "$raw" 4
   if ! audio_capture_is_audible "$raw" "$metrics"; then
+    printf 'online\n' > "$fake_plex_state"
     echo "$label: cached outage track reached PLAYING without audible output" >&2; return 1
   fi
   printf 'Plex outage observed; skip used cached track with no new transcode and remained audible.\n' \
@@ -1353,6 +1372,11 @@ run_target() {
   local -a runtime_args=(-PjammarrServerGameDir="$run_dir")
   [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
+
+  # Every target must start from a healthy fake Plex service. In particular,
+  # an earlier audio assertion may have failed during its intentional outage;
+  # never allow that scoped failure to poison the rest of the release matrix.
+  printf 'online\n' > "$fake_plex_state"
 
   if [[ ! -x "$java_home/bin/java" ]]; then
     echo "$label: missing Java runtime $java_home" >&2
