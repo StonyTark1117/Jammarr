@@ -14,23 +14,23 @@ The release gate observes each real client's decoded output through an isolated 
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1.7.10 Forge | automated gate | real no-hello client | real client gate | real client gate | automated gate | family smoke 2026-08-24 | observable audio gate | passed 2026-08-24 |
 | 1.20.1 Fabric | automated gate | missing-client probe | real client gate | real client gate | automated gate | family smoke 2026-08-24 | observable audio gate | passed 2026-08-24 |
-| 1.20.1 Quilt | automated gate | missing-client probe | real client gate | real client gate | automated gate | covered by family smoke | observable audio gate | server gate passed; client/audio pending |
+| 1.20.1 Quilt | automated gate | missing-client probe | real client gate | real client gate | automated gate | covered by family smoke | observable audio gate | passed 2026-08-25 with and without Mod Menu |
 | 1.20.1 Forge | automated gate | missing-client probe | real client gate | real client gate | automated gate | family smoke 2026-08-24 | observable audio gate | passed 2026-08-24 |
 | 1.20.1 NeoForge | automated gate | missing-client probe | real client gate | real client gate | automated gate | family smoke 2026-08-24 | observable audio gate | passed 2026-08-24 |
 | 1.20.2 Fabric | automated gate | missing-client probe | real client gate | real client gate | automated gate | family smoke 2026-08-24 | observable audio gate | passed 2026-08-24 |
-| 1.20.2 Quilt | automated gate | missing-client probe | real client gate | real client gate | automated gate | covered by family smoke | observable audio gate | server gate passed; client/audio pending |
+| 1.20.2 Quilt | automated gate | missing-client probe | real client gate | real client gate | automated gate | covered by family smoke | observable audio gate | passed 2026-08-25 with and without Mod Menu |
 | 1.20.2 Forge | automated gate | missing-client probe | real client gate | real client gate | automated gate | family smoke 2026-08-24 | observable audio gate | passed 2026-08-24 |
 | 1.20.2 NeoForge | automated gate | missing-client probe | real client gate | real client gate | automated gate | family smoke 2026-08-24 | observable audio gate | passed 2026-08-24 |
 | 1.21.1 Fabric | automated gate | missing-client probe | real client gate | real client gate | automated gate | family smoke 2026-08-24 | observable audio gate | passed 2026-08-24 |
-| 1.21.1 Quilt | automated gate | missing-client probe | real client gate | real client gate | automated gate | covered by family smoke | observable audio gate | server gate passed; client/audio pending |
+| 1.21.1 Quilt | automated gate | missing-client probe | real client gate | real client gate | automated gate | covered by family smoke | observable audio gate | passed 2026-08-25 with and without Mod Menu |
 | 1.21.1 Forge | automated gate | missing-client probe | real client gate | real client gate | automated gate | family smoke 2026-08-24 | observable audio gate | passed 2026-08-24 |
 | 1.21.1 NeoForge | automated gate | missing-client probe | real client gate | real client gate | automated gate | family smoke 2026-08-24 | observable audio gate | passed 2026-08-24 |
 | 26.1.2 Fabric | automated gate | missing-client probe | real client gate | real client gate | automated gate | family smoke 2026-08-24 | observable audio gate | passed 2026-08-24 |
-| 26.1.2 Quilt | automated gate | missing-client probe | real client gate | real client gate | automated gate | covered by family smoke | observable audio gate | server gate passed; client/audio pending |
+| 26.1.2 Quilt | automated gate | missing-client probe | real client gate | real client gate | automated gate | covered by family smoke | observable audio gate | passed 2026-08-25 with and without Mod Menu |
 | 26.1.2 Forge | automated gate | missing-client probe | real client gate | real client gate | automated gate | family smoke 2026-08-24 | observable audio gate | passed 2026-08-24 |
 | 26.1.2 NeoForge | automated gate | missing-client probe | real client gate | real client gate | automated gate | family smoke 2026-08-24 | observable audio gate | passed 2026-08-24 |
 | 26.2 Fabric | automated gate | missing-client probe | real client gate | real client gate | automated gate | family smoke 2026-08-25 | observable audio gate | passed 2026-08-25 |
-| 26.2 Quilt | automated gate | missing-client probe | real client gate | real client gate | automated gate | covered by family smoke | observable audio gate | server gate passed; client/audio pending |
+| 26.2 Quilt | automated gate | missing-client probe | real client gate | real client gate | automated gate | covered by family smoke | observable audio gate | passed 2026-08-25 with and without Mod Menu |
 | 26.2 Forge | automated gate | missing-client probe | real client gate | real client gate | automated gate | family smoke 2026-08-25 | observable audio gate | passed 2026-08-25 |
 | 26.2 NeoForge | automated gate | missing-client probe | real client gate | real client gate | automated gate | family smoke 2026-08-25 | observable audio gate | passed 2026-08-25 |
 
