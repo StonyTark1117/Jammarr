@@ -16,6 +16,7 @@ fake_plex_request_log="$output_root/fake-plex.requests.tsv"
 fake_plex_audio="$output_root/fake-plex-tone.mp3"
 fake_plex_state="$output_root/fake-plex.state"
 fake_audio_duration_seconds=${JAMMARR_GATE_AUDIO_DURATION_SECONDS:-600}
+client_log_limit_blocks=${JAMMARR_GATE_CLIENT_LOG_LIMIT_BLOCKS:-131072}
 fake_plex_pid=""
 active_client_pid=""
 active_server_pid=""
@@ -39,6 +40,11 @@ active_world_existed=0
 
 java21_home=${JAMMARR_JAVA21_HOME:-/usr/lib/jvm/java-21-openjdk}
 java26_home=${JAMMARR_JAVA26_HOME:-/usr/lib/jvm/java-26-openjdk}
+
+if [[ ! "$client_log_limit_blocks" =~ ^[0-9]+$ ]] || (( client_log_limit_blocks < 16384 )); then
+  echo "JAMMARR_GATE_CLIENT_LOG_LIMIT_BLOCKS must be an integer of at least 16384" >&2
+  exit 2
+fi
 
 targets=(
   "1.7.10-forge|platforms/mc1.7.10/forge|$java26_home|25695"
@@ -263,6 +269,12 @@ missing_client_rejection_logged() {
     "$latest_log" "$console_log" 2>/dev/null
 }
 
+client_bootstrap_failed() {
+  local console_log=$1
+  grep -Eq 'Timed out trying to setup the Game Window|Failed to initialize the mod loading system and display|ArrayIndexOutOfBoundsException: 0' \
+    "$console_log" 2>/dev/null
+}
+
 run_wrong_protocol_client() {
   local label=$1
   local target_dir=$2
@@ -315,7 +327,8 @@ run_acceptance_client() {
     'narrator:0' > "$client_dir/options.txt"
   (
     cd "$target_dir" || exit 1
-    exec setsid xvfb-run -a env \
+    ulimit -f "$client_log_limit_blocks"
+    exec setsid xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' env \
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS="$java_tool_options" \
       LIBGL_ALWAYS_SOFTWARE=1 \
@@ -332,6 +345,11 @@ run_acceptance_client() {
   deadline=$((SECONDS + 600))
   while ! grep -Fq "$rejection" "$server_console" 2>/dev/null \
       || ! grep -Fq "Client disconnected with reason: $rejection" "$client_console" 2>/dev/null; do
+    if client_bootstrap_failed "$client_console"; then
+      echo "$label: $scenario could not initialize its headless display; see $client_console" >&2
+      result=1
+      break
+    fi
     if ! group_alive "$pid"; then
       # The cold Forge 1.7.10 client can terminate immediately after receiving
       # the disconnect while its client and server log writers are still
@@ -408,7 +426,8 @@ run_command_client() {
 
   (
     cd "$target_dir" || exit 1
-    exec setsid xvfb-run -a env \
+    ulimit -f "$client_log_limit_blocks"
+    exec setsid xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' env \
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS='-Djammarr.acceptance.enabled=true -Djammarr.acceptance.commandProbe=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
       LIBGL_ALWAYS_SOFTWARE=1 \
@@ -426,6 +445,11 @@ run_command_client() {
   if [[ "$label" == "1.7.10-forge" ]]; then
     while ! grep -Fq 'Acceptance command response: Queue is empty' "$client_console" 2>/dev/null \
         || ! grep -Fq 'Acceptance command response: Operator permission is required' "$client_console" 2>/dev/null; do
+      if client_bootstrap_failed "$client_console"; then
+        echo "$label: command client could not initialize its headless display; see $client_console" >&2
+        result=1
+        break
+      fi
       if ! group_alive "$pid" || (( SECONDS >= deadline )); then
         echo "$label: legacy non-operator command responses were not observed; see $client_console" >&2
         result=1
@@ -436,6 +460,11 @@ run_command_client() {
   else
     while ! grep -Fq 'Acceptance command permissions: non-operator public=true operator=false' \
         "$client_console" 2>/dev/null; do
+      if client_bootstrap_failed "$client_console"; then
+        echo "$label: command client could not initialize its headless display; see $client_console" >&2
+        result=1
+        break
+      fi
       if ! group_alive "$pid" || (( SECONDS >= deadline )); then
         echo "$label: non-operator command tree was not observed; see $client_console" >&2
         result=1
@@ -593,7 +622,8 @@ start_audio_client() {
   esac
   (
     cd "$target_dir" || exit 1
-    exec setsid xvfb-run -a env \
+    ulimit -f "$client_log_limit_blocks"
+    exec setsid xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' env \
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS="-Djammarr.acceptance.enabled=true -Djammarr.acceptance.audioProbe=true -Djammarr.acceptance.audioLeader=$leader -Djammarr.acceptance.audioControlFile=$control_file -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true" \
       ALSA_CONFIG_PATH="$client_dir/alsa.conf" ALSOFT_DRIVERS=alsa LIBGL_ALWAYS_SOFTWARE=1 \
@@ -618,6 +648,10 @@ wait_for_audio_playing() {
   local deadline=$((SECONDS + 600))
   while ! grep -Fq 'Acceptance audio state: PLAYING' "$client_console" 2>/dev/null; do
     if grep -Fq 'Acceptance audio state:' "$client_console" 2>/dev/null; then initialized=1; fi
+    if client_bootstrap_failed "$client_console"; then
+      echo "$label: $role client could not initialize its headless display; see $client_console" >&2
+      return 1
+    fi
     if grep -Eq 'Acceptance audio state: ERROR|Failed to open OpenAL device|Error starting SoundSystem|NoClassDefFoundError: (javazoom|de/sciss)' \
         "$client_console" 2>/dev/null; then
       echo "$label: $role client failed before playback; see $client_console" >&2
@@ -784,6 +818,23 @@ run_audio_control_scenarios() {
     echo "$label: unable to promote the audio scenario leader" >&2
     return 1
   fi
+
+  # A transient first leader can enqueue the seed track before its local audio
+  # backend fails. Normalize the shared queue after any clean-launch retry so
+  # every subsequent assertion starts from one known track instead of silently
+  # accepting duplicate state left by the failed client.
+  first=$(wc -l < "$leader_log")
+  send_audio_control "$label" leader 'control:clear'
+  if ! wait_for_marker_after "$leader_log" "$first" 'Acceptance playback state: status=IDLE' 60; then
+    echo "$label: could not normalize the shared queue before audio scenarios" >&2; return 1
+  fi
+  first=$(wc -l < "$leader_log")
+  send_audio_control "$label" leader 'queue:42'
+  if ! wait_for_marker_after "$leader_log" "$first" 'queue=42' 60 \
+      || ! wait_for_marker_after "$leader_log" "$first" 'Acceptance audio state: PLAYING' 120; then
+    echo "$label: normalized seed track did not return to audible playback" >&2; return 1
+  fi
+  printf 'Normalized the retry-safe scenario queue to one audible seed track.\n' >> "$scenario_evidence"
 
   first=$(wc -l < "$leader_log")
   send_audio_control "$label" leader 'queue:43'
@@ -1171,6 +1222,16 @@ group_alive() {
     '$1 == expected && $2 !~ /^Z/ { found = 1 } END { exit !found }'
 }
 
+wait_for_group_start() {
+  local group_id=$1
+  local seconds=$2
+  local deadline=$((SECONDS + seconds))
+  while ! group_alive "$group_id"; do
+    if (( SECONDS >= deadline )); then return 1; fi
+    sleep 0.1
+  done
+}
+
 stop_group() {
   local group_id=$1
   local signal=$2
@@ -1305,6 +1366,19 @@ run_invalid_config_check() {
   ) &
   pid=$!
   active_server_pid=$pid
+
+  # setsid can publish its process group just after the background launcher
+  # returns. Attach to that group before deciding whether the cold server has
+  # already exited; otherwise a fast first poll can skip the rejection wait and
+  # misclassify a healthy but still-starting server as a fail-closed timeout.
+  if ! wait_for_group_start "$pid" 10; then
+    echo "$label: invalid-configuration server process group did not start" >&2
+    stop_process_tree "$pid" TERM
+    wait_for_process_tree_exit "$pid" 10 || stop_process_tree "$pid" KILL
+    active_server_pid=""
+    restore_server_config
+    return 1
+  fi
 
   local deadline=$((SECONDS + 600))
   while group_alive "$pid"; do

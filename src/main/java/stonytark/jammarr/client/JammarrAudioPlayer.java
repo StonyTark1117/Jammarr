@@ -22,6 +22,7 @@ public final class JammarrAudioPlayer {
     private static final long START_BUFFER_MS = 5_000;
     private static final long DRIFT_REBUFFER_MS = 500;
     private static final long UNDERRUN_GRACE_MS = 1_500;
+    private static final long MISSING_MANIFEST_RETRY_MS = 2_000;
     private static final int MAX_RECOVERY_ATTEMPTS = 3;
 
     private final ClockSynchronizer clock;
@@ -36,6 +37,7 @@ public final class JammarrAudioPlayer {
     private long lastCorrectionMs;
     private long lastRecoveryMs;
     private long lastHealthSentMs;
+    private long lastMissingManifestRequestMs;
     private String lastHealthState = "";
     private int recoveryAttempts;
     private boolean recovering;
@@ -139,6 +141,14 @@ public final class JammarrAudioPlayer {
     }
 
     public void ensureStarted() { if (manifest != null && decoder == null && JammarrSettings.enabled()) beginStreaming(); }
+    public void playbackActive(boolean active) {
+        if (!active || manifest != null || !JammarrSettings.enabled()) return;
+        long now = System.currentTimeMillis();
+        if (now - lastMissingManifestRequestMs < MISSING_MANIFEST_RETRY_MS) return;
+        lastMissingManifestRequestMs = now;
+        recovering = true;
+        JammarrNetwork.sendToServer(new JammarrPayloads.ManifestRequest(true));
+    }
     public void listeningChanged() {
         if (!JammarrSettings.enabled()) {
             resetAudio();
@@ -264,7 +274,7 @@ public final class JammarrAudioPlayer {
     }
 
     private void rebuffer() { resetAudio(); beginStreaming(); }
-    public void stop() { resetAudio(); manifest = null; recoveryAttempts = 0; underruns = 0; recovering = false; recoveryFailed = false; lastHealthSentMs = 0; lastHealthState = ""; }
+    public void stop() { resetAudio(); manifest = null; recoveryAttempts = 0; underruns = 0; recovering = false; recoveryFailed = false; lastHealthSentMs = 0; lastMissingManifestRequestMs = 0; lastHealthState = ""; }
     public void audioEngineReloaded() { if (manifest != null) { resetAudio(); if (JammarrSettings.enabled()) { recovering = true; JammarrNetwork.sendToServer(new JammarrPayloads.ManifestRequest(true)); } } }
 
     private void sendHealthIfNeeded(long now) {

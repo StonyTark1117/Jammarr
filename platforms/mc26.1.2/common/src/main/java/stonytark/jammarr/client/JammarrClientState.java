@@ -51,6 +51,8 @@ public final class JammarrClientState {
             browse = value; refreshScreen(minecraft);
         } else if (payload instanceof JammarrPayloads.PlaybackState value) {
             playback = value;
+            audio.playbackActive(value.status() == JammarrPayloads.PlaybackStatus.PLAYING
+                    || value.status() == JammarrPayloads.PlaybackStatus.PAUSED);
             logAcceptancePlayback(value);
             if (value.serverEpochMs() > 0 && !clock.initialized()) clock.accept(System.currentTimeMillis(), value.serverEpochMs(), System.currentTimeMillis());
             boolean queueBrowseChanged = refreshQueueBrowse();
