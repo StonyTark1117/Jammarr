@@ -6,11 +6,13 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import stonytark.jammarr.client.JammarrClient;
+import stonytark.jammarr.quilt.QuiltNetworkingCodecRepair;
 
 @Mixin(Minecraft.class)
 abstract class QuiltClientBootstrapMixin {
     @Inject(method = "<init>", at = @At("RETURN"))
     private void jammarr$bootstrapQuilt(CallbackInfo callback) {
+        QuiltNetworkingCodecRepair.install();
         JammarrClient.bootstrapQuilt();
     }
 }

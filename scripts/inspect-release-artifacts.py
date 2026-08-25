@@ -297,6 +297,14 @@ def verify_metadata(archive: zipfile.ZipFile, names: set[str], minecraft: str, l
             fail(f"{filename} must not embed Quilt metadata, QSL, or Quilted Fabric API")
         if metadata.get("mixins") != ["jammarr.mixins.json"]:
             fail(f"{filename} does not declare the Jammarr Mixin config")
+        if minecraft in ("26.1.2", "26.2"):
+            required_quilt_hooks = {
+                "stonytark/jammarr/mixin/QuiltServerBootstrapMixin.class",
+                "stonytark/jammarr/mixin/client/QuiltClientBootstrapMixin.class",
+                "stonytark/jammarr/quilt/QuiltNetworkingCodecRepair.class",
+            }
+            if not required_quilt_hooks.issubset(names):
+                fail(f"{filename} is missing its guarded Quilt 26.x compatibility hooks")
         expected_jars = {
             "META-INF/jars/core-1.0.0.jar",
             "META-INF/jars/jlayer-1.0.1.jar",
