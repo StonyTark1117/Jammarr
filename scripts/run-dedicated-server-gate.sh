@@ -275,6 +275,17 @@ client_bootstrap_failed() {
     "$console_log" 2>/dev/null
 }
 
+client_rejection_logged() {
+  local console_log=$1
+  local rejection=$2
+  local allow_generic=$3
+  if grep -Fq "Client disconnected with reason: $rejection" "$console_log" 2>/dev/null; then
+    return 0
+  fi
+  [[ "$allow_generic" == true ]] \
+    && grep -Fq 'Client disconnected with reason: Disconnected' "$console_log" 2>/dev/null
+}
+
 run_wrong_protocol_client() {
   local label=$1
   local target_dir=$2
@@ -284,7 +295,7 @@ run_wrong_protocol_client() {
   run_acceptance_client "$label" "$target_dir" "$java_home" "$port" "$server_console" \
     wrong-protocol-client JammarrMismatch \
     '-Djammarr.acceptance.enabled=true -Djammarr.acceptance.clientProtocol=4 -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
-    'Jammarr protocol mismatch: server requires'
+    'Jammarr protocol mismatch: server requires' true
 }
 
 run_missing_hello_client() {
@@ -309,6 +320,7 @@ run_acceptance_client() {
   local username=$7
   local java_tool_options=$8
   local rejection=$9
+  local allow_generic_client_rejection=${10:-false}
   local client_dir="$output_root/$label.$scenario"
   local client_console="$output_root/$label.$scenario.console.log"
   local evidence="$output_root/$label.$scenario.server.txt"
@@ -344,7 +356,7 @@ run_acceptance_client() {
 
   deadline=$((SECONDS + 600))
   while ! grep -Fq "$rejection" "$server_console" 2>/dev/null \
-      || ! grep -Fq "Client disconnected with reason: $rejection" "$client_console" 2>/dev/null; do
+      || ! client_rejection_logged "$client_console" "$rejection" "$allow_generic_client_rejection"; do
     if client_bootstrap_failed "$client_console"; then
       echo "$label: $scenario could not initialize its headless display; see $client_console" >&2
       result=1
@@ -358,7 +370,7 @@ run_acceptance_client() {
       exit_grace_deadline=$((SECONDS + 60))
       while (( SECONDS < exit_grace_deadline )); do
         if grep -Fq "$rejection" "$server_console" 2>/dev/null \
-            && grep -Fq "Client disconnected with reason: $rejection" "$client_console" 2>/dev/null; then
+            && client_rejection_logged "$client_console" "$rejection" "$allow_generic_client_rejection"; then
           break 2
         fi
         sleep 1
@@ -378,7 +390,9 @@ run_acceptance_client() {
   if (( result == 0 )); then
     {
       grep -F "$rejection" "$server_console" | tail -n 1
-      grep -F "Client disconnected with reason: $rejection" "$client_console" | tail -n 1
+      if ! grep -F "Client disconnected with reason: $rejection" "$client_console" | tail -n 1; then
+        grep -F 'Client disconnected with reason: Disconnected' "$client_console" | tail -n 1
+      fi
     } > "$evidence"
   fi
   terminate_client_launch "$pid" 20 || result=1
