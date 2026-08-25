@@ -2,8 +2,14 @@
 set -uo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-output_root="$repo_root/build/dedicated-server-gate"
+output_root=${JAMMARR_GATE_OUTPUT_ROOT:-"$repo_root/build/dedicated-server-gate"}
 mkdir -p "$output_root"
+gate_lock="${output_root}.lock"
+exec 9>"$gate_lock"
+if ! flock -n 9; then
+  echo "Another Jammarr dedicated-server gate is already using the shared runtime evidence directory" >&2
+  exit 2
+fi
 fake_plex_token="jammarr-dedicated-gate-token"
 fake_plex_port_file="$output_root/fake-plex.port"
 fake_plex_request_log="$output_root/fake-plex.requests.tsv"
@@ -36,17 +42,25 @@ java26_home=${JAMMARR_JAVA26_HOME:-/usr/lib/jvm/java-26-openjdk}
 targets=(
   "1.7.10-forge|platforms/mc1.7.10/forge|$java26_home|25695"
   "1.20.1-fabric|platforms/mc1.20.1/fabric|$java21_home|25571"
+  "1.20.1-quilt|platforms/mc1.20.1/fabric|$java21_home|25648"
   "1.20.1-forge|platforms/mc1.20.1/forge|$java21_home|25572"
   "1.20.1-neoforge|platforms/mc1.20.1/neoforge|$java21_home|25574"
   "1.20.2-fabric|platforms/mc1.20.2/fabric|$java21_home|25576"
+  "1.20.2-quilt|platforms/mc1.20.2/fabric|$java21_home|25649"
   "1.20.2-forge|platforms/mc1.20.2/forge|$java21_home|25578"
   "1.20.2-neoforge|platforms/mc1.20.2/neoforge|$java21_home|25580"
   "1.21.1-fabric|platforms/mc1.21.1/fabric|$java21_home|25581"
+  "1.21.1-quilt|platforms/mc1.21.1/fabric|$java21_home|25650"
   "1.21.1-forge|platforms/mc1.21.1/forge|$java21_home|25582"
   "1.21.1-neoforge|.|$java21_home|25566"
   "26.1.2-fabric|platforms/mc26.1.2/fabric|$java26_home|25642"
+  "26.1.2-quilt|platforms/mc26.1.2/fabric|$java26_home|25651"
   "26.1.2-forge|platforms/mc26.1.2/forge|$java26_home|25643"
   "26.1.2-neoforge|platforms/mc26.1.2/neoforge|$java26_home|25644"
+  "26.2-fabric|platforms/mc26.2/fabric|$java26_home|25645"
+  "26.2-quilt|platforms/mc26.2/fabric|$java26_home|25652"
+  "26.2-forge|platforms/mc26.2/forge|$java26_home|25646"
+  "26.2-neoforge|platforms/mc26.2/neoforge|$java26_home|25647"
 )
 
 requested=${1:-all}
@@ -54,6 +68,8 @@ protocol_client_gate=${JAMMARR_PROTOCOL_CLIENT_GATE:-false}
 command_client_gate=${JAMMARR_COMMAND_CLIENT_GATE:-false}
 audio_client_gate=${JAMMARR_AUDIO_CLIENT_GATE:-false}
 audio_scenario_gate=${JAMMARR_AUDIO_SCENARIO_GATE:-false}
+fabric_loader_version=${JAMMARR_FABRIC_LOADER_VERSION:-}
+quilt_modmenu_gate=${JAMMARR_QUILT_MODMENU_GATE:-false}
 
 restore_server_config() {
   if [[ -z "$active_config" ]]; then return; fi
@@ -278,6 +294,10 @@ run_acceptance_client() {
   local client_console="$output_root/$label.$scenario.console.log"
   local evidence="$output_root/$label.$scenario.server.txt"
   local pid deadline result=0
+  local -a runtime_args=()
+  [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
+  [[ "$label" == *-quilt && "$quilt_modmenu_gate" == true ]] && runtime_args+=(-PjammarrIncludeModMenu=true)
+  [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
 
   mkdir -p "$client_dir"
   : > "$client_console"
@@ -293,6 +313,7 @@ run_acceptance_client() {
       JAVA_TOOL_OPTIONS="$java_tool_options" \
       LIBGL_ALWAYS_SOFTWARE=1 \
       ./gradlew runClient --no-daemon --max-workers=1 --console=plain \
+      "${runtime_args[@]}" \
       -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="127.0.0.1:${port}" \
       -PjammarrAcceptanceGameDir="$client_dir" \
@@ -343,6 +364,10 @@ run_command_client() {
   local diagnostics="$output_root/$label.$scenario.diagnostics.txt"
   local evidence="$output_root/$label.$scenario.evidence.txt"
   local pid deadline result=0
+  local -a runtime_args=()
+  [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
+  [[ "$label" == *-quilt && "$quilt_modmenu_gate" == true ]] && runtime_args+=(-PjammarrIncludeModMenu=true)
+  [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
 
   mkdir -p "$client_dir"
   : > "$client_console"
@@ -369,6 +394,7 @@ run_command_client() {
       JAVA_TOOL_OPTIONS='-Djammarr.acceptance.enabled=true -Djammarr.acceptance.commandProbe=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
       LIBGL_ALWAYS_SOFTWARE=1 \
       ./gradlew runClient --no-daemon --max-workers=1 --console=plain \
+      "${runtime_args[@]}" \
       -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="127.0.0.1:${port}" \
       -PjammarrAcceptanceGameDir="$client_dir" \
@@ -497,6 +523,10 @@ start_audio_client() {
   local control_file="$output_root/$label.audio-$role.control"
   local leader=false
   local -a cache_args=()
+  local -a runtime_args=()
+  [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
+  [[ "$label" == *-quilt && "$quilt_modmenu_gate" == true ]] && runtime_args+=(-PjammarrIncludeModMenu=true)
+  [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
   [[ "$role" == "leader" ]] && leader=true
   case "$label" in
     1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge)
@@ -549,6 +579,7 @@ start_audio_client() {
       JAVA_TOOL_OPTIONS="-Djammarr.acceptance.enabled=true -Djammarr.acceptance.audioProbe=true -Djammarr.acceptance.audioLeader=$leader -Djammarr.acceptance.audioControlFile=$control_file -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true" \
       ALSA_CONFIG_PATH="$client_dir/alsa.conf" ALSOFT_DRIVERS=alsa LIBGL_ALWAYS_SOFTWARE=1 \
       ./gradlew runClient --no-daemon --max-workers=1 --console=plain "${cache_args[@]}" \
+      "${runtime_args[@]}" \
       -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="127.0.0.1:${port}" \
       -PjammarrAcceptanceGameDir="$client_dir" \
@@ -1225,6 +1256,9 @@ run_invalid_config_check() {
   local latest_log="$run_dir/logs/latest.log"
   local pid result=0
   local -a cache_args=()
+  local -a runtime_args=(-PjammarrServerGameDir="$run_dir")
+  [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
+  [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
   case "$label" in
     1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge)
       cache_args+=(--no-configuration-cache)
@@ -1237,6 +1271,7 @@ run_invalid_config_check() {
     exec setsid env JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAMMARR_PLEX_TOKEN="$fake_plex_token" \
       ./gradlew runServer --no-daemon --max-workers=1 --console=plain "${cache_args[@]}" \
+      "${runtime_args[@]}" \
       < /dev/null > "$console_log" 2>&1
   ) &
   pid=$!
@@ -1308,12 +1343,16 @@ run_target() {
   local default_port=$4
   local target_dir="$repo_root/$relative_dir"
   local run_dir="$target_dir/run"
+  [[ "$label" == *-quilt ]] && run_dir="$target_dir/run-quilt"
   local latest_log="$run_dir/logs/latest.log"
   local console_log="$output_root/$label.console.log"
   local fifo_dir fifo fifo_fd pid server_pid server_group port rcon_port rcon_password result=0
   local fake_plex_port fake_request_start plex_deadline level_name probe_output
   local -a probe_args=()
   local -a cache_args=()
+  local -a runtime_args=(-PjammarrServerGameDir="$run_dir")
+  [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
+  [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
 
   if [[ ! -x "$java_home/bin/java" ]]; then
     echo "$label: missing Java runtime $java_home" >&2
@@ -1384,6 +1423,7 @@ run_target() {
     exec setsid env JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAMMARR_PLEX_TOKEN="$fake_plex_token" \
       ./gradlew runServer --no-daemon --max-workers=1 --console=plain "${cache_args[@]}" \
+      "${runtime_args[@]}" \
       < "$fifo" > "$console_log" 2>&1
   ) &
   pid=$!
@@ -1461,11 +1501,16 @@ run_target() {
     fi
   elif (( result == 0 )); then
     probe_output="$output_root/$label.missing-client.json"
-    if [[ "$label" == 26.1.2-* ]]; then
-      # Minecraft 26.1 can close legacy protocol -1 status queries before a
-      # response; use the protocol declared by these pinned target builds.
-      probe_args+=(--protocol 775 --version 26.1.2)
-    fi
+    case "$label" in
+      26.1.2-*)
+        # Minecraft 26.1 can close legacy protocol -1 status queries before a
+        # response; use the protocol declared by these pinned target builds.
+        probe_args+=(--protocol 775 --version 26.1.2)
+        ;;
+      26.2-*)
+        probe_args+=(--protocol 776 --version 26.2)
+        ;;
+    esac
     if ! python3 "$repo_root/scripts/minecraft-login-probe.py" 127.0.0.1 "$port" --timeout 35 \
         "${probe_args[@]}" \
         > "$probe_output" 2>&1; then
@@ -1586,7 +1631,11 @@ failed=0
 start_fake_plex || exit 1
 for target in "${targets[@]}"; do
   IFS='|' read -r label relative_dir java_home port <<< "$target"
-  if [[ "$requested" != "all" && "$requested" != "$label" ]]; then continue; fi
+  if [[ "$requested" != "all" && "$requested" != "$label"
+      && !( "$requested" == "quilt" && "$label" == *-quilt )
+      && !( "$requested" == "fabric" && "$label" == *-fabric ) ]]; then
+    continue
+  fi
   matched=1
   run_target "$label" "$relative_dir" "$java_home" "$port" || failed=1
 done

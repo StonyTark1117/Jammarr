@@ -258,6 +258,35 @@ def verifyNeoForge2612 = tasks.register('verifyNeoForge2612', Exec) {
     mustRunAfter(verifyForge2612)
 }
 
+def verifyFabric262 = tasks.register('verifyFabric262', Exec) {
+    group = 'verification'
+    description = 'Runs the isolated Java 25 Minecraft 26.2 Fabric release gate.'
+    workingDir(layout.projectDirectory.dir('platforms/mc26.2/fabric'))
+    environment 'JAVA_HOME', java26Home
+    environment 'PATH', java26Path
+    commandLine('./gradlew', 'verifyRelease', ':core:test', '--no-daemon', '--max-workers=1')
+}
+
+def verifyForge262 = tasks.register('verifyForge262', Exec) {
+    group = 'verification'
+    description = 'Runs the isolated Java 25 Minecraft 26.2 Forge release gate.'
+    workingDir(layout.projectDirectory.dir('platforms/mc26.2/forge'))
+    environment 'JAVA_HOME', java26Home
+    environment 'PATH', java26Path
+    commandLine('./gradlew', 'verifyRelease', ':core:test', '--no-daemon', '--max-workers=1')
+    mustRunAfter(verifyFabric262)
+}
+
+def verifyNeoForge262 = tasks.register('verifyNeoForge262', Exec) {
+    group = 'verification'
+    description = 'Runs the isolated Java 25 Minecraft 26.2 NeoForge release gate.'
+    workingDir(layout.projectDirectory.dir('platforms/mc26.2/neoforge'))
+    environment 'JAVA_HOME', java26Home
+    environment 'PATH', java26Path
+    commandLine('./gradlew', 'verifyRelease', ':core:test', '--no-daemon', '--max-workers=1')
+    mustRunAfter(verifyForge262)
+}
+
 def verifyLegacy1710 = tasks.register('verifyLegacy1710', Exec) {
     group = 'verification'
     description = 'Runs the isolated Java 8 Forge 1.7.10 release gate.'
@@ -298,11 +327,17 @@ tasks.register('verify2612Family') {
     dependsOn(verifyFabric2612, verifyForge2612, verifyNeoForge2612)
 }
 
+tasks.register('verify262Family') {
+    group = 'verification'
+    description = 'Builds and verifies the Java 25 Fabric, Forge, and NeoForge Minecraft 26.2 artifacts.'
+    dependsOn(verifyFabric262, verifyForge262, verifyNeoForge262)
+}
+
 tasks.register('verifyAllTargets') {
     group = 'verification'
     description = 'Builds and verifies every currently registered Jammarr target.'
     dependsOn(tasks.named('verify1201Family'), tasks.named('verify1202Family'), tasks.named('verify1211Family'),
-            tasks.named('verify2612Family'), verifyLegacy1710, verifyGameTests)
+            tasks.named('verify2612Family'), tasks.named('verify262Family'), verifyLegacy1710, verifyGameTests)
 }
 
 def canonicalArtifacts = [
@@ -318,7 +353,10 @@ def canonicalArtifacts = [
         [minecraft: '1.21.1', java: 21, loader: 'neoforge', path: 'build/libs/jammarr-1.0.0+mc1.21.1-neoforge.jar'],
         [minecraft: '26.1.2', java: 25, loader: 'fabric', path: 'platforms/mc26.1.2/fabric/build/libs/jammarr-1.0.0+mc26.1.2-fabric.jar'],
         [minecraft: '26.1.2', java: 25, loader: 'forge', path: 'platforms/mc26.1.2/forge/build/libs/jammarr-1.0.0+mc26.1.2-forge.jar'],
-        [minecraft: '26.1.2', java: 25, loader: 'neoforge', path: 'platforms/mc26.1.2/neoforge/build/libs/jammarr-1.0.0+mc26.1.2-neoforge.jar']
+        [minecraft: '26.1.2', java: 25, loader: 'neoforge', path: 'platforms/mc26.1.2/neoforge/build/libs/jammarr-1.0.0+mc26.1.2-neoforge.jar'],
+        [minecraft: '26.2', java: 25, loader: 'fabric', path: 'platforms/mc26.2/fabric/build/libs/jammarr-1.0.0+mc26.2-fabric.jar'],
+        [minecraft: '26.2', java: 25, loader: 'forge', path: 'platforms/mc26.2/forge/build/libs/jammarr-1.0.0+mc26.2-forge.jar'],
+        [minecraft: '26.2', java: 25, loader: 'neoforge', path: 'platforms/mc26.2/neoforge/build/libs/jammarr-1.0.0+mc26.2-neoforge.jar']
 ]
 
 def catalogVersions = { String minecraft ->
@@ -348,7 +386,7 @@ def sha256 = { File file ->
 
 def assembleRelease = tasks.register('assembleReleaseArtifacts') {
     group = 'verification'
-    description = 'Collects the 13 verified runtime JARs and writes release manifest/checksums.'
+    description = 'Collects the 16 verified runtime JARs and writes release manifest/checksums.'
     notCompatibleWithConfigurationCache('Release indexing reads the independently built target files at execution time')
     dependsOn(tasks.named('verifyAllTargets'))
     inputs.files(canonicalArtifacts.collect { artifact -> layout.projectDirectory.file(artifact.path) })
@@ -371,12 +409,15 @@ def assembleRelease = tasks.register('assembleReleaseArtifacts') {
             Map<String, String> dependencies = new TreeMap<String, String>(versions)
             dependencies.remove('minecraft')
             dependencies.remove('java')
+            List<String> compatibleLoaders = artifact.loader == 'fabric'
+                    ? ['fabric', 'quilt'] : [artifact.loader as String]
             manifestArtifacts << [productVersion: mod_version, minecraftVersion: artifact.minecraft,
                                   loader: artifact.loader, javaVersion: artifact.java,
+                                  compatibleLoaders: compatibleLoaders,
                                   dependencies: dependencies, filename: expected, sha256: sha256(target)]
         }
-        if (manifestArtifacts.size() != 13) throw new GradleException("Expected 13 release artifacts, found ${manifestArtifacts.size()}")
-        Map<String, Object> manifest = [schemaVersion: 1, product: 'Jammarr', modId: mod_id,
+        if (manifestArtifacts.size() != 16) throw new GradleException("Expected 16 release artifacts, found ${manifestArtifacts.size()}")
+        Map<String, Object> manifest = [schemaVersion: 2, product: 'Jammarr', modId: mod_id,
                                         productVersion: mod_version, protocolVersion: 5,
                                         artifacts: manifestArtifacts]
         new File(releaseDirectory, 'manifest.json').setText(JsonOutput.prettyPrint(JsonOutput.toJson(manifest)) + '\n', 'UTF-8')
@@ -388,13 +429,14 @@ def assembleRelease = tasks.register('assembleReleaseArtifacts') {
 
 tasks.register('releaseMatrixGate') {
     group = 'verification'
-    description = 'Builds, tests, inspects, and indexes all 13 supported Jammarr artifacts.'
-    dependsOn('inspectReleaseArtifacts', 'verifyDedicatedServers')
+    description = 'Builds, tests, inspects, and indexes all 16 supported Jammarr artifacts.'
+    dependsOn('inspectReleaseArtifacts', 'verifyDedicatedServers', 'verifyFabricLoaderMinimumRuntimes',
+            'verifyQuiltModMenuRuntimes')
 }
 
 tasks.register('inspectReleaseArtifacts', Exec) {
     group = 'verification'
-    description = 'Inspects metadata, bytecode, libraries, assets, notices, credentials, and checksums in all 13 release JARs.'
+    description = 'Inspects metadata, bytecode, key mappings, libraries, assets, notices, credentials, and checksums in all 16 release JARs.'
     dependsOn(assembleRelease)
     workingDir(layout.projectDirectory)
     commandLine('python3', 'scripts/inspect-release-artifacts.py', layout.buildDirectory.dir('releases').get().asFile.absolutePath)
@@ -402,7 +444,7 @@ tasks.register('inspectReleaseArtifacts', Exec) {
 
 tasks.register('verifyDedicatedServers', Exec) {
     group = 'verification'
-    description = 'Runs all 13 real-server, incompatible-client, command, and observable two-client audio gates.'
+    description = 'Runs all 21 loader/version real-server, incompatible-client, command, and observable two-client audio gates.'
     mustRunAfter('inspectReleaseArtifacts')
     workingDir(layout.projectDirectory)
     environment('JAMMARR_PROTOCOL_CLIENT_GATE', 'true')
@@ -410,6 +452,41 @@ tasks.register('verifyDedicatedServers', Exec) {
     environment('JAMMARR_AUDIO_CLIENT_GATE', 'true')
     environment('JAMMARR_AUDIO_SCENARIO_GATE', 'true')
     commandLine('bash', 'scripts/run-dedicated-server-gate.sh', 'all')
+}
+
+tasks.register('verifyQuiltRuntimes', Exec) {
+    group = 'verification'
+    description = 'Runs the five supported Quilt real-server, incompatible-client, command, and observable two-client audio gates.'
+    workingDir(layout.projectDirectory)
+    environment('JAMMARR_PROTOCOL_CLIENT_GATE', 'true')
+    environment('JAMMARR_COMMAND_CLIENT_GATE', 'true')
+    environment('JAMMARR_AUDIO_CLIENT_GATE', 'true')
+    environment('JAMMARR_AUDIO_SCENARIO_GATE', 'true')
+    commandLine('bash', 'scripts/run-dedicated-server-gate.sh', 'quilt')
+}
+
+tasks.register('verifyQuiltModMenuRuntimes', Exec) {
+    group = 'verification'
+    description = 'Repeats the five complete Quilt client scenarios with Mod Menu installed.'
+    workingDir(layout.projectDirectory)
+    environment('JAMMARR_GATE_OUTPUT_ROOT', layout.buildDirectory.dir('quilt-modmenu-gate').get().asFile.absolutePath)
+    environment('JAMMARR_QUILT_MODMENU_GATE', 'true')
+    environment('JAMMARR_PROTOCOL_CLIENT_GATE', 'true')
+    environment('JAMMARR_COMMAND_CLIENT_GATE', 'true')
+    environment('JAMMARR_AUDIO_CLIENT_GATE', 'true')
+    environment('JAMMARR_AUDIO_SCENARIO_GATE', 'true')
+    commandLine('bash', 'scripts/run-dedicated-server-gate.sh', 'quilt')
+    mustRunAfter('verifyDedicatedServers')
+}
+
+tasks.register('verifyFabricLoaderMinimumRuntimes', Exec) {
+    group = 'verification'
+    description = 'Starts every modern Fabric target under the declared minimum Fabric Loader 0.19.2.'
+    workingDir(layout.projectDirectory)
+    environment('JAMMARR_GATE_OUTPUT_ROOT', layout.buildDirectory.dir('fabric-loader-0.19.2-gate').get().asFile.absolutePath)
+    environment('JAMMARR_FABRIC_LOADER_VERSION', '0.19.2')
+    commandLine('bash', 'scripts/run-dedicated-server-gate.sh', 'fabric')
+    mustRunAfter('verifyQuiltModMenuRuntimes')
 }
 
 var generateModMetadata = tasks.register('generateModMetadata', ProcessResources) {

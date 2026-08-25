@@ -10,15 +10,16 @@ Jammarr is intentionally a required server-and-client mod. A server-only mod can
 - The matching Jammarr Minecraft-version and loader JAR on the dedicated server and every connecting client.
 - A Plex Media Server reachable from the Minecraft server. Clients do not need network access to Plex.
 
-| Minecraft | Java | Fabric | Forge | NeoForge |
-| --- | ---: | :---: | :---: | :---: |
-| 1.7.10 | 8 | unavailable | supported | unavailable |
-| 1.20.1 | 17 | supported | supported | supported |
-| 1.20.2 | 17 | supported | supported | supported |
-| 1.21.1 | 21 | supported | supported | supported |
-| 26.1.2 | 25 | supported | supported | supported |
+| Minecraft | Java | Fabric | Quilt | Forge | NeoForge |
+| --- | ---: | :---: | :---: | :---: | :---: |
+| 1.7.10 | 8 | unavailable | unavailable | supported | unavailable |
+| 1.20.1 | 17 | supported | supported | supported | supported |
+| 1.20.2 | 17 | supported | supported | supported | supported |
+| 1.21.1 | 21 | supported | supported | supported | supported |
+| 26.1.2 | 25 | supported | supported | supported | supported |
+| 26.2 | 25 | supported | supported | supported | supported |
 
-Fabric and NeoForge did not exist for Minecraft 1.7.10. Cross-loader and cross-Minecraft connections are unsupported. Every artifact uses protocol 5 and is named `jammarr-<mod-version>+mc<version>-<loader>.jar`; there is no universal JAR. Exact pinned dependencies are listed in the family catalogs under `gradle/version-catalogs/` and copied into the generated release manifest.
+Fabric, Quilt, and NeoForge are unavailable for Minecraft 1.7.10. Quilt is supported on every modern target using the matching `-fabric.jar`, Quilt Loader 0.30.0, and upstream Fabric API; no QSL, Quilted Fabric API, or separate `-quilt.jar` is required or published. Fabric-to-Quilt connections and other cross-loader or cross-Minecraft pairings are unsupported. Every artifact uses protocol 5 and is named `jammarr-<mod-version>+mc<version>-<loader>.jar`; there is no cross-Minecraft or Forge-family universal JAR. Exact pinned dependencies are listed in the family catalogs under `gradle/version-catalogs/` and copied into the generated release manifest.
 
 No external FFmpeg installation is required. Plex prepares an MP3 rendition; if a Plex version returns variable-bitrate data, Jammarr normalizes it in-process to the configured constant bitrate using its bundled pure-Java encoder.
 
@@ -50,7 +51,7 @@ Client listening and volume settings are separate from the server file. Forge an
 
 ## In-game use
 
-- Press `P` or run `/jammarr` to open the music screen.
+- Press `P` by default or run `/jammarr` to open the music screen. The key appears as **Open Jammarr** in Controls and can be rebound on every supported version and loader.
 - The screen includes Now Playing, Search, Artists, Albums, Playlists, Stations, Adventure, and Queue views with server-side pagination.
 - Every player may browse and append tracks, albums, artists, or audio playlists.
 - Permission-level 2 operators may pause, resume, skip, clear, remove, and reorder queue entries.
@@ -111,18 +112,21 @@ The Stations and Adventure tabs report whether Plex Pass is unavailable, library
 ./gradlew releaseMatrixGate --no-daemon --max-workers=1
 ```
 
-`releaseMatrixGate` runs the shared tests, all four three-loader modern family gates, the cleanup-aware GameTest gate, the isolated Forge 1.7.10 Java 8 gate, centralized inspection of every final JAR, and a fresh dedicated-server check for all 13 targets. Each target must first reject an invalid canonical config without leaking its value, then start successfully and complete authenticated library and sonic-capability calls against a deterministic loopback Plex service. Every target launches a real wrong-protocol client and requires the exact rejection on both sides. Modern targets pair a dependency-free missing-client probe with the loader's client-facing rejection; Forge 1.7.10 launches a real matching client with its acceptance-only hello suppressed and requires the explicit handshake timeout. A second real client proves public commands are visible before promotion, operator commands appear only after promotion, and `/jammarr diagnostics` reaches the player without exposing the Plex token or address. Finally, two real clients feed isolated audio sinks so the gate can measure late join, pause/resume, volume, mute, reload, cache-backed outage playback, Library Shuffle, Sonic Adventure, underrun and drift recovery, retry exhaustion/manual retry, reconnect, and clear; state or an allocated OpenAL source alone does not pass. The gate places exactly 13 runtime artifacts in `build/releases/` alongside `manifest.json` and `SHA256SUMS` and fails if a tested server leaves a process or game port behind.
+`releaseMatrixGate` runs the shared tests, all five three-loader modern family builds, the cleanup-aware GameTest gate, the isolated Forge 1.7.10 Java 8 gate, centralized inspection of every final JAR (including remappable menu-key registration), and fresh dedicated-server checks for all 21 supported loader/version runtimes. Every modern Fabric artifact is exercised under both Fabric and Quilt while remaining one release file. Each runtime must first reject an invalid canonical config without leaking its value, then start successfully and complete authenticated library and sonic-capability calls against a deterministic loopback Plex service. Every runtime launches a real wrong-protocol client and requires the exact rejection on both sides. Modern targets pair a dependency-free missing-client probe with the loader's client-facing rejection; Forge 1.7.10 launches a real matching client with its acceptance-only hello suppressed and requires the explicit missing-hello timeout. A second real client proves public commands are visible before promotion, operator commands appear only after promotion, and `/jammarr diagnostics` reaches the player without exposing the Plex token or address. Finally, two real clients feed isolated audio sinks so the gate can measure late join, pause/resume, volume, mute, reload, cache-backed outage playback, Library Shuffle, Sonic Adventure, underrun and drift recovery, retry exhaustion/manual retry, reconnect, and clear; state or an allocated OpenAL source alone does not pass. The gate places exactly 16 artifacts in `build/releases/` alongside schema-2 `manifest.json` and `SHA256SUMS` and fails if a tested server leaves a process or game port behind.
 
-Useful narrower gates are `verify1201Family`, `verify1202Family`, `verify1211Family`, `verify2612Family`, `verifyLegacy1710`, and `verifyGameTests`. Each target's `verifyRelease` checks loader metadata, translations, decoder dependencies, license notices, canonical filename, and other target-specific invariants. The legacy verifier additionally checks all Jammarr classes are Java 8 bytecode.
+Useful narrower gates are `verify1201Family`, `verify1202Family`, `verify1211Family`, `verify2612Family`, `verify262Family`, `verifyQuiltRuntimes`, `verifyLegacy1710`, and `verifyGameTests`. Each target's `verifyRelease` checks loader metadata, translations, decoder dependencies, license notices, canonical filename, and other target-specific invariants. The legacy verifier additionally checks all Jammarr classes are Java 8 bytecode.
 
 Release checklist:
 
 - [ ] Run `./gradlew releaseMatrixGate --no-daemon --max-workers=1` from a clean checkout.
 - [ ] Validate the credentialed Plex smoke test once per Minecraft family against the intended deployment server.
-- [ ] Confirm the automated 13-target dedicated-server gate passed and retain `build/dedicated-server-gate/` logs with the release evidence.
+- [ ] Confirm the automated 21-runtime dedicated-server gate passed and retain `build/dedicated-server-gate/` logs with the release evidence.
 - [ ] Confirm missing-client and deliberately incompatible-protocol clients receive a clear disconnect.
+- [ ] Confirm all modern Fabric JARs start under both Fabric Loader 0.19.2 and the pinned 0.19.3 runtime.
+- [ ] Confirm all five Quilt client scenarios pass both without Mod Menu and with the pinned Mod Menu version.
 - [ ] Complete the audible two-client matrix in `docs/RELEASE_ACCEPTANCE.md`; a connected client or allocated OpenAL source is not sufficient.
-- [ ] Publish the 13 JARs, `manifest.json`, and `SHA256SUMS` from `build/releases/` together.
+- [ ] On Modrinth, CurseForge, and any other distribution platform, mark each modern `-fabric.jar` as compatible with both Fabric and Quilt; never upload a duplicate `-quilt.jar`.
+- [ ] Publish the 16 JARs, `manifest.json`, and `SHA256SUMS` from `build/releases/` together.
 
 The opt-in live Plex test reads credentials only from its process environment:
 

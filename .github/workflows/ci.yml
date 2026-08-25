@@ -30,7 +30,7 @@ jobs:
           java-version: '21'
       - name: Record Java 21 home
         run: echo "JAMMARR_JAVA21_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
-      - name: Run the complete 13-artifact release matrix
+      - name: Run the complete 16-artifact, 21-runtime release matrix
         env:
           JAMMARR_ALSA_PCM_TYPE: pulse
         run: ./gradlew releaseMatrixGate --no-daemon --max-workers=1

@@ -8,6 +8,8 @@ version = '1.0.0'
 def artifactVersion = version.toString()
 def runtimeLoader = providers.gradleProperty('jammarrRuntimeLoader').orElse('fabric')
 def quiltRuntime = runtimeLoader.map { it == 'quilt' }
+def fabricLoaderVersion = providers.gradleProperty('jammarrFabricLoaderVersion').orElse(libs.versions.fabric.loader)
+def includeModMenu = providers.gradleProperty('jammarrIncludeModMenu').map { it.toBoolean() }.orElse(false)
 def quiltRuntimeLibraries = jammarrQuiltRuntimeProfiles[libs.versions.quilt.loader.get()]
 def quiltClassPathGroup = [
         layout.buildDirectory.dir('classes/java/main').get().asFile,
@@ -68,10 +70,11 @@ repositories {
 
 dependencies {
     minecraft "com.mojang:minecraft:${libs.versions.minecraft.get()}"
-    implementation quiltRuntime.get() ? libs.quilt.loader : libs.fabric.loader
+    implementation quiltRuntime.get() ? libs.quilt.loader : "net.fabricmc:fabric-loader:${fabricLoaderVersion.get()}"
     if (quiltRuntime.get()) quiltRuntimeLibraries.each { implementation it }
     implementation libs.fabric.api
     compileOnly libs.modmenu
+    if (includeModMenu.get()) runtimeOnly libs.modmenu
 
     implementation project(':core')
     include project(':core')
