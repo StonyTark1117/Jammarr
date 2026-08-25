@@ -1,0 +1,26 @@
+license="CC0-1.0"
+
+[[mods]]
+modId="jammarr"
+version="${version}"
+displayName="Jammarr"
+iconFile="jammarr.png"
+authors="stonytark_mkii"
+description='''Streams a shared, synchronized Plex music queue to every player.'''
+
+[[mixins]]
+config="jammarr.mixins.json"
+
+[[dependencies.jammarr]]
+modId="neoforge"
+type="required"
+versionRange="[26.2.0.67,26.3)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.jammarr]]
+modId="minecraft"
+type="required"
+versionRange="[26.2,26.3)"
+ordering="NONE"
+side="BOTH"

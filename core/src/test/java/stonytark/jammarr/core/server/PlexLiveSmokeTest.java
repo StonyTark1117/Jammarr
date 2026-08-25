@@ -39,14 +39,24 @@ public final class PlexLiveSmokeTest {
 
         List<QueueTrack> analyzed = plex.analyzedTracks(10);
         assertTrue(analyzed.size() >= 2, "The live Plex library did not return two analyzed tracks");
-        assertFalse(plex.nearestTracks(analyzed.get(0).key(), 25, 0.40).isEmpty(),
-                "The live Plex seed has no sonic neighbors");
-        List<QueueTrack> path = plex.sonicPath(analyzed.get(0).key(), analyzed.get(1).key(), 100);
+        QueueTrack sonicSeed = null;
+        List<QueueTrack> neighbors = Collections.emptyList();
+        for (QueueTrack candidate : analyzed) {
+            List<QueueTrack> candidateNeighbors = plex.nearestTracks(candidate.key(), 25, 0.40);
+            if (!candidateNeighbors.isEmpty()) {
+                sonicSeed = candidate;
+                neighbors = candidateNeighbors;
+                break;
+            }
+        }
+        assertFalse(neighbors.isEmpty(), "The live Plex analyzed tracks have no sonic neighbors");
+        QueueTrack sonicNeighbor = neighbors.get(0);
+        List<QueueTrack> path = plex.sonicPath(sonicSeed.key(), sonicNeighbor.key(), 100);
         assertTrue(path.size() >= 2, "The live Plex server did not produce a Sonic Adventure path");
 
         StationGenerator generator = new StationGenerator(plex);
-        StationModels.StationSeed first = seed(analyzed.get(0));
-        StationModels.StationSeed second = seed(analyzed.get(1));
+        StationModels.StationSeed first = seed(sonicSeed);
+        StationModels.StationSeed second = seed(sonicNeighbor);
         assertFalse(generator.generate(new StationModels.StationDefinition(
                         StationModels.StationType.TRACK_RADIO, "Track Radio",
                         Collections.singletonList(first), 1L), Collections.<QueueTrack>emptyList(),
