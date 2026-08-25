@@ -15,7 +15,7 @@
   },
   "mixins": ["jammarr.mixins.json"],
   "depends": {
-    "fabricloader": ">=0.19.3",
+    "fabricloader": ">=0.19.2",
     "fabric-api": ">=0.116.15+1.21.1",
     "minecraft": "~1.21.1",
     "java": ">=21"

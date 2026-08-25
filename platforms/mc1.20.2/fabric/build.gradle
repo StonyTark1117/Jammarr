@@ -1,10 +1,17 @@
 plugins {
     alias(libs.plugins.fabric.loom)
 }
+apply from: file('../../../gradle/quilt-runtime.gradle')
 
 group = 'stonytark'
 version = '1.0.0'
 def artifactVersion = version.toString()
+def runtimeLoader = providers.gradleProperty('jammarrRuntimeLoader').orElse('fabric')
+def quiltRuntime = runtimeLoader.map { it == 'quilt' }
+def quiltRuntimeLibraries = jammarrQuiltRuntimeProfiles[libs.versions.quilt.loader.get()]
+if (!(runtimeLoader.get() in ['fabric', 'quilt'])) {
+    throw new GradleException("Unsupported Jammarr runtime loader: ${runtimeLoader.get()}")
+}
 
 base {
     archivesName = "jammarr-${project.version}+mc1.20.2-fabric"
@@ -12,7 +19,22 @@ base {
 
 loom {
     runs {
+        server {
+            if (quiltRuntime.get()) {
+                property 'loader.development', 'true'
+                property 'loader.remapClasspathFile', file('.gradle/loom-cache/remapClasspath.txt').absolutePath
+                property 'loader.classPathGroups', "${layout.buildDirectory.dir('classes/java/main').get().asFile}${File.pathSeparator}${layout.buildDirectory.dir('resources/main').get().asFile}"
+            }
+            if (providers.gradleProperty('jammarrServerGameDir').isPresent()) {
+                runDir providers.gradleProperty('jammarrServerGameDir').get()
+            }
+        }
         client {
+            if (quiltRuntime.get()) {
+                property 'loader.development', 'true'
+                property 'loader.remapClasspathFile', file('.gradle/loom-cache/remapClasspath.txt').absolutePath
+                property 'loader.classPathGroups', "${layout.buildDirectory.dir('classes/java/main').get().asFile}${File.pathSeparator}${layout.buildDirectory.dir('resources/main').get().asFile}"
+            }
             if (providers.gradleProperty('jammarrAcceptanceServer').isPresent()) {
                 runDir providers.gradleProperty('jammarrAcceptanceGameDir').get()
                 programArgs '--username', providers.gradleProperty('jammarrAcceptanceUsername').get(),
@@ -32,13 +54,15 @@ java {
 repositories {
     mavenCentral()
     maven { url = 'https://maven.fabricmc.net/' }
+    maven { url = 'https://maven.quiltmc.org/repository/release/' }
     maven { url = 'https://maven.terraformersmc.com/releases/' }
 }
 
 dependencies {
     minecraft "com.mojang:minecraft:${libs.versions.minecraft.get()}"
     mappings loom.officialMojangMappings()
-    modImplementation libs.fabric.loader
+    modImplementation quiltRuntime.get() ? libs.quilt.loader : libs.fabric.loader
+    if (quiltRuntime.get()) quiltRuntimeLibraries.each { implementation it }
     modImplementation libs.fabric.api
     modCompileOnly libs.modmenu
 
@@ -54,6 +78,12 @@ dependencies {
 }
 
 dependencyLocking { lockAllConfigurations() }
+if (quiltRuntime.get()) {
+    configurations.configureEach {
+        resolutionStrategy.deactivateDependencyLocking()
+        quiltRuntimeLibraries.each { dependency -> resolutionStrategy.force(dependency) }
+    }
+}
 
 sourceSets {
     main {
@@ -134,7 +164,7 @@ tasks.register('verifyRelease') {
             def metadata = new groovy.json.JsonSlurper().parseText(
                     zip.getInputStream(zip.getEntry('fabric.mod.json')).getText('UTF-8'))
             if (metadata.id != 'jammarr' || metadata.depends.minecraft != '~1.20.2'
-                    || metadata.depends.java != '>=17') {
+                    || metadata.depends.java != '>=17' || metadata.depends.fabricloader != '>=0.19.2') {
                 throw new GradleException('Fabric metadata does not identify the expected mod, Minecraft, and Java versions')
             }
             if (!zip.getInputStream(zip.getEntry('jammarr.mixins.json')).getText('UTF-8').contains('"JAVA_17"')) {

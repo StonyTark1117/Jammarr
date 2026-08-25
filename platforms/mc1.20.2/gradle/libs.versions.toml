@@ -3,6 +3,7 @@ minecraft = "1.20.2"
 java = "17"
 fabric-loom = "1.17.19"
 fabric-loader = "0.19.3"
+quilt-loader = "0.30.0"
 fabric-api = "0.91.6+1.20.2"
 modmenu = "8.0.1"
 forgegradle = "6.0.54"
@@ -22,6 +23,7 @@ neogradle-userdev = { id = "net.neoforged.gradle.userdev", version.ref = "neogra
 
 [libraries]
 fabric-loader = { module = "net.fabricmc:fabric-loader", version.ref = "fabric-loader" }
+quilt-loader = { module = "org.quiltmc:quilt-loader", version.ref = "quilt-loader" }
 fabric-api = { module = "net.fabricmc.fabric-api:fabric-api", version.ref = "fabric-api" }
 modmenu = { module = "com.terraformersmc:modmenu", version.ref = "modmenu" }
 forge = { module = "net.minecraftforge:forge", version.ref = "forge-loader" }
