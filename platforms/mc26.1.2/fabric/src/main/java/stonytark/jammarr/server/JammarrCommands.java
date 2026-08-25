@@ -17,6 +17,10 @@ public final class JammarrCommands {
         CommandRegistrationCallback.EVENT.register((dispatcher, registries, environment) -> register(dispatcher));
     }
 
+    public static void registerQuiltFallback(CommandDispatcher<CommandSourceStack> dispatcher) {
+        if (dispatcher.getRoot().getChild("jammarr") == null) register(dispatcher);
+    }
+
     private static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         LiteralArgumentBuilder<CommandSourceStack> root = Commands.literal("jammarr")
                 .executes(c -> { JammarrNetwork.sendToPlayer(c.getSource().getPlayerOrException(), new JammarrPayloads.OpenScreen()); return 1; })
