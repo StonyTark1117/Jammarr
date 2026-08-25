@@ -26,14 +26,25 @@ import stonytark.jammarr.network.JammarrNetwork;
 import stonytark.jammarr.network.JammarrPayloads;
 
 import java.nio.file.Path;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class JammarrClient implements ClientModInitializer {
+    private static final AtomicBoolean INITIALIZED = new AtomicBoolean();
     private static final KeyMapping.Category CATEGORY = KeyMapping.Category.register(
             Identifier.fromNamespaceAndPath(Jammarr.MODID, "controls"));
     private static final KeyMapping OPEN = new KeyMapping("key.jammarr.open", InputConstants.Type.KEYSYM,
             GLFW.GLFW_KEY_P, CATEGORY);
 
     @Override public void onInitializeClient() {
+        initializeOnce();
+    }
+
+    public static void bootstrapQuilt() {
+        if (FabricLoader.getInstance().isModLoaded("quilt_loader")) new JammarrClient().initializeOnce();
+    }
+
+    private void initializeOnce() {
+        if (!INITIALIZED.compareAndSet(false, true)) return;
         installClientSettings();
         KeyMappingHelper.registerKeyMapping(OPEN);
         ClientPayloadBridge.install(JammarrClientState.INSTANCE::accept);
