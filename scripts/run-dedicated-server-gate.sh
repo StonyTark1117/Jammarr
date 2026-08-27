@@ -809,12 +809,22 @@ capture_audio_sink() {
   local sink=$1
   local raw=$2
   local seconds=${3:-3}
-  local recorder
+  local recorder expected_bytes deadline captured_bytes
   : > "$raw"
   parec --raw --latency-msec=50 --device="${sink}.monitor" \
     --format=s16le --rate=48000 --channels=2 > "$raw" &
   recorder=$!
-  sleep "$seconds"
+  # A heavily loaded hosted runner can deliver PulseAudio monitor samples at
+  # less than wall-clock speed. Wait for the requested amount of stereo s16le
+  # data instead of shortening the evidence window, but retain a bounded
+  # timeout so a stalled recorder still fails the downstream sample check.
+  expected_bytes=$((seconds * 48000 * 2 * 2))
+  deadline=$((SECONDS + seconds + 12))
+  while :; do
+    captured_bytes=$(stat -c %s "$raw" 2>/dev/null || printf '0')
+    if (( captured_bytes >= expected_bytes || SECONDS >= deadline )); then break; fi
+    sleep 0.2
+  done
   kill -TERM "$recorder" 2>/dev/null || true
   wait "$recorder" 2>/dev/null || true
 }
