@@ -28,6 +28,7 @@ final class LegacyAudioPlayer {
     private static final long MISSING_MANIFEST_RETRY_MS = 2_000L;
     private static final int MAX_RECOVERY_ATTEMPTS = 3;
     private static final int PCM_FEED_BYTES = 32 * 1024;
+    private static final long SOUND_RELOAD_DEBOUNCE_MS = 500L;
 
     private final ClockSynchronizer clock;
     private TransportPackets.AudioManifest manifest;
@@ -49,6 +50,8 @@ final class LegacyAudioPlayer {
     private int underruns;
     private boolean recovering;
     private boolean recoveryFailed;
+    private boolean soundUnavailable;
+    private long lastSoundReloadMs;
     private boolean started;
 
     LegacyAudioPlayer(ClockSynchronizer clock) { this.clock = clock; }
@@ -93,6 +96,15 @@ final class LegacyAudioPlayer {
     }
 
     void tick() {
+        if (soundUnavailable) return;
+        try {
+            tickUnsafe();
+        } catch (LinkageError unavailable) {
+            markSoundUnavailable(unavailable);
+        }
+    }
+
+    private void tickUnsafe() {
         long now = System.currentTimeMillis();
         if (manifest == null) return;
         if (decoder == null || window == null) {
@@ -114,7 +126,6 @@ final class LegacyAudioPlayer {
                     new TransportPackets.ChunkRequest(manifest.sessionId(), value.id(), value.startIndex(), value.count()));
         }
         Minecraft minecraft = Minecraft.getMinecraft();
-        if (JammarrSettings.enabled()) LegacySoundAccess.stopVanillaMusic(minecraft);
         SoundSystem current = LegacySoundAccess.soundSystem(minecraft);
         if (started && current != soundSystem) { requestRebuffer("sound engine reload"); return; }
         long localStart = clock.toLocalTime(manifest.startedAtEpochMs() + Math.max(0L, firstChunkStartMs));
@@ -193,6 +204,10 @@ final class LegacyAudioPlayer {
     }
 
     void audioEngineReloaded() {
+        long now = System.currentTimeMillis();
+        if (now - lastSoundReloadMs < SOUND_RELOAD_DEBOUNCE_MS) return;
+        lastSoundReloadMs = now;
+        soundUnavailable = false;
         if (manifest != null) requestRebuffer("sound engine reload");
     }
 
@@ -277,6 +292,8 @@ final class LegacyAudioPlayer {
         return started ? "PLAYING" : "BUFFERING";
     }
 
+    boolean ownsMusic() { return JammarrSettings.enabled() && manifest != null; }
+
     String status() {
         String state = state();
         if ("DISABLED".equals(state)) return "Listening disabled locally";
@@ -295,12 +312,20 @@ final class LegacyAudioPlayer {
         if (previous != null) {
             try {
                 previous.stop(SOURCE); previous.flush(SOURCE); previous.removeSource(SOURCE);
-            } catch (RuntimeException unavailable) {
+            } catch (Throwable unavailable) {
                 Jammarr.LOGGER.warn("Jammarr legacy sound engine changed during cleanup", unavailable);
             }
         }
         if (decoder != null) { decoder.close(); decoder = null; }
         window = null; started = false; firstChunkStartMs = -1L;
         sourceStartedLocalMs = 0L; sourceStartedPositionMs = 0L; queuedUntilLocalMs = 0L;
+    }
+
+    private void markSoundUnavailable(LinkageError unavailable) {
+        if (soundUnavailable) return;
+        soundUnavailable = true;
+        recoveryFailed = true;
+        resetAudio();
+        Jammarr.LOGGER.error("Jammarr legacy audio disabled after an unusable OpenAL context", unavailable);
     }
 }

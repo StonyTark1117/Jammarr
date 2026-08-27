@@ -5,10 +5,7 @@
   "compatibilityLevel": "JAVA_21",
   "mixins": [
   ],
-  "client": [
-    "client.SoundEngineAccessor",
-    "client.SoundManagerAccessor"
-  ],
+  "client": [],
   "injectors": {
     "defaultRequire": 1
   },

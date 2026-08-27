@@ -37,6 +37,9 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
     private boolean commandProbeSent;
     private boolean operatorProbeSent;
     private boolean acceptanceAudioQueued;
+    private boolean acceptanceScreenOpened;
+    private boolean acceptanceScreenLogged;
+    private int acceptanceScreenTicks;
     private String lastAcceptanceAudioState = "";
     private long lastTimeSync;
     private String notice = "";
@@ -111,6 +114,7 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
         long now = System.currentTimeMillis();
         if (now - lastTimeSync >= 10_000L) requestTimeSync();
         audio.tick();
+        runAcceptanceScreenProbe();
     }
 
     private void hello() {
@@ -123,6 +127,7 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
         audio.stop(); clock.reset(); notice = ""; helloSent = false; commandProbeSent = false;
         operatorProbeSent = false; lastTimeSync = 0L;
         acceptanceAudioQueued = false; lastAcceptanceAudioState = "";
+        acceptanceScreenOpened = false; acceptanceScreenLogged = false; acceptanceScreenTicks = 0;
         acceptanceControl.reset();
         playback = emptyPlayback(); station = emptyStation();
         browse = new ControlPackets.BrowseResults(ControlPackets.BrowseKind.SEARCH, "", 0,
@@ -163,6 +168,21 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
         }
         Jammarr.LOGGER.info("Acceptance playback state: status={} paused={} title={} origin={} queue={}",
                 value.status(), value.paused(), value.title(), value.origin(), queue);
+    }
+
+    private void runAcceptanceScreenProbe() {
+        if (!ProtocolLimits.commandProbeEnabled() || !"PLAYING".equals(audio.state())) return;
+        Minecraft minecraft = Minecraft.getMinecraft();
+        if (!acceptanceScreenOpened) {
+            minecraft.displayGuiScreen(new LegacyScreen(this));
+            acceptanceScreenOpened = true;
+            return;
+        }
+        if (!(minecraft.currentScreen instanceof LegacyScreen) || acceptanceScreenLogged) return;
+        if (++acceptanceScreenTicks >= 2) {
+            acceptanceScreenLogged = true;
+            Jammarr.LOGGER.info("Acceptance legacy Jammarr screen remained open across client ticks");
+        }
     }
 
     private void runAcceptanceControl() {
@@ -224,6 +244,7 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
     void clearNotice() { notice = ""; }
     String audioStatus() { return audio.status(); }
     String audioState() { return audio.state(); }
+    boolean suppressVanillaMusic() { return audio.ownsMusic(); }
     void listeningChanged() { audio.listeningChanged(); }
     void retryAudio() { audio.retry(); }
     void audioEngineReloaded() { audio.audioEngineReloaded(); }

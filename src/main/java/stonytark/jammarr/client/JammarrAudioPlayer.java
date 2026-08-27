@@ -8,14 +8,15 @@ import stonytark.jammarr.core.network.Hashing;
 import com.mojang.blaze3d.audio.Library;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.sounds.ChannelAccess;
+import net.minecraft.client.sounds.SoundEngine;
+import net.minecraft.client.sounds.SoundManager;
 import net.minecraft.sounds.SoundSource;
 import stonytark.jammarr.Jammarr;
 import stonytark.jammarr.core.platform.JammarrSettings;
 import stonytark.jammarr.core.protocol.ProtocolLimits;
-import stonytark.jammarr.mixin.client.SoundEngineAccessor;
-import stonytark.jammarr.mixin.client.SoundManagerAccessor;
 import stonytark.jammarr.network.JammarrPayloads;
 import stonytark.jammarr.network.JammarrNetwork;
+import java.lang.reflect.Field;
 import java.util.UUID;
 
 public final class JammarrAudioPlayer {
@@ -210,7 +211,7 @@ public final class JammarrAudioPlayer {
         StreamingMp3Decoder startingDecoder = decoder;
         UUID startingSession = manifest.sessionId();
         long startingPosition = Math.max(0, firstChunkStartMs);
-        ChannelAccess access = ((SoundEngineAccessor)((SoundManagerAccessor)(Object)Minecraft.getInstance().getSoundManager()).jammarr$soundEngine()).jammarr$channelAccess();
+        ChannelAccess access = channelAccess(Minecraft.getInstance().getSoundManager());
         access.createHandle(Library.Pool.STREAMING).whenComplete((handle, error) -> {
             boolean current = decoder == startingDecoder && manifest != null && manifest.sessionId().equals(startingSession);
             if (!current || !channelStarts.complete(startToken)) {
@@ -238,6 +239,26 @@ public final class JammarrAudioPlayer {
                 value.attachBufferStream(new PcmAudioStream(startingDecoder)); value.play();
             });
         });
+    }
+
+    private static ChannelAccess channelAccess(SoundManager manager) {
+        SoundEngine engine = fieldValue(manager, SoundEngine.class);
+        return fieldValue(engine, ChannelAccess.class);
+    }
+
+    private static <T> T fieldValue(Object owner, Class<T> type) {
+        for (Class<?> current = owner.getClass(); current != null; current = current.getSuperclass()) {
+            for (Field field : current.getDeclaredFields()) {
+                if (!type.isAssignableFrom(field.getType())) continue;
+                try {
+                    field.setAccessible(true);
+                    return type.cast(field.get(owner));
+                } catch (ReflectiveOperationException | RuntimeException error) {
+                    throw new IllegalStateException("Unable to access Minecraft audio field " + type.getName(), error);
+                }
+            }
+        }
+        throw new IllegalStateException("Minecraft audio field is missing: " + type.getName());
     }
 
     private void requestRebuffer(String reason) {

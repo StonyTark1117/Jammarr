@@ -405,7 +405,7 @@ public final class PlexService implements PlexGateway {
                 // ordinary library requests accept the same values as headers.
                 + "&X-Plex-Client-Identifier=" + CLIENT_ID
                 + "&X-Plex-Device-Name=" + encode("Minecraft Server")
-                + "&X-Plex-Product=Jammarr&X-Plex-Platform=Java&X-Plex-Version=1.0.0"
+                + "&X-Plex-Product=Jammarr&X-Plex-Platform=Java&X-Plex-Version=1.0.1"
                 + "&X-Plex-Provides=player&X-Plex-Client-Profile-Name=Generic"
                 + "&X-Plex-Client-Profile-Extra=" + encode(profile)
                 + "&X-Plex-Token=" + encode(token());
@@ -511,7 +511,7 @@ public final class PlexService implements PlexGateway {
         headers.put("Accept", "application/json");
         headers.put("X-Plex-Token", token());
         headers.put("X-Plex-Product", "Jammarr");
-        headers.put("X-Plex-Version", "1.0.0");
+        headers.put("X-Plex-Version", "1.0.1");
         headers.put("X-Plex-Client-Identifier", CLIENT_ID);
         return http.open(method, new URL(baseUrl() + path + separator), headers,
                 timeoutMillis(requestTimeout), timeoutMillis(requestTimeout));

@@ -14,7 +14,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 
-PRODUCT_VERSION = "1.0.0"
+PRODUCT_VERSION = "1.0.1"
 PROTOCOL_VERSION = 5
 TARGETS = (
     ("1.7.10", "forge", 8, 52),
@@ -350,7 +350,7 @@ def verify_metadata(archive: zipfile.ZipFile, names: set[str], minecraft: str, l
             if not required_quilt_hooks.issubset(names):
                 fail(f"{filename} is missing its guarded Quilt 26.x compatibility hooks")
         expected_jars = {
-            "META-INF/jars/core-1.0.0.jar",
+            "META-INF/jars/core-1.0.1.jar",
             "META-INF/jars/jlayer-1.0.1.jar",
             "META-INF/jars/jump3r-1.0.5.jar",
         }
@@ -463,7 +463,7 @@ def verify_jar(path: Path, minecraft: str, loader: str, java: int, expected_majo
                 fail(f"{filename} has incorrect Mixin Java compatibility")
             nested_prefix = "META-INF/jars" if loader == "fabric" else "META-INF/jarjar"
             core_candidates = sorted(name for name in names if name.startswith(f"{nested_prefix}/")
-                                     and name.endswith("core-1.0.0.jar"))
+                                     and name.endswith("core-1.0.1.jar"))
             if len(core_candidates) != 1:
                 fail(f"{filename} must bundle exactly one shared core JAR, found {core_candidates}")
             for core_entry in (

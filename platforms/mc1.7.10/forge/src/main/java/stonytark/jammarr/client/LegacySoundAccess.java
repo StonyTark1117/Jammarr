@@ -20,6 +20,8 @@ final class LegacySoundAccess {
             Minecraft.class, "mcMusicTicker", "field_147126_aw");
     private static final Field CURRENT_MUSIC = ReflectionHelper.findField(
             MusicTicker.class, "field_147678_c");
+    private static final Field MUSIC_DELAY = ReflectionHelper.findField(
+            MusicTicker.class, "field_147676_d");
 
     static SoundSystem soundSystem(Minecraft minecraft) {
         try {
@@ -28,15 +30,29 @@ final class LegacySoundAccess {
         } catch (IllegalAccessException error) { throw new IllegalStateException("Unable to access Minecraft sound system", error); }
     }
 
-    static void stopVanillaMusic(Minecraft minecraft) {
+    static void suppressVanillaMusic(Minecraft minecraft) {
         try {
             MusicTicker ticker = (MusicTicker) MUSIC_TICKER.get(minecraft);
             ISound current = (ISound) CURRENT_MUSIC.get(ticker);
             if (current != null) {
-                minecraft.getSoundHandler().stopSound(current);
+                try { minecraft.getSoundHandler().stopSound(current); }
+                catch (LinkageError unavailable) {
+                    // A failed LWJGL2 context cannot be called safely. Clearing
+                    // the ticker handle prevents the next native playing() poll.
+                }
                 CURRENT_MUSIC.set(ticker, null);
             }
+            MUSIC_DELAY.setInt(ticker, Integer.MAX_VALUE);
         } catch (IllegalAccessException error) { throw new IllegalStateException("Unable to suppress vanilla music", error); }
+    }
+
+    static void restoreVanillaMusic(Minecraft minecraft) {
+        try {
+            MusicTicker ticker = (MusicTicker) MUSIC_TICKER.get(minecraft);
+            MUSIC_DELAY.setInt(ticker, 0);
+        } catch (IllegalAccessException error) {
+            throw new IllegalStateException("Unable to restore vanilla music scheduling", error);
+        }
     }
 
     private LegacySoundAccess() {}
