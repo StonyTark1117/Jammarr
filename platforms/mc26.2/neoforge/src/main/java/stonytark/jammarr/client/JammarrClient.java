@@ -25,7 +25,7 @@ import stonytark.jammarr.network.JammarrPayloads;
 public final class JammarrClient {
     private static final KeyMapping.Category CATEGORY = KeyMapping.Category.register(
             Identifier.fromNamespaceAndPath(Jammarr.MODID, "controls"));
-    private static final KeyMapping OPEN = new KeyMapping("key.jammarr.open", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_P, CATEGORY);
+    private static final KeyMapping OPEN = new KeyMapping("key.jammarr.open", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_J, CATEGORY);
     private boolean openOnNextTick;
 
     public JammarrClient(IEventBus modBus, ModContainer container) {

@@ -29,7 +29,7 @@ import java.nio.file.Path;
 
 public final class JammarrClient implements ClientModInitializer {
     private static final KeyMapping OPEN = new KeyMapping("key.jammarr.open", InputConstants.Type.KEYSYM,
-            GLFW.GLFW_KEY_P, "key.categories.jammarr");
+            GLFW.GLFW_KEY_J, "key.categories.jammarr");
 
     @Override public void onInitializeClient() {
         installClientSettings();

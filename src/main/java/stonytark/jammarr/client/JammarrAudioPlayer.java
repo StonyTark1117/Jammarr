@@ -63,8 +63,8 @@ public final class JammarrAudioPlayer {
         } else {
             boolean timelineChanged = value.firstChunk() != manifest.firstChunk() || Math.abs(value.startedAtEpochMs() - manifest.startedAtEpochMs()) > DRIFT_REBUFFER_MS;
             manifest = value;
-            if (timelineChanged && JammarrSettings.enabled()) rebuffer();
-            else if (decoder == null && JammarrSettings.enabled()) beginStreaming();
+            if (timelineChanged && JammarrSettings.enabled() && !recoveryFailed) rebuffer();
+            else if (decoder == null && JammarrSettings.enabled() && !recoveryFailed) beginStreaming();
         }
         if (channel != null) channel.execute(c -> { if (value.paused()) c.pause(); else c.unpause(); });
     }
@@ -94,6 +94,14 @@ public final class JammarrAudioPlayer {
         long now = System.currentTimeMillis();
         if (manifest == null) return;
         if (decoder == null || window == null) {
+            // A recovery request can race another in-flight manifest response,
+            // or be delayed while a loaded integrated/dedicated server catches
+            // up. Do not leave the client in RECOVERING forever after one lost
+            // response; retry at a bounded cadence until streaming restarts.
+            if (recovering && !recoveryFailed && JammarrSettings.enabled()
+                    && now - lastMissingManifestRequestMs >= MISSING_MANIFEST_RETRY_MS) {
+                requestManifest();
+            }
             sendHealthIfNeeded(now);
             return;
         }
@@ -140,14 +148,13 @@ public final class JammarrAudioPlayer {
         sendHealthIfNeeded(now);
     }
 
-    public void ensureStarted() { if (manifest != null && decoder == null && JammarrSettings.enabled()) beginStreaming(); }
+    public void ensureStarted() { if (manifest != null && decoder == null && JammarrSettings.enabled() && !recoveryFailed) beginStreaming(); }
     public void playbackActive(boolean active) {
         if (!active || manifest != null || !JammarrSettings.enabled()) return;
         long now = System.currentTimeMillis();
         if (now - lastMissingManifestRequestMs < MISSING_MANIFEST_RETRY_MS) return;
-        lastMissingManifestRequestMs = now;
         recovering = true;
-        JammarrNetwork.sendToServer(new JammarrPayloads.ManifestRequest(true));
+        requestManifest();
     }
     public void listeningChanged() {
         if (!JammarrSettings.enabled()) {
@@ -155,7 +162,7 @@ public final class JammarrAudioPlayer {
         } else if (manifest != null) {
             resetAudio();
             recovering = true;
-            JammarrNetwork.sendToServer(new JammarrPayloads.ManifestRequest(true));
+            requestManifest();
         }
     }
     public boolean active() { return manifest != null && JammarrSettings.enabled(); }
@@ -248,6 +255,11 @@ public final class JammarrAudioPlayer {
             Jammarr.LOGGER.info("Acceptance audio state: RECOVERING reason={}", reason);
         }
         resetAudio();
+        requestManifest();
+    }
+
+    private void requestManifest() {
+        lastMissingManifestRequestMs = System.currentTimeMillis();
         JammarrNetwork.sendToServer(new JammarrPayloads.ManifestRequest(true));
     }
 
@@ -275,7 +287,7 @@ public final class JammarrAudioPlayer {
 
     private void rebuffer() { resetAudio(); beginStreaming(); }
     public void stop() { resetAudio(); manifest = null; recoveryAttempts = 0; underruns = 0; recovering = false; recoveryFailed = false; lastHealthSentMs = 0; lastMissingManifestRequestMs = 0; lastHealthState = ""; }
-    public void audioEngineReloaded() { if (manifest != null) { resetAudio(); if (JammarrSettings.enabled()) { recovering = true; JammarrNetwork.sendToServer(new JammarrPayloads.ManifestRequest(true)); } } }
+    public void audioEngineReloaded() { if (manifest != null) { resetAudio(); if (JammarrSettings.enabled()) { recovering = true; requestManifest(); } } }
 
     private void sendHealthIfNeeded(long now) {
         if (manifest == null) return;

@@ -236,7 +236,33 @@ def verify_no_deployment_secrets(archive: zipfile.ZipFile, filename: str) -> Non
 def verify_remappable_keybinding(archive: zipfile.ZipFile, minecraft: str,
                                  loader: str, filename: str) -> None:
     translations = json.loads(archive.read("assets/jammarr/lang/en_us.json"))
-    for key in ("key.jammarr.open", "key.categories.jammarr"):
+    required_translation_keys = ["key.jammarr.open", "key.categories.jammarr"]
+    # 26.x registers a namespaced custom category, whose translation key is
+    # derived from the category identifier rather than the legacy string.
+    if minecraft.startswith("26."):
+        required_translation_keys.append("key.category.jammarr.controls")
+    required_translation_keys.extend((
+        "jammarr.configuration", "jammarr.configuration.plexUrl",
+        "jammarr.configuration.plexToken", "jammarr.configuration.musicLibrary",
+        "jammarr.configuration.restartMode",
+        "jammarr.configuration.restartMode.RESTART_TRACK",
+        "jammarr.configuration.restartMode.CLEAR",
+        "jammarr.configuration.restartMode.RESUME_POSITION",
+        "jammarr.configuration.pauseWhenNoPlayers",
+        "jammarr.configuration.operatorPermissionLevel", "jammarr.configuration.queueLimit",
+        "jammarr.configuration.audioBitrateKbps", "jammarr.configuration.cacheSizeMiB",
+        "jammarr.configuration.stationMetadataFallbackEnabled",
+        "jammarr.configuration.enabled", "jammarr.configuration.volume"))
+    referenced_ui_keys: set[str] = set()
+    for entry in archive.infolist():
+        if not entry.filename.startswith("stonytark/jammarr/client/") \
+                or not entry.filename.endswith(".class"):
+            continue
+        referenced_ui_keys.update(match.decode("ascii") for match in re.findall(
+            rb"jammarr\.(?:screen|status|config)\.[A-Za-z0-9_.]+",
+            archive.read(entry)))
+    required_translation_keys.extend(sorted(referenced_ui_keys))
+    for key in required_translation_keys:
         if not isinstance(translations.get(key), str) or not translations[key].strip():
             fail(f"{filename} is missing the Controls translation {key}")
 
@@ -249,6 +275,8 @@ def verify_remappable_keybinding(archive: zipfile.ZipFile, minecraft: str,
         fail(f"{filename} is missing keybinding owner {class_name}")
     if b"key.jammarr.open" not in client:
         fail(f"{filename} does not construct the translated Jammarr menu binding")
+    if minecraft.startswith("26.") and b"controls" not in client:
+        fail(f"{filename} does not register the namespaced Jammarr Controls category")
 
     if legacy:
         required = (b"net/minecraft/client/settings/KeyBinding", b"registerKeyBinding",
@@ -275,6 +303,22 @@ def verify_remappable_keybinding(archive: zipfile.ZipFile, minecraft: str,
         fail(f"{filename} does not register the menu binding with its loader Controls event")
     elif b"consumeClick" not in client and b"getKey" not in client and b"m_90859_" not in client:
         fail(f"{filename} does not consume the configured menu binding")
+
+
+def verify_config_translations(archive: zipfile.ZipFile, minecraft: str,
+                               loader: str, filename: str) -> None:
+    if minecraft == "1.7.10" or loader == "fabric":
+        return
+    config = archive.read("stonytark/jammarr/config/JammarrConfig.class")
+    keys = (
+        "plexUrl", "plexToken", "musicLibrary", "restartMode",
+        "pauseWhenNoPlayers", "operatorPermissionLevel", "queueLimit",
+        "audioBitrateKbps", "cacheSizeMiB", "stationMetadataFallbackEnabled",
+        "enabled", "volume")
+    for key in keys:
+        translation = f"jammarr.configuration.{key}".encode("ascii")
+        if translation not in config:
+            fail(f"{filename} does not attach config translation {translation.decode()}")
 
 
 def verify_metadata(archive: zipfile.ZipFile, names: set[str], minecraft: str, loader: str,
@@ -357,6 +401,7 @@ def verify_jar(path: Path, minecraft: str, loader: str, java: int, expected_majo
         verify_metadata(archive, names, minecraft, loader, java, filename)
         json.loads(archive.read("assets/jammarr/lang/en_us.json"))
         verify_remappable_keybinding(archive, minecraft, loader, filename)
+        verify_config_translations(archive, minecraft, loader, filename)
         verify_png(archive.read("jammarr.png"), filename)
         for notice in ("META-INF/LICENSE-Jammarr-CC0-1.0.txt", "META-INF/LICENSE-LGPL-2.1-or-later.txt",
                        "META-INF/THIRD_PARTY_NOTICES.md"):

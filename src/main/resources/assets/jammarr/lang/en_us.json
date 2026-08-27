@@ -1,6 +1,7 @@
 {
   "key.jammarr.open": "Open Jammarr",
   "key.categories.jammarr": "Jammarr",
+  "key.category.jammarr.controls": "Jammarr",
   "jammarr.screen.title": "Jammarr - Plex Music",
   "jammarr.screen.search": "Search tracks...",
   "jammarr.screen.searching": "Searching…",
@@ -46,5 +47,21 @@
   "jammarr.config.listening": "Listening: %s",
   "jammarr.config.on": "On",
   "jammarr.config.off": "Off",
-  "jammarr.config.done": "Done"
+  "jammarr.config.done": "Done",
+  "jammarr.configuration": "Jammarr",
+  "jammarr.configuration.plexUrl": "Plex URL",
+  "jammarr.configuration.plexToken": "Plex token",
+  "jammarr.configuration.musicLibrary": "Music library",
+  "jammarr.configuration.restartMode": "Restart mode",
+  "jammarr.configuration.restartMode.RESTART_TRACK": "Restart track",
+  "jammarr.configuration.restartMode.CLEAR": "Clear position",
+  "jammarr.configuration.restartMode.RESUME_POSITION": "Resume position",
+  "jammarr.configuration.pauseWhenNoPlayers": "Pause when no players",
+  "jammarr.configuration.operatorPermissionLevel": "Operator permission level",
+  "jammarr.configuration.queueLimit": "Queue limit",
+  "jammarr.configuration.audioBitrateKbps": "Audio bitrate (kbps)",
+  "jammarr.configuration.cacheSizeMiB": "Audio cache size (MiB)",
+  "jammarr.configuration.stationMetadataFallbackEnabled": "Station metadata fallback",
+  "jammarr.configuration.enabled": "Enable audio",
+  "jammarr.configuration.volume": "Volume"
 }

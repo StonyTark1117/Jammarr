@@ -25,6 +25,7 @@ final class LegacyAudioPlayer {
     private static final long TARGET_SOUND_QUEUE_MS = 1_000L;
     private static final long DRIFT_REBUFFER_MS = 500L;
     private static final long UNDERRUN_GRACE_MS = 1_500L;
+    private static final long MISSING_MANIFEST_RETRY_MS = 2_000L;
     private static final int MAX_RECOVERY_ATTEMPTS = 3;
     private static final int PCM_FEED_BYTES = 32 * 1024;
 
@@ -40,6 +41,7 @@ final class LegacyAudioPlayer {
     private long lastAudioDataMs;
     private long lastCorrectionMs;
     private long lastRecoveryMs;
+    private long lastManifestRequestMs;
     private long lastHealthSentMs;
     private String lastHealthState = "";
     private int recoveryAttempts;
@@ -65,8 +67,8 @@ final class LegacyAudioPlayer {
             boolean timelineChanged = value.firstChunk() != manifest.firstChunk()
                     || Math.abs(value.startedAtEpochMs() - manifest.startedAtEpochMs()) > DRIFT_REBUFFER_MS;
             manifest = value;
-            if (timelineChanged && JammarrSettings.enabled()) rebuffer();
-            else if (decoder == null && JammarrSettings.enabled()) beginStreaming();
+            if (timelineChanged && JammarrSettings.enabled() && !recoveryFailed) rebuffer();
+            else if (decoder == null && JammarrSettings.enabled() && !recoveryFailed) beginStreaming();
         }
         if (started && soundSystem != null) {
             if (value.paused()) soundSystem.pause(SOURCE); else soundSystem.play(SOURCE);
@@ -93,7 +95,14 @@ final class LegacyAudioPlayer {
     void tick() {
         long now = System.currentTimeMillis();
         if (manifest == null) return;
-        if (decoder == null || window == null) { sendHealthIfNeeded(now); return; }
+        if (decoder == null || window == null) {
+            if (recovering && !recoveryFailed && JammarrSettings.enabled()
+                    && now - lastManifestRequestMs >= MISSING_MANIFEST_RETRY_MS) {
+                requestManifest();
+            }
+            sendHealthIfNeeded(now);
+            return;
+        }
         if (decoder.failure() != null && decoder.format() == null && now - lastRecoveryMs >= 2_000L) {
             requestRebuffer("decoder failure"); return;
         }
@@ -174,7 +183,7 @@ final class LegacyAudioPlayer {
         if (!JammarrSettings.enabled()) resetAudio();
         else if (manifest != null) {
             resetAudio(); recovering = true;
-            LegacyNetwork.sendToServer(LegacyPacketTypes.MANIFEST_REQUEST, new StatePackets.ManifestRequest(true));
+            requestManifest();
         }
     }
 
@@ -207,6 +216,11 @@ final class LegacyAudioPlayer {
             Jammarr.LOGGER.info("Acceptance audio state: RECOVERING reason={}", reason);
         }
         resetAudio();
+        requestManifest();
+    }
+
+    private void requestManifest() {
+        lastManifestRequestMs = System.currentTimeMillis();
         LegacyNetwork.sendToServer(LegacyPacketTypes.MANIFEST_REQUEST, new StatePackets.ManifestRequest(true));
     }
 
@@ -238,7 +252,8 @@ final class LegacyAudioPlayer {
 
     void stop() {
         resetAudio(); manifest = null; recoveryAttempts = 0; underruns = 0;
-        recovering = false; recoveryFailed = false; lastHealthSentMs = 0L; lastHealthState = "";
+        recovering = false; recoveryFailed = false; lastHealthSentMs = 0L;
+        lastManifestRequestMs = 0L; lastHealthState = "";
     }
 
     private void sendHealthIfNeeded(long now) {

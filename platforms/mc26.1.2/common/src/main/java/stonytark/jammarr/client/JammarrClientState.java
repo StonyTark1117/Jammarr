@@ -29,6 +29,11 @@ public final class JammarrClientState {
     private String notice = "";
     private boolean nonOperatorCommandsVerified;
     private boolean operatorCommandsVerified;
+    private boolean acceptanceScreenProbeSent;
+    private boolean acceptanceScreenVerified;
+    private int acceptanceScreenTicks;
+    private boolean acceptanceConfigScreenVerified;
+    private int acceptanceConfigScreenTicks;
     private boolean acceptanceAudioQueued;
     private AudioPlaybackState lastAcceptanceAudioState;
 
@@ -115,6 +120,7 @@ public final class JammarrClientState {
     }
     public void tick() {
         probeCommandPermissions();
+        probeScreenRendering();
         runAcceptanceControl();
         logAcceptanceAudioState();
         long now = System.currentTimeMillis();
@@ -129,6 +135,8 @@ public final class JammarrClientState {
     public void stop() {
         audio.stop(); clock.reset(); notice = ""; lastTimeSync = 0;
         nonOperatorCommandsVerified = false; operatorCommandsVerified = false;
+        acceptanceScreenProbeSent = false; acceptanceScreenVerified = false; acceptanceScreenTicks = 0;
+        acceptanceConfigScreenVerified = false; acceptanceConfigScreenTicks = 0;
         acceptanceAudioQueued = false; lastAcceptanceAudioState = null;
         acceptanceControl.reset();
         playback = new JammarrPayloads.PlaybackState(JammarrPayloads.PlaybackStatus.IDLE, "", "", "", true, 0, 0, 0, false, List.of());
@@ -153,12 +161,37 @@ public final class JammarrClientState {
         if (!nonOperatorCommandsVerified && !operatorVisible) {
             nonOperatorCommandsVerified = true;
             Jammarr.LOGGER.info("Acceptance command permissions: non-operator public=true operator=false");
+            connection.sendCommand("jammarr");
+            acceptanceScreenProbeSent = true;
+            Jammarr.LOGGER.info("Acceptance client issued: /jammarr");
         } else if (nonOperatorCommandsVerified && !operatorCommandsVerified && operatorVisible) {
             operatorCommandsVerified = true;
             Jammarr.LOGGER.info("Acceptance command permissions: operator public=true operator=true");
             connection.sendCommand("jammarr diagnostics");
             Jammarr.LOGGER.info("Acceptance client issued: /jammarr diagnostics");
         }
+    }
+    private void probeScreenRendering() {
+        if (!acceptanceScreenProbeSent || acceptanceConfigScreenVerified) return;
+        Minecraft minecraft = Minecraft.getInstance();
+        if (!acceptanceScreenVerified) {
+            if (!(minecraft.screen instanceof JammarrScreen)) {
+                acceptanceScreenTicks = 0;
+                return;
+            }
+            if (++acceptanceScreenTicks < 20) return;
+            acceptanceScreenVerified = true;
+            Jammarr.LOGGER.info("Acceptance Jammarr screen remained open across rendered frames");
+            minecraft.setScreen(new JammarrClientConfigScreen(minecraft.screen));
+            return;
+        }
+        if (!(minecraft.screen instanceof JammarrClientConfigScreen)) {
+            acceptanceConfigScreenTicks = 0;
+            return;
+        }
+        if (++acceptanceConfigScreenTicks < 20) return;
+        acceptanceConfigScreenVerified = true;
+        Jammarr.LOGGER.info("Acceptance Jammarr config screen remained open across rendered frames");
     }
     private void queueAcceptanceAudio() {
         if (!ProtocolLimits.audioProbeLeader() || acceptanceAudioQueued) return;

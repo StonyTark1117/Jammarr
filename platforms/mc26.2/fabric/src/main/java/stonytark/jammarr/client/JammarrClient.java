@@ -33,7 +33,7 @@ public final class JammarrClient implements ClientModInitializer {
     private static final KeyMapping.Category CATEGORY = KeyMapping.Category.register(
             Identifier.fromNamespaceAndPath(Jammarr.MODID, "controls"));
     private static final KeyMapping OPEN = new KeyMapping("key.jammarr.open", InputConstants.Type.KEYSYM,
-            GLFW.GLFW_KEY_P, CATEGORY);
+            GLFW.GLFW_KEY_J, CATEGORY);
 
     @Override public void onInitializeClient() {
         initializeOnce();

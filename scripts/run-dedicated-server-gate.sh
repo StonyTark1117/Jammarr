@@ -286,6 +286,24 @@ client_rejection_logged() {
     && grep -Fq 'Client disconnected with reason: Disconnected' "$console_log" 2>/dev/null
 }
 
+exact_client_rejection_logged() {
+  local console_log=$1
+  local rejection=$2
+  grep -Fq "Client disconnected with reason: $rejection" "$console_log" 2>/dev/null
+}
+
+rejection_observed() {
+  local server_console=$1
+  local client_console=$2
+  local rejection=$3
+  local allow_generic=$4
+  # The exact client reason is sent by the server and is authoritative even
+  # when a loader only records a generic disconnect in its server console.
+  exact_client_rejection_logged "$client_console" "$rejection" && return 0
+  grep -Fq "$rejection" "$server_console" 2>/dev/null \
+    && client_rejection_logged "$client_console" "$rejection" "$allow_generic"
+}
+
 run_wrong_protocol_client() {
   local label=$1
   local target_dir=$2
@@ -340,7 +358,8 @@ run_acceptance_client() {
   (
     cd "$target_dir" || exit 1
     ulimit -f "$client_log_limit_blocks"
-    exec setsid xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' env \
+    exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 \
+      xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' env \
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS="$java_tool_options" \
       LIBGL_ALWAYS_SOFTWARE=1 \
@@ -355,8 +374,8 @@ run_acceptance_client() {
   active_client_pid=$pid
 
   deadline=$((SECONDS + 600))
-  while ! grep -Fq "$rejection" "$server_console" 2>/dev/null \
-      || ! client_rejection_logged "$client_console" "$rejection" "$allow_generic_client_rejection"; do
+  while ! rejection_observed "$server_console" "$client_console" "$rejection" \
+      "$allow_generic_client_rejection"; do
     if client_bootstrap_failed "$client_console"; then
       echo "$label: $scenario could not initialize its headless display; see $client_console" >&2
       result=1
@@ -369,8 +388,8 @@ run_acceptance_client() {
       # period; a genuine launcher crash still fails once the window expires.
       exit_grace_deadline=$((SECONDS + 60))
       while (( SECONDS < exit_grace_deadline )); do
-        if grep -Fq "$rejection" "$server_console" 2>/dev/null \
-            && client_rejection_logged "$client_console" "$rejection" "$allow_generic_client_rejection"; then
+        if rejection_observed "$server_console" "$client_console" "$rejection" \
+            "$allow_generic_client_rejection"; then
           break 2
         fi
         sleep 1
@@ -389,7 +408,7 @@ run_acceptance_client() {
 
   if (( result == 0 )); then
     {
-      grep -F "$rejection" "$server_console" | tail -n 1
+      grep -F "$rejection" "$server_console" | tail -n 1 || true
       if ! grep -F "Client disconnected with reason: $rejection" "$client_console" | tail -n 1; then
         grep -F 'Client disconnected with reason: Disconnected' "$client_console" | tail -n 1
       fi
@@ -441,7 +460,8 @@ run_command_client() {
   (
     cd "$target_dir" || exit 1
     ulimit -f "$client_log_limit_blocks"
-    exec setsid xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' env \
+    exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 \
+      xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' env \
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS='-Djammarr.acceptance.enabled=true -Djammarr.acceptance.commandProbe=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
       LIBGL_ALWAYS_SOFTWARE=1 \
@@ -541,6 +561,20 @@ run_command_client() {
           result=1
         fi
       fi
+      if (( result == 0 )); then
+        deadline=$((SECONDS + 60))
+        while ! grep -Fq 'Acceptance Jammarr screen remained open across rendered frames' \
+            "$client_console" 2>/dev/null \
+            || ! grep -Fq 'Acceptance Jammarr config screen remained open across rendered frames' \
+            "$client_console" 2>/dev/null; do
+          if ! group_alive "$pid" || (( SECONDS >= deadline )); then
+            echo "$label: Jammarr player/config screens did not remain open across rendered frames; see $client_console" >&2
+            result=1
+            break
+          fi
+          sleep 1
+        done
+      fi
       python3 "$repo_root/scripts/minecraft-rcon.py" 127.0.0.1 "$rcon_port" "$rcon_password" \
         "deop $username" > /dev/null 2>&1 || true
     fi
@@ -559,6 +593,7 @@ run_command_client() {
     {
       grep -E 'Acceptance command permissions:|Acceptance command response: (Queue is empty|Operator permission is required|Plex=)' \
         "$client_console" || true
+      grep -E 'Acceptance Jammarr (config )?screen remained open across rendered frames' "$client_console" || true
       cat "$diagnostics"
     } > "$evidence"
   fi
@@ -637,7 +672,8 @@ start_audio_client() {
   (
     cd "$target_dir" || exit 1
     ulimit -f "$client_log_limit_blocks"
-    exec setsid xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' env \
+    exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 \
+      xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' env \
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS="-Djammarr.acceptance.enabled=true -Djammarr.acceptance.audioProbe=true -Djammarr.acceptance.audioLeader=$leader -Djammarr.acceptance.audioControlFile=$control_file -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true" \
       ALSA_CONFIG_PATH="$client_dir/alsa.conf" ALSOFT_DRIVERS=alsa LIBGL_ALWAYS_SOFTWARE=1 \

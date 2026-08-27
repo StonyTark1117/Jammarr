@@ -22,7 +22,7 @@ import stonytark.jammarr.network.JammarrPayloads;
 public final class JammarrClient {
     private static final JammarrClient INSTANCE = new JammarrClient();
     private static final KeyMapping OPEN = new KeyMapping("key.jammarr.open", InputConstants.Type.KEYSYM,
-            GLFW.GLFW_KEY_P, "key.categories.jammarr");
+            GLFW.GLFW_KEY_J, "key.categories.jammarr");
 
     public static void register(FMLJavaModLoadingContext context) {
         IEventBus modBus = context.getModEventBus();

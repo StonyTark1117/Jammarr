@@ -289,7 +289,10 @@ public final class JammarrScreen extends Screen {
     @Override public boolean keyPressed(net.minecraft.client.input.KeyEvent event) { if (event.key() == 257 && search != null && search.isFocused()) { request(0); return true; } return super.keyPressed(event); }
     @Override public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) { if (scrollY != 0 && view.browseKind != null && state.browse().kind() == view.browseKind) { rowOffset = Math.max(0, rowOffset + (scrollY < 0 ? 1 : -1)); rebuildWidgets(); return true; } return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY); }
     @Override public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
-        extractBackground(graphics, mouseX, mouseY, partialTick); super.extractRenderState(graphics, mouseX, mouseY, partialTick); graphics.centeredText(font, title, width / 2, 12, 0xFFFFFF);
+        // Screen#extractRenderState already extracts the background. Calling
+        // extractBackground here a second time trips the 26.1.2 render-state
+        // guard ("Can only blur once per frame") and crashes when the menu opens.
+        super.extractRenderState(graphics, mouseX, mouseY, partialTick); graphics.centeredText(font, title, width / 2, 12, 0xFFFFFF);
         JammarrPayloads.PlaybackState playing = state.playback(); String now = statusLabel(playing) + (playing.title().isBlank() ? "" : ": " + playing.title() + (playing.artist().isBlank() ? "" : " — " + playing.artist())) + "  " + time(playing.positionMs()) + "/" + time(playing.durationMs());
         graphics.centeredText(font, trim(now, width - 20), width / 2, 25, statusColor(playing.status()));
         String notice = screenNotice.isBlank() ? (state.notice().isBlank() ? playing.statusMessage() : state.notice()) : screenNotice;

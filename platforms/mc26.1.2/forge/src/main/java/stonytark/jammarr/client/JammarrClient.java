@@ -21,7 +21,7 @@ public final class JammarrClient {
     private static final KeyMapping.Category CATEGORY = KeyMapping.Category.register(
             Identifier.fromNamespaceAndPath(stonytark.jammarr.Jammarr.MODID, "controls"));
     private static final KeyMapping OPEN = new KeyMapping("key.jammarr.open", InputConstants.Type.KEYSYM,
-            GLFW.GLFW_KEY_P, CATEGORY);
+            GLFW.GLFW_KEY_J, CATEGORY);
 
     public static void register() {
         RegisterKeyMappingsEvent.BUS.addListener(INSTANCE::keys);

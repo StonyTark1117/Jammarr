@@ -22,7 +22,7 @@ import stonytark.jammarr.network.JammarrPayloads;
 
 @Mod(value = Jammarr.MODID, dist = net.neoforged.api.distmarker.Dist.CLIENT)
 public final class JammarrClient {
-    private static final KeyMapping OPEN = new KeyMapping("key.jammarr.open", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_P, "key.categories.jammarr");
+    private static final KeyMapping OPEN = new KeyMapping("key.jammarr.open", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_J, "key.categories.jammarr");
     private boolean openOnNextTick;
 
     public JammarrClient(IEventBus modBus, ModContainer container) {
