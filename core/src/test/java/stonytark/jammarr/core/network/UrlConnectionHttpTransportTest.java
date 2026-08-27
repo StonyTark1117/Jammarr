@@ -46,7 +46,7 @@ class UrlConnectionHttpTransportTest {
     @Test void enforcesReadTimeoutAfterHeaders() throws Exception {
         HttpTransport transport = new UrlConnectionHttpTransport();
         try (HttpTransport.Response response = transport.open("GET", url("/slow"),
-                Collections.<String, String>emptyMap(), 1_000, 30)) {
+                Collections.<String, String>emptyMap(), 2_000, 500)) {
             assertThrows(SocketTimeoutException.class,
                     () -> BoundedStreams.read(response.body(), 64, "too large"));
         }
@@ -75,7 +75,9 @@ class UrlConnectionHttpTransportTest {
     private void slow(HttpExchange exchange) throws IOException {
         exchange.sendResponseHeaders(200, 0);
         exchange.getResponseBody().flush();
-        try { Thread.sleep(150); }
+        // Leave enough separation for a loaded hosted runner to schedule the
+        // handler and deliver headers before the read-timeout window begins.
+        try { Thread.sleep(2_000); }
         catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
         try { exchange.getResponseBody().write('x'); }
         catch (IOException ignored) {}
