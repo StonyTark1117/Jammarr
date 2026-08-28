@@ -27,7 +27,7 @@ public final class JammarrAudioPlayer {
     // impossible and allowed clients to settle hundreds of milliseconds apart.
     private static final long START_BUFFER_MS = 2_000;
     private static final long DRIFT_REBUFFER_MS = 500;
-    private static final long UNDERRUN_GRACE_MS = 1_500;
+    private static final long UNDERRUN_GRACE_MS = 5_000;
     private static final long MISSING_MANIFEST_RETRY_MS = 2_000;
     private static final int MAX_RECOVERY_ATTEMPTS = 3;
 

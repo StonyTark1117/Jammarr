@@ -128,7 +128,8 @@ public final class JammarrClientState {
         runAcceptanceControl();
         logAcceptanceAudioState();
         long now = System.currentTimeMillis();
-        if (now - lastTimeSync >= 10_000) requestTimeSync();
+        long syncIntervalMs = clock.sampleCount() < 5 ? 500L : 10_000L;
+        if (now - lastTimeSync >= syncIntervalMs) requestTimeSync();
         audio.tick();
     }
     public void hello() {

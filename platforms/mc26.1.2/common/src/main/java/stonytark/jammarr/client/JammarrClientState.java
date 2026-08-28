@@ -63,7 +63,6 @@ public final class JammarrClientState {
             audio.playbackActive(value.status() == JammarrPayloads.PlaybackStatus.PLAYING
                     || value.status() == JammarrPayloads.PlaybackStatus.PAUSED);
             logAcceptancePlayback(value);
-            if (value.serverEpochMs() > 0 && !clock.initialized()) clock.accept(System.currentTimeMillis(), value.serverEpochMs(), System.currentTimeMillis());
             boolean queueBrowseChanged = refreshQueueBrowse();
             if (minecraft.screen instanceof JammarrScreen screen) {
                 screen.playbackChanged();
@@ -129,7 +128,8 @@ public final class JammarrClientState {
         runAcceptanceControl();
         logAcceptanceAudioState();
         long now = System.currentTimeMillis();
-        if (now - lastTimeSync >= 10_000) requestTimeSync();
+        long syncIntervalMs = clock.sampleCount() < 5 ? 500L : 10_000L;
+        if (now - lastTimeSync >= syncIntervalMs) requestTimeSync();
         audio.tick();
     }
     public void hello() {

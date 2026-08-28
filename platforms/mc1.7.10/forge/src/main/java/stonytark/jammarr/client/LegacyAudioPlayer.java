@@ -31,7 +31,7 @@ final class LegacyAudioPlayer {
     private static final long START_BUFFER_MS = 2_000L;
     private static final long TARGET_SOUND_QUEUE_MS = 1_000L;
     private static final long DRIFT_REBUFFER_MS = 500L;
-    private static final long UNDERRUN_GRACE_MS = 1_500L;
+    private static final long UNDERRUN_GRACE_MS = 5_000L;
     private static final long MISSING_MANIFEST_RETRY_MS = 2_000L;
     private static final int MAX_RECOVERY_ATTEMPTS = 3;
     private static final int PCM_FEED_BYTES = 32 * 1024;
