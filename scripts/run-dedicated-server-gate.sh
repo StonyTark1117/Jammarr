@@ -874,6 +874,39 @@ wait_for_audio_playing() {
   done
 }
 
+latest_audio_state_is() {
+  local client_console=$1
+  local expected=$2
+  grep -F 'Acceptance audio state:' "$client_console" 2>/dev/null \
+    | tail -n 1 | grep -Fq "Acceptance audio state: $expected"
+}
+
+wait_for_audio_pair_playing() {
+  local label=$1
+  local leader_pid=$2
+  local follower_pid=$3
+  local leader_console="$output_root/$label.audio-leader.console.log"
+  local follower_console="$output_root/$label.audio-follower.console.log"
+  local deadline=$((SECONDS + 120))
+  local stable_checks=0
+  while (( SECONDS < deadline )); do
+    if ! group_alive "$leader_pid" || ! group_alive "$follower_pid"; then
+      echo "$label: an audio client exited before synchronized capture" >&2
+      return 1
+    fi
+    if latest_audio_state_is "$leader_console" PLAYING \
+        && latest_audio_state_is "$follower_console" PLAYING; then
+      stable_checks=$((stable_checks + 1))
+      if (( stable_checks >= 2 )); then return 0; fi
+    else
+      stable_checks=0
+    fi
+    sleep 1
+  done
+  echo "$label: both clients did not settle in PLAYING before synchronized capture" >&2
+  return 1
+}
+
 launch_audio_client() {
   local label=$1
   local target_dir=$2
@@ -1352,6 +1385,11 @@ run_two_client_audio() {
     if launch_audio_client "$label" "$target_dir" "$java_home" "$client_port" follower JammarrAudioB "$sink_follower"; then
       follower_pid=$ready_audio_client_pid
     else
+      result=1
+    fi
+  fi
+  if (( result == 0 )); then
+    if ! wait_for_audio_pair_playing "$label" "$leader_pid" "$follower_pid"; then
       result=1
     fi
   fi
