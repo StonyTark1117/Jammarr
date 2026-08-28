@@ -22,7 +22,9 @@ import java.util.UUID;
 /** PCM streaming backend for Minecraft 1.7.10's Paulscode/OpenAL sound engine. */
 final class LegacyAudioPlayer {
     private static final String SOURCE = "jammarr:global_music";
-    private static final long START_BUFFER_MS = 5_000L;
+    // Keep enough of the server's five-second lead for the first MP3 chunk's
+    // boundary offset so Paulscode can start at the authoritative timestamp.
+    private static final long START_BUFFER_MS = 2_000L;
     private static final long TARGET_SOUND_QUEUE_MS = 1_000L;
     private static final long DRIFT_REBUFFER_MS = 500L;
     private static final long UNDERRUN_GRACE_MS = 1_500L;

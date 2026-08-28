@@ -21,7 +21,11 @@ import java.lang.reflect.Field;
 import java.util.UUID;
 
 public final class JammarrAudioPlayer {
-    private static final long START_BUFFER_MS = 5_000;
+    // The server schedules playback five seconds ahead, but an MP3 chunk may
+    // begin up to two seconds before that target at the supported 64 kbps
+    // minimum. Requiring the full five-second lead here made an on-time start
+    // impossible and allowed clients to settle hundreds of milliseconds apart.
+    private static final long START_BUFFER_MS = 2_000;
     private static final long DRIFT_REBUFFER_MS = 500;
     private static final long UNDERRUN_GRACE_MS = 1_500;
     private static final long MISSING_MANIFEST_RETRY_MS = 2_000;

@@ -6,6 +6,7 @@
 - Apply the sixty-second hello policy to every Fabric and Quilt runtime while retaining an acceptance-only short timeout for deterministic missing-client tests.
 - Prefer the Plex music library titled `Music` when `musicLibrary` is blank, and fail closed when unscoped metadata, playlists, native radio, or sonic results do not belong to the selected library.
 - Clarify which playback and station modes work without Plex Pass, including the optional metadata fallback and Adventure's Sonic-only requirement.
+- Start decoded audio with enough of the server's scheduling lead remaining to keep late-joining clients synchronized instead of accepting several hundred milliseconds of startup skew.
 - Add descriptive legacy action help plus deterministic marked-audio, two-client timing, and isolated network-impairment acceptance tooling.
 - Isolate shared-core build outputs per Gradle root so incremental cross-version release verification cannot reuse incompatible binary test metadata.
 - Retain protocol 5, saved-data schema 4, and the complete 16-artifact / 21-runtime compatibility matrix.

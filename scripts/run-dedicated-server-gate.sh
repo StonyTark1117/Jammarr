@@ -440,6 +440,24 @@ run_delayed_hello_client() {
 
 run_acceptance_client() {
   local label=$1
+  local scenario=$6
+  local client_console="$output_root/$label.$scenario.console.log"
+  local attempt
+  for attempt in 1 2; do
+    if run_acceptance_client_once "$@"; then return 0; fi
+    if (( attempt == 1 )) && grep -Eq \
+        'Timed out trying to setup the Game Window|Failed to initialize the mod loading system and display|Failed to download .*\.ogg|HttpTimeoutException: request timed out' \
+        "$client_console" 2>/dev/null; then
+      echo "$label: retrying $scenario after a transient client bootstrap failure" >&2
+      continue
+    fi
+    return 1
+  done
+  return 1
+}
+
+run_acceptance_client_once() {
+  local label=$1
   local target_dir=$2
   local java_home=$3
   local port=$4
