@@ -8,6 +8,9 @@ public final class ChunkTransferPolicy {
     public static final int MAX_CHUNKS_PER_REQUEST = 8;
     public static final long RETRY_AFTER_MS = 1_500;
     public static final long MAX_BUFFERED_MS = 12_000;
+    /** One maximum request at the supported 64 kbps minimum can span about sixteen seconds. */
+    public static final long MAX_COMPRESSED_WINDOW_DURATION_MS = 16_000;
+    public static final long MAX_PLAYBACK_LEAD_MS = MAX_BUFFERED_MS + MAX_COMPRESSED_WINDOW_DURATION_MS;
     private static final long MAX_BUFFER_REPORT_MS = 60_000;
 
     public static boolean acceptsRequest(State previous, UUID sessionId, long requestId, int startIndex, int count,

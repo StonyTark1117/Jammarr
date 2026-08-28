@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -44,6 +45,7 @@ class HardeningPolicyTest {
     }
 
     @Test void transferCannotRunAheadOfTheAuthoritativePlaybackWindow() {
+        assertEquals(28_000, ChunkTransferPolicy.MAX_PLAYBACK_LEAD_MS);
         assertTrue(ChunkTransferPolicy.withinPlaybackLead(17_000, 5_000, 12_000));
         assertFalse(ChunkTransferPolicy.withinPlaybackLead(17_001, 5_000, 12_000));
         assertFalse(ChunkTransferPolicy.withinPlaybackLead(-1, 5_000, 12_000));

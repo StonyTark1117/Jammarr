@@ -328,8 +328,13 @@ rejection_observed() {
   # The exact client reason is sent by the server and is authoritative even
   # when a loader only records a generic disconnect in its server console.
   exact_client_rejection_logged "$client_console" "$rejection" && return 0
-  grep -Fq "$rejection" "$server_console" 2>/dev/null \
-    && client_rejection_logged "$client_console" "$rejection" "$allow_generic"
+  grep -Fq "$rejection" "$server_console" 2>/dev/null || return 1
+  client_rejection_logged "$client_console" "$rejection" "$allow_generic" && return 0
+  # Transitional NeoForge 1.20.1 can omit its disconnected-screen log while
+  # the server still records both the exact rejection and the completed
+  # connection teardown. That pair is stronger evidence than waiting for a
+  # loader-specific client log line which will never be emitted.
+  grep -Fq "lost connection: $rejection" "$server_console" 2>/dev/null
 }
 
 run_wrong_protocol_client() {

@@ -390,7 +390,7 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
         }
         int start = request.startIndex();
         if (!ChunkTransferPolicy.withinPlaybackLead(asset.chunks().get(start).startMs(), positionMs(),
-                TRACK_START_DELAY_MS + ChunkTransferPolicy.MAX_BUFFERED_MS)) {
+                TRACK_START_DELAY_MS + ChunkTransferPolicy.MAX_PLAYBACK_LEAD_MS)) {
             rejectedChunkRequests++; stats.rejected++; return;
         }
         stats.accepted++;
