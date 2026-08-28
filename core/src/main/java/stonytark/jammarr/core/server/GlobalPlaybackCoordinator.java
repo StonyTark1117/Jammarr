@@ -4,6 +4,7 @@ import stonytark.jammarr.core.model.QueueTrack;
 import stonytark.jammarr.core.model.StationModels;
 import stonytark.jammarr.core.platform.JammarrSettings;
 import stonytark.jammarr.core.protocol.ControlPackets;
+import stonytark.jammarr.core.protocol.AudioTimingTrace;
 import stonytark.jammarr.core.protocol.JammarrMessage;
 import stonytark.jammarr.core.protocol.StatePackets;
 import stonytark.jammarr.core.protocol.TransportPackets;
@@ -125,6 +126,10 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
                     plexHealth = PlexHealth.ONLINE;
                     sonicCapability = status.capability();
                     sonicMessage = status.message();
+                    if (sonicCapability != StationModels.SonicCapability.READY
+                            && JammarrSettings.stationMetadataFallbackEnabled()) {
+                        sonicMessage += "; metadata fallback is available for stations except Adventure";
+                    }
                     plexDiagnostic = "Connected to the configured Plex music library";
                     preparationRetry.clear();
                     suspendedGeneration = -1L;
@@ -370,6 +375,8 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
     }
 
     public void chunks(P player, TransportPackets.ChunkRequest request) {
+        AudioTimingTrace.record("chunk_request_received", "request", request.requestId(),
+                "start", request.startIndex(), "count", request.count());
         chunkRequests++;
         ListenerStats stats = stats(player);
         stats.requests++; stats.lastSeenMs = System.currentTimeMillis();
@@ -395,6 +402,8 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
             Mp3FrameIndex.Chunk chunk = asset.chunks().get(index);
             send(player, new TransportPackets.AudioChunk(sessionId,
                     request.requestId(), chunk.index(), chunk.startMs(), chunk.sha256(), chunk.data()));
+            if (index == start) AudioTimingTrace.record("chunk_window_sent", "request", request.requestId(),
+                    "start", start, "count", request.count());
         }
     }
 
@@ -724,6 +733,8 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
         int firstChunk = Mp3FrameIndex.chunkAt(asset.chunks(),
                 Math.min(target, Math.max(0L, durationMs() - 1L)));
         transfers.put(runtime.playerId(player), ChunkTransferPolicy.initial(sessionId, firstChunk, now));
+        AudioTimingTrace.record("manifest_sent", "firstChunk", firstChunk,
+                "scheduledEpochMs", timeline.startedAtMs());
         send(player, new TransportPackets.AudioManifest(sessionId,
                 track.title(), track.artist(), asset.chunks().size(), firstChunk, durationMs(),
                 timeline.startedAtMs(), timeline.paused(), timeline.pausedPositionMs(), asset.sha256()));

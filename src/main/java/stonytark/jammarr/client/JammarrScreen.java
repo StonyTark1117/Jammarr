@@ -198,9 +198,9 @@ public final class JammarrScreen extends Screen {
         int x = left + panelWidth - actions * (button + gap);
         addAction("+", "Add to manual queue", x, y, b -> activate(item)); x += button + gap;
         if (!state.playback().operator() || item.kind() == JammarrPayloads.ItemKind.PLAYLIST) return;
-        addAction("R", "Start radio after manual requests", x, y, b -> startRadio(item)); x += button + gap;
-        addAction("M", "Add to Sonic Mix", x, y, b -> addMix(item)); x += button + gap;
-        if (item.kind() == JammarrPayloads.ItemKind.TRACK) addAction("A", "Add as Adventure waypoint", x, y, b -> addAdventure(item));
+        addAction("R", "Start radio (Sonic, or metadata fallback when enabled)", x, y, b -> startRadio(item)); x += button + gap;
+        addAction("M", "Add to Sonic Mix (metadata fallback can be enabled)", x, y, b -> addMix(item)); x += button + gap;
+        if (item.kind() == JammarrPayloads.ItemKind.TRACK) addAction("A", "Add as Adventure waypoint (Sonic and Plex Pass required)", x, y, b -> addAdventure(item));
     }
     private void addAction(String label, String tooltip, int x, int y, Button.OnPress press) {
         Button value = Button.builder(Component.literal(label), press).bounds(x, y, 28, 20).build(); value.setTooltip(Tooltip.create(Component.literal(tooltip))); addRenderableWidget(value);

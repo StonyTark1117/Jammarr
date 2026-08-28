@@ -26,7 +26,7 @@ No external FFmpeg installation is required. Plex prepares an MP3 rendition; if 
 ## Server setup
 
 1. Start the server once to generate `world/serverconfig/jammarr-server.toml`.
-2. Set `plexUrl` to the Plex base URL and `musicLibrary` to a music-library title or numeric section key. Leaving the library blank selects the first music library.
+2. Set `plexUrl` to the Plex base URL and `musicLibrary` to a music-library title or numeric section key. Leaving it blank prefers a music library titled `Music`, then falls back to the first valid music library. Jammarr binds browsing, queues, playlists, radio, fallback metadata, and transcodes to that selected section.
 3. Supply the token through `JAMMARR_PLEX_TOKEN` (recommended), or put it in `plexToken` in the server config.
 4. If using `plexToken`, restrict the server-config file to the Minecraft server account and keep backups/logs from exposing it. Restart the server after editing its server config. `/jammarr reload` reruns connection and library validation against the currently loaded values.
 
@@ -56,7 +56,7 @@ Client listening and volume settings are separate from the server file. Forge an
 - Every player may browse and append tracks, albums, artists, or audio playlists.
 - Permission-level 2 operators may pause, resume, skip, clear, remove, and reorder queue entries.
 - Each player may independently mute Jammarr and set a persistent local volume. Local opt-out never changes the global queue.
-- Operators can run one shared endless source: Sonic Autoplay, Library Shuffle, Track Radio, Artist Radio, Album Radio, or a 2–5 seed Sonic Mix. Track, artist, and album browse rows expose radio/mix actions.
+- Operators can run one shared endless source: Sonic Autoplay, Library Shuffle, Track Radio, Artist Radio, Album Radio, or a 2–5 seed Sonic Mix. Track, artist, and album browse rows expose radio/mix actions; the compact `+`, `R`, `M`, and `A` actions have descriptive hover help.
 - **Adventure is a separate tab.** Operators build an ordered route of 2–5 track waypoints, preview Plex's sonic path, and start it normally or immediately. After the final waypoint, Jammarr continues with Track Radio from that track.
 - Manual requests always play before generated station tracks after the current song. The Queue view marks generated preview entries as read-only; they do not consume the manual queue limit.
 - The Now Playing screen reports both server playback and local audio state. Decoder or transfer recovery is bounded and can be retried from the screen after a final local audio error.
@@ -79,11 +79,11 @@ Commands:
 | `/jammarr autoplay on`, `off` | Operator | Enable or disable sonic continuation from the five most recent tracks |
 | `/jammarr adventure status`, `stop` | Operator | Inspect or stop the shared Adventure source |
 
-## Plex sonic setup
+## Plex Pass and sonic setup
 
-Sonic stations require an active Plex Pass for the server owner and completed sonic analysis for the selected music library. Enable **Analyze audio tracks for sonic features** in the Plex server Library settings and **Sonic Analysis** in the music library's Advanced settings, then allow the analysis task to finish.
+Normal browsing, manual queues and playback, and Library Shuffle do not require Plex Pass. Sonic Adventure always requires an active Plex Pass for the server owner and completed sonic analysis for the selected music library. Enable **Analyze audio tracks for sonic features** in the Plex server Library settings and **Sonic Analysis** in the music library's Advanced settings, then allow the analysis task to finish.
 
-The Stations and Adventure tabs report whether Plex Pass is unavailable, library/seed analysis is incomplete, the server lacks the operation, validation is still running, or Plex is offline. Metadata fallback is deliberately off by default and never substitutes for Sonic Adventure.
+The Stations and Adventure tabs report whether Plex Pass is unavailable, library/seed analysis is incomplete, the server lacks the operation, validation is still running, or Plex is offline. When `stationMetadataFallbackEnabled=true`, Sonic Autoplay, Track/Artist/Album Radio, and Sonic Mix may continue using genre, style, related-item, and random-library metadata without Plex Pass. Metadata fallback is deliberately off by default and never substitutes for Sonic Adventure.
 
 ## Playback and failure behavior
 
@@ -98,6 +98,7 @@ The Stations and Adventure tabs report whether Plex Pass is unavailable, library
 - The queue and five-second playback checkpoints live in world saved data. A graceful shutdown records the current position for `RESUME_POSITION`.
 - The active station, autoplay toggle, seed/waypoint definition, current source, and the last 100 tracks used for repeat suppression also live in world saved data. Generated lookahead is rebuilt after restart. `RESTART_TRACK` and `RESUME_POSITION` retain the source; `CLEAR` removes it.
 - Unmodded clients and clients with an incompatible Jammarr network protocol are rejected during payload negotiation. Queue mutations include an expected track key so stale operator screens cannot modify the wrong entry.
+- Application-level client hello deadlines allow 60 seconds on Forge 1.7.10, Fabric, and Quilt so slow resource loading does not look like a missing mod. Timeout cleanup is completed before disconnect callbacks run.
 - The server diagnostics command reports Plex validation time, cache hit/miss/install/invalid counters, current and next-track cache state, active listener transfer counters, and client-reported recovery/underrun/buffer health.
 
 ## Security and privacy
@@ -116,6 +117,8 @@ The Stations and Adventure tabs report whether Plex Pass is unavailable, library
 `releaseMatrixGate` runs the shared tests, all five three-loader modern family builds, the cleanup-aware GameTest gate, the isolated Forge 1.7.10 Java 8 gate, centralized inspection of every final JAR (including remappable menu-key registration), and fresh dedicated-server checks for all 21 supported loader/version runtimes. Every modern Fabric artifact is exercised under both Fabric and Quilt while remaining one release file. Each runtime must first reject an invalid canonical config without leaking its value, then start successfully and complete authenticated library and sonic-capability calls against a deterministic loopback Plex service. Every runtime launches a real wrong-protocol client and requires either the exact client-received rejection or an exact server marker paired with the loader's generic client disconnect. Modern targets pair a dependency-free missing-client probe with the loader's client-facing rejection; Forge 1.7.10 launches a real matching client with its acceptance-only hello suppressed and requires the explicit missing-hello timeout. A second real client proves public commands are visible before promotion, operator commands appear only after promotion, the player and client-config screens survive rendered frames, and `/jammarr diagnostics` reaches the player without exposing the Plex token or address. Finally, two real clients feed isolated audio sinks so the gate can measure late join, pause/resume, volume, mute, reload, cache-backed outage playback, Library Shuffle, Sonic Adventure, underrun and drift recovery, retry exhaustion/manual retry, reconnect, and clear; state or an allocated OpenAL source alone does not pass. The gate places exactly 16 artifacts in `build/releases/` alongside schema-2 `manifest.json` and `SHA256SUMS` and fails if a tested server leaves a process or game port behind.
 
 Useful narrower gates are `verify1201Family`, `verify1202Family`, `verify1211Family`, `verify2612Family`, `verify262Family`, `verifyQuiltRuntimes`, `verifyLegacy1710`, and `verifyGameTests`. Each target's `verifyRelease` checks loader metadata, translations, decoder dependencies, license notices, canonical filename, and other target-specific invariants. The legacy verifier additionally checks all Jammarr classes are Java 8 bytecode.
+
+`scripts/run-audio-impairment-matrix.sh` reruns the representative 1.7.10, 1.20.1, and 26.2 client matrix with direct transport, 150 ms latency, 20–250 ms jitter, a two-second stall, repeated 250 ms client stalls, and a six-second below-bitrate overload. The gate uses a deterministic 997 Hz carrier with alternating 1477/1975 Hz markers every 250 ms and fails on post-start silence over 60 ms, marker error over 40 ms, onset over 300 ms, or two-client skew over 150 ms.
 
 Release checklist:
 

@@ -14,6 +14,7 @@ import net.minecraft.sounds.SoundSource;
 import stonytark.jammarr.Jammarr;
 import stonytark.jammarr.core.platform.JammarrSettings;
 import stonytark.jammarr.core.protocol.ProtocolLimits;
+import stonytark.jammarr.core.protocol.AudioTimingTrace;
 import stonytark.jammarr.network.JammarrPayloads;
 import stonytark.jammarr.network.JammarrNetwork;
 import java.lang.reflect.Field;
@@ -51,6 +52,8 @@ public final class JammarrAudioPlayer {
     public JammarrAudioPlayer(ClockSynchronizer clock) { this.clock = clock; }
 
     public void manifest(JammarrPayloads.AudioManifest value) {
+        AudioTimingTrace.record("manifest_received", "firstChunk", value.firstChunk(),
+                "scheduledEpochMs", value.startedAtEpochMs());
         if (value.totalChunks() == 0 || value.sessionId().equals(new UUID(0, 0))) { stop(); return; }
         // Queue pause before a checkpoint change tears down the old channel.
         // Otherwise resetAudio wins the race and a small tail can escape after
@@ -81,6 +84,8 @@ public final class JammarrAudioPlayer {
             window.reject(value.requestId());
             return;
         }
+        if (receivedChunks == 0) AudioTimingTrace.record("first_chunk_decoded", "index", value.index(),
+                "request", value.requestId());
         if (receivedChunks++ == 0) Jammarr.LOGGER.info("Jammarr received the first audio chunk");
         if (ProtocolLimits.audioProbeEnabled() && (value.index() == manifest.firstChunk() || value.index() % 8 == 0)) {
             Jammarr.LOGGER.info("Acceptance audio chunk: index={} request={} bufferedMs={}",
@@ -116,6 +121,8 @@ public final class JammarrAudioPlayer {
                     "Acceptance chunk request: id={} start={} count={} bufferedMs={}",
                     request.id(), request.startIndex(), request.count(), decoder.bufferedMillis());
             JammarrNetwork.sendToServer(new JammarrPayloads.ChunkRequest(manifest.sessionId(), request.id(), request.startIndex(), request.count()));
+            AudioTimingTrace.record("chunk_request_sent", "request", request.id(),
+                    "start", request.startIndex(), "count", request.count());
         });
         Minecraft minecraft = Minecraft.getInstance();
         if (JammarrSettings.enabled()) minecraft.getMusicManager().stopPlaying();
@@ -196,6 +203,7 @@ public final class JammarrAudioPlayer {
     }
 
     private void beginStreaming() {
+        AudioTimingTrace.record("decoder_started", "firstChunk", manifest.firstChunk());
         firstChunkStartMs = -1;
         decoder = new StreamingMp3Decoder(manifest.firstChunk(), manifest.totalChunks());
         window = new ChunkWindowTracker(manifest.firstChunk(), manifest.totalChunks(), 8, 1_500);
@@ -228,6 +236,8 @@ public final class JammarrAudioPlayer {
             }
             channel = handle;
             started = true;
+            AudioTimingTrace.record("channel_started", "positionMs", startingPosition,
+                    "scheduledLocalMs", now);
             // Recovery attempts are consecutive failures, not a lifetime budget
             // for the current track. Reaching a working OpenAL channel proves the
             // previous attempt succeeded and restores the normal retry allowance.

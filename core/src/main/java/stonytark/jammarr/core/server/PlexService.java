@@ -105,12 +105,23 @@ public final class PlexService implements PlexGateway {
         JsonObject root = getJson("/library/sections", "");
         JsonArray directories = array(container(root), "Directory");
         String wanted = configuredLibrary.get().trim();
+        String firstMusicKey = null;
+        String preferredMusicKey = null;
         for (JsonElement element : directories) {
+            if (!element.isJsonObject()) continue;
             JsonObject section = element.getAsJsonObject();
             if (!"artist".equals(text(section, "type"))) continue;
-            if (blank(wanted) || wanted.equals(text(section, "key")) || wanted.equalsIgnoreCase(text(section, "title"))) {
-                libraryKey = text(section, "key"); return;
+            String key = text(section, "key");
+            if (blank(key)) continue;
+            if (!blank(wanted) && (wanted.equals(key) || wanted.equalsIgnoreCase(text(section, "title")))) {
+                libraryKey = key; return;
             }
+            if (firstMusicKey == null) firstMusicKey = key;
+            if ("Music".equalsIgnoreCase(text(section, "title"))) preferredMusicKey = key;
+        }
+        if (blank(wanted)) {
+            libraryKey = preferredMusicKey == null ? firstMusicKey : preferredMusicKey;
+            if (libraryKey != null) return;
         }
         throw new PlexException(PlexException.Kind.CONFIGURATION, "No matching Plex music library was found");
     }
@@ -144,6 +155,7 @@ public final class PlexService implements PlexGateway {
 
     public List<QueueTrack> nativeRadioTracks(StationSeed seed, int limit) throws IOException, InterruptedException {
         if (seed.kind() == ItemKind.PLAYLIST) return Collections.emptyList();
+        ensureSelectedItem(seed.key());
         JsonArray metadata = array(container(getJson("/library/metadata/" + encodePath(seed.key()), "includeStations=1")), "Metadata");
         if (metadata.size() == 0 || !metadata.get(0).isJsonObject()) return Collections.emptyList();
         JsonObject item = metadata.get(0).getAsJsonObject(); JsonElement stationsElement = item.get("Stations");
@@ -157,15 +169,24 @@ public final class PlexService implements PlexGateway {
         }
         if (blank(machine)) return Collections.emptyList();
         String uri = "server://" + machine + "/com.plexapp.plugins.library" + stationKey;
-        JsonArray queue = array(container(postJson("/playQueues", "type=audio&includeRelated=1&continuous=1&uri=" + encode(uri))), "Metadata");
+        JsonObject queueRoot = postJson("/playQueues", "type=audio&includeRelated=1&continuous=1&uri=" + encode(uri));
+        JsonObject queueContainer = container(queueRoot);
+        JsonArray queue = array(queueContainer, "Metadata");
         List<QueueTrack> tracks = new ArrayList<>();
-        for (JsonElement element : queue) { QueueTrack track = queueTrack(element); if (track != null) tracks.add(track); if (tracks.size() >= Math.max(1, Math.min(limit, 100))) break; }
+        for (JsonElement element : queue) {
+            QueueTrack track = selectedQueueTrack(queueContainer, element);
+            if (track != null) tracks.add(track);
+            if (tracks.size() >= Math.max(1, Math.min(limit, 100))) break;
+        }
         return immutable(tracks);
     }
 
     public boolean hasSonicAnalysis(String key) throws IOException, InterruptedException {
-        JsonArray metadata = array(container(getJson("/library/metadata/" + encodePath(key), "")), "Metadata");
+        JsonObject root = getJson("/library/metadata/" + encodePath(key), "");
+        JsonObject resultContainer = container(root);
+        JsonArray metadata = array(resultContainer, "Metadata");
         return metadata.size() != 0 && metadata.get(0).isJsonObject()
+                && belongsToSelectedLibrary(resultContainer, metadata.get(0).getAsJsonObject())
                 && number(metadata.get(0).getAsJsonObject(), "musicAnalysisVersion") >= 1;
     }
 
@@ -181,12 +202,16 @@ public final class PlexService implements PlexGateway {
     public List<SonicResult> nearest(ItemKind kind, String key, int limit, double maxDistance)
             throws IOException, InterruptedException {
         if (kind == ItemKind.PLAYLIST) throw new PlexException(PlexException.Kind.INVALID_RESPONSE, "Playlists cannot be sonic seeds");
+        ensureSelectedItem(key);
         int bounded = Math.max(1, Math.min(limit, 100));
         double distance = Math.max(0.0, Math.min(maxDistance, 1.0));
-        JsonArray metadata = array(container(getJson("/library/metadata/" + encodePath(key) + "/nearest",
-                "limit=" + bounded + "&maxDistance=" + distance)), "Metadata");
+        JsonObject root = getJson("/library/metadata/" + encodePath(key) + "/nearest",
+                "limit=" + bounded + "&maxDistance=" + distance);
+        JsonObject resultContainer = container(root);
+        JsonArray metadata = array(resultContainer, "Metadata");
         List<SonicResult> results = new ArrayList<>();
         for (JsonElement element : metadata) {
+            if (!element.isJsonObject() || !belongsToSelectedLibrary(resultContainer, element.getAsJsonObject())) continue;
             MediaItem item = mediaItem(element);
             if (item == null || item.kind() != kind || item.key().equals(key)) continue;
             JsonObject value = element.getAsJsonObject();
@@ -196,12 +221,15 @@ public final class PlexService implements PlexGateway {
     }
 
     public List<QueueTrack> nearestTracks(String key, int limit, double maxDistance) throws IOException, InterruptedException {
+        ensureSelectedItem(key);
         int bounded = Math.max(1, Math.min(limit, 100));
-        JsonArray metadata = array(container(getJson("/library/metadata/" + encodePath(key) + "/nearest",
-                "limit=" + bounded + "&maxDistance=" + Math.max(0.0, Math.min(maxDistance, 1.0)))), "Metadata");
+        JsonObject root = getJson("/library/metadata/" + encodePath(key) + "/nearest",
+                "limit=" + bounded + "&maxDistance=" + Math.max(0.0, Math.min(maxDistance, 1.0)));
+        JsonObject resultContainer = container(root);
+        JsonArray metadata = array(resultContainer, "Metadata");
         List<QueueTrack> results = new ArrayList<>();
         for (JsonElement element : metadata) {
-            QueueTrack track = queueTrack(element);
+            QueueTrack track = selectedQueueTrack(resultContainer, element);
             if (track != null && !track.key().equals(key)) results.add(track);
         }
         return immutable(results);
@@ -248,16 +276,24 @@ public final class PlexService implements PlexGateway {
     }
 
     private List<QueueTrack> metadataRelated(StationSeed seed, int limit) throws IOException, InterruptedException {
-        JsonArray metadata = array(container(getJson("/library/metadata/" + encodePath(seed.key()), "")), "Metadata");
+        JsonObject root = getJson("/library/metadata/" + encodePath(seed.key()), "");
+        JsonObject resultContainer = container(root);
+        JsonArray metadata = array(resultContainer, "Metadata");
         if (metadata.size() == 0 || !metadata.get(0).isJsonObject()) return Collections.emptyList();
-        JsonObject item = metadata.get(0).getAsJsonObject(); LinkedHashSet<String> genres = tags(item, "Genre"), styles = tags(item, "Style");
+        JsonObject item = metadata.get(0).getAsJsonObject();
+        if (!belongsToSelectedLibrary(resultContainer, item)) return Collections.emptyList();
+        LinkedHashSet<String> genres = tags(item, "Genre"), styles = tags(item, "Style");
         if (seed.kind() == ItemKind.TRACK && genres.isEmpty() && styles.isEmpty()) {
             String parent = text(item, "parentRatingKey"), artist = text(item, "grandparentRatingKey");
             for (String related : Arrays.asList(parent, artist)) {
                 if (blank(related)) continue;
-                JsonArray relatedMetadata = array(container(getJson("/library/metadata/" + encodePath(related), "")), "Metadata");
+                JsonObject relatedRoot = getJson("/library/metadata/" + encodePath(related), "");
+                JsonObject relatedContainer = container(relatedRoot);
+                JsonArray relatedMetadata = array(relatedContainer, "Metadata");
                 if (relatedMetadata.size() != 0 && relatedMetadata.get(0).isJsonObject()) {
-                    genres.addAll(tags(relatedMetadata.get(0).getAsJsonObject(), "Genre")); styles.addAll(tags(relatedMetadata.get(0).getAsJsonObject(), "Style"));
+                    JsonObject relatedItem = relatedMetadata.get(0).getAsJsonObject();
+                    if (!belongsToSelectedLibrary(relatedContainer, relatedItem)) continue;
+                    genres.addAll(tags(relatedItem, "Genre")); styles.addAll(tags(relatedItem, "Style"));
                 }
             }
         }
@@ -299,7 +335,7 @@ public final class PlexService implements PlexGateway {
                 break;
             case PLAYLISTS:
                 path = "/playlists";
-                params += "&playlistType=audio&sort=titleSort:asc";
+                params += "&playlistType=audio&sectionID=" + encode(libraryKey) + "&sort=titleSort:asc";
                 break;
             default:
                 throw new IOException("Unsupported browse category");
@@ -307,6 +343,8 @@ public final class PlexService implements PlexGateway {
         JsonArray metadata = array(container(getJson(path, params)), "Metadata");
         List<MediaItem> items = new ArrayList<>();
         for (JsonElement element : metadata) {
+            if (kind == BrowseKind.PLAYLISTS && (!element.isJsonObject()
+                    || !playlistBelongsToSelectedLibrary(text(element.getAsJsonObject(), "ratingKey")))) continue;
             MediaItem item = mediaItem(element);
             if (item != null) items.add(item);
         }
@@ -340,21 +378,20 @@ public final class PlexService implements PlexGateway {
         }
         String params = kind == ItemKind.TRACK ? ""
                 : "X-Plex-Container-Start=0&X-Plex-Container-Size=" + boundedLimit;
-        JsonArray metadata = array(container(getJson(path, params)), "Metadata");
+        JsonObject root = getJson(path, params);
+        JsonObject resultContainer = container(root);
+        JsonArray metadata = array(resultContainer, "Metadata");
         List<QueueTrack> tracks = new ArrayList<>();
         for (JsonElement element : metadata) {
             if (tracks.size() >= boundedLimit) break;
-            if (!element.isJsonObject()) continue;
-            JsonObject value = element.getAsJsonObject();
-            if (!"track".equals(text(value, "type"))) continue;
-            String ratingKey = text(value, "ratingKey"), title = text(value, "title");
-            if (blank(ratingKey) || blank(title)) continue;
-            tracks.add(new QueueTrack(ratingKey, title, text(value, "grandparentTitle"), text(value, "parentTitle"), number(value, "duration")));
+            QueueTrack track = selectedQueueTrack(resultContainer, element);
+            if (track != null) tracks.add(track);
         }
         return immutable(tracks);
     }
 
     public void transcode(QueueTrack track, Path output, int bitrate) throws IOException, InterruptedException {
+        ensureSelectedItem(track.key());
         if (track.durationMs() > MAX_TRACK_DURATION_MS) {
             throw new PlexException(PlexException.Kind.INVALID_RESPONSE, "Plex track exceeds the three-hour safety limit");
         }
@@ -405,7 +442,7 @@ public final class PlexService implements PlexGateway {
                 // ordinary library requests accept the same values as headers.
                 + "&X-Plex-Client-Identifier=" + CLIENT_ID
                 + "&X-Plex-Device-Name=" + encode("Minecraft Server")
-                + "&X-Plex-Product=Jammarr&X-Plex-Platform=Java&X-Plex-Version=1.0.1"
+                + "&X-Plex-Product=Jammarr&X-Plex-Platform=Java&X-Plex-Version=1.0.2"
                 + "&X-Plex-Provides=player&X-Plex-Client-Profile-Name=Generic"
                 + "&X-Plex-Client-Profile-Extra=" + encode(profile)
                 + "&X-Plex-Token=" + encode(token());
@@ -460,6 +497,46 @@ public final class PlexService implements PlexGateway {
         return new QueueTrack(key, title, text(value, "grandparentTitle"), text(value, "parentTitle"), number(value, "duration"));
     }
 
+    private QueueTrack selectedQueueTrack(JsonObject resultContainer, JsonElement element) {
+        if (!element.isJsonObject() || !belongsToSelectedLibrary(resultContainer, element.getAsJsonObject())) return null;
+        return queueTrack(element);
+    }
+
+    private void ensureSelectedItem(String key) throws IOException, InterruptedException {
+        ensureLibrary();
+        JsonObject root = getJson("/library/metadata/" + encodePath(key), "");
+        JsonObject resultContainer = container(root);
+        JsonArray metadata = array(resultContainer, "Metadata");
+        if (metadata.size() == 0 || !metadata.get(0).isJsonObject()
+                || !belongsToSelectedLibrary(resultContainer, metadata.get(0).getAsJsonObject())) {
+            throw new PlexException(PlexException.Kind.NOT_FOUND,
+                    "Plex item is outside the selected music library");
+        }
+    }
+
+    private boolean playlistBelongsToSelectedLibrary(String key) throws IOException, InterruptedException {
+        if (blank(key)) return false;
+        JsonObject root = getJson("/playlists/" + encodePath(key) + "/items",
+                "X-Plex-Container-Start=0&X-Plex-Container-Size=" + MAX_EXPANDED_TRACKS);
+        JsonObject resultContainer = container(root);
+        JsonArray metadata = array(resultContainer, "Metadata");
+        if (metadata.size() == 0 || number(resultContainer, "totalSize") > MAX_EXPANDED_TRACKS) return false;
+        for (JsonElement element : metadata) {
+            if (selectedQueueTrack(resultContainer, element) == null) return false;
+        }
+        return true;
+    }
+
+    private boolean belongsToSelectedLibrary(JsonObject resultContainer, JsonObject item) {
+        String section = text(item, "librarySectionID");
+        if (blank(section)) section = text(resultContainer, "librarySectionID");
+        if (!blank(section)) return libraryKey.equals(section);
+        String sectionKey = text(item, "librarySectionKey");
+        if (blank(sectionKey)) sectionKey = text(resultContainer, "librarySectionKey");
+        return !blank(sectionKey) && (sectionKey.equals(libraryKey)
+                || sectionKey.endsWith("/library/sections/" + libraryKey));
+    }
+
     private void ensureLibrary() throws IOException, InterruptedException { if (libraryKey == null) validate(); }
     private JsonObject getJson(String path, String query) throws IOException, InterruptedException {
         HttpTransport.Response response;
@@ -511,7 +588,7 @@ public final class PlexService implements PlexGateway {
         headers.put("Accept", "application/json");
         headers.put("X-Plex-Token", token());
         headers.put("X-Plex-Product", "Jammarr");
-        headers.put("X-Plex-Version", "1.0.1");
+        headers.put("X-Plex-Version", "1.0.2");
         headers.put("X-Plex-Client-Identifier", CLIENT_ID);
         return http.open(method, new URL(baseUrl() + path + separator), headers,
                 timeoutMillis(requestTimeout), timeoutMillis(requestTimeout));

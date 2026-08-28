@@ -12,6 +12,7 @@ import stonytark.jammarr.core.network.Hashing;
 import stonytark.jammarr.core.platform.JammarrSettings;
 import stonytark.jammarr.core.protocol.StatePackets;
 import stonytark.jammarr.core.protocol.TransportPackets;
+import stonytark.jammarr.core.protocol.AudioTimingTrace;
 import stonytark.jammarr.network.LegacyNetwork;
 import stonytark.jammarr.network.LegacyPacketTypes;
 
@@ -53,10 +54,13 @@ final class LegacyAudioPlayer {
     private boolean soundUnavailable;
     private long lastSoundReloadMs;
     private boolean started;
+    private boolean timingDrainRecorded;
 
     LegacyAudioPlayer(ClockSynchronizer clock) { this.clock = clock; }
 
     void manifest(TransportPackets.AudioManifest value) {
+        AudioTimingTrace.record("manifest_received", "firstChunk", value.firstChunk(),
+                "scheduledEpochMs", value.startedAtEpochMs());
         if (value.totalChunks() == 0 || value.sessionId().equals(new UUID(0L, 0L))) { stop(); return; }
         // Queue pause ahead of any timeline rebuffer/cleanup. Paulscode runs
         // these commands asynchronously, and cleanup-first can let a fragment
@@ -84,6 +88,8 @@ final class LegacyAudioPlayer {
         if (!Hashing.matchesSha256(value.data(), value.sha256())) { window.reject(value.requestId()); return; }
         if (firstChunkStartMs < 0L && value.index() == manifest.firstChunk()) firstChunkStartMs = value.startMs();
         if (!decoder.offer(value.index(), value.data())) { window.reject(value.requestId()); return; }
+        if (receivedChunks == 0) AudioTimingTrace.record("first_chunk_decoded", "index", value.index(),
+                "request", value.requestId());
         if (receivedChunks++ == 0) Jammarr.LOGGER.info("Jammarr legacy client received the first audio chunk");
         lastAudioDataMs = System.currentTimeMillis();
         Optional<ChunkWindowTracker.Acknowledgement> acknowledgement = window.received(value.requestId(), value.index());
@@ -124,6 +130,8 @@ final class LegacyAudioPlayer {
             ChunkWindowTracker.Request value = request.get();
             LegacyNetwork.sendToServer(LegacyPacketTypes.CHUNK_REQUEST,
                     new TransportPackets.ChunkRequest(manifest.sessionId(), value.id(), value.startIndex(), value.count()));
+            AudioTimingTrace.record("chunk_request_sent", "request", value.id(),
+                    "start", value.startIndex(), "count", value.count());
         }
         Minecraft minecraft = Minecraft.getMinecraft();
         SoundSystem current = LegacySoundAccess.soundSystem(minecraft);
@@ -163,6 +171,8 @@ final class LegacyAudioPlayer {
         sourceStartedPositionMs = Math.max(0L, firstChunkStartMs);
         queuedUntilLocalMs = now;
         started = true;
+        AudioTimingTrace.record("channel_started", "positionMs", sourceStartedPositionMs,
+                "scheduledLocalMs", now);
         // A live Paulscode source proves the previous recovery succeeded, so
         // only consecutive failures consume the retry allowance.
         recoveryAttempts = 0;
@@ -177,6 +187,11 @@ final class LegacyAudioPlayer {
             while (queuedUntilLocalMs - now < TARGET_SOUND_QUEUE_MS) {
                 byte[] pcm = decoder.drain(PCM_FEED_BYTES);
                 if (pcm == null) break;
+                if (!timingDrainRecorded) {
+                    timingDrainRecorded = true;
+                    AudioTimingTrace.record("pcm_drained", "bytes", pcm.length,
+                            "bufferedMs", decoder.bufferedMillis());
+                }
                 PcmGain.apply(pcm, JammarrSettings.volume()
                         * Minecraft.getMinecraft().gameSettings.getSoundLevel(SoundCategory.MUSIC));
                 soundSystem.feedRawAudioData(SOURCE, pcm);
@@ -212,6 +227,8 @@ final class LegacyAudioPlayer {
     }
 
     private void beginStreaming() {
+        AudioTimingTrace.record("decoder_started", "firstChunk", manifest.firstChunk());
+        timingDrainRecorded = false;
         firstChunkStartMs = -1L;
         decoder = new LegacyStreamingMp3Decoder(manifest.firstChunk(), manifest.totalChunks());
         window = new ChunkWindowTracker(manifest.firstChunk(), manifest.totalChunks(), 8, 1_500L);

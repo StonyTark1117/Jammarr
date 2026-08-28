@@ -9,6 +9,8 @@ public final class ProtocolLimits {
     public static final String ACCEPTANCE_AUDIO_PROBE_PROPERTY = "jammarr.acceptance.audioProbe";
     public static final String ACCEPTANCE_AUDIO_LEADER_PROPERTY = "jammarr.acceptance.audioLeader";
     public static final String ACCEPTANCE_AUDIO_CONTROL_FILE_PROPERTY = "jammarr.acceptance.audioControlFile";
+    public static final String ACCEPTANCE_HELLO_TIMEOUT_MS_PROPERTY = "jammarr.acceptance.helloTimeoutMs";
+    public static final long SERVER_HELLO_TIMEOUT_MS = 60_000L;
     public static final int MAX_BROWSE_RESULTS = 50;
     public static final int MAX_STATION_SEEDS = 5;
     public static final int MAX_PLAYBACK_ENTRIES = 504;
@@ -60,6 +62,29 @@ public final class ProtocolLimits {
         if (!audioProbeEnabled()) return "";
         String configured = System.getProperty(ACCEPTANCE_AUDIO_CONTROL_FILE_PROPERTY);
         return configured == null ? "" : configured.trim();
+    }
+
+    /**
+     * Returns the server-side application hello deadline. Production always
+     * allows 60 seconds; release acceptance may select a shorter positive
+     * deadline so a deliberately silent real client does not stall the gate.
+     */
+    public static long serverHelloTimeoutMs() {
+        if (!Boolean.getBoolean(ACCEPTANCE_ENABLED_PROPERTY)) return SERVER_HELLO_TIMEOUT_MS;
+        String configured = System.getProperty(ACCEPTANCE_HELLO_TIMEOUT_MS_PROPERTY);
+        if (configured == null) return SERVER_HELLO_TIMEOUT_MS;
+        try {
+            long parsed = Long.parseLong(configured);
+            return parsed < 1L || parsed > SERVER_HELLO_TIMEOUT_MS ? SERVER_HELLO_TIMEOUT_MS : parsed;
+        } catch (NumberFormatException ignored) {
+            return SERVER_HELLO_TIMEOUT_MS;
+        }
+    }
+
+    /** Converts the wall-clock policy to 20 Hz server ticks, rounding up. */
+    public static long serverHelloTimeoutTicks() {
+        long timeoutMs = serverHelloTimeoutMs();
+        return Math.max(1L, (timeoutMs + 49L) / 50L);
     }
 
     private ProtocolLimits() {}

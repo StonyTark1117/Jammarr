@@ -341,22 +341,22 @@ tasks.register('verifyAllTargets') {
 }
 
 def canonicalArtifacts = [
-        [minecraft: '1.7.10', java: 8, loader: 'forge', path: 'platforms/mc1.7.10/forge/build/libs/jammarr-1.0.1+mc1.7.10-forge.jar'],
-        [minecraft: '1.20.1', java: 17, loader: 'fabric', path: 'platforms/mc1.20.1/fabric/build/libs/jammarr-1.0.1+mc1.20.1-fabric.jar'],
-        [minecraft: '1.20.1', java: 17, loader: 'forge', path: 'platforms/mc1.20.1/forge/build/libs/jammarr-1.0.1+mc1.20.1-forge.jar'],
-        [minecraft: '1.20.1', java: 17, loader: 'neoforge', path: 'platforms/mc1.20.1/neoforge/build/libs/jammarr-1.0.1+mc1.20.1-neoforge.jar'],
-        [minecraft: '1.20.2', java: 17, loader: 'fabric', path: 'platforms/mc1.20.2/fabric/build/libs/jammarr-1.0.1+mc1.20.2-fabric.jar'],
-        [minecraft: '1.20.2', java: 17, loader: 'forge', path: 'platforms/mc1.20.2/forge/build/libs/jammarr-1.0.1+mc1.20.2-forge.jar'],
-        [minecraft: '1.20.2', java: 17, loader: 'neoforge', path: 'platforms/mc1.20.2/neoforge/build/libs/jammarr-1.0.1+mc1.20.2-neoforge.jar'],
-        [minecraft: '1.21.1', java: 21, loader: 'fabric', path: 'platforms/mc1.21.1/fabric/build/libs/jammarr-1.0.1+mc1.21.1-fabric.jar'],
-        [minecraft: '1.21.1', java: 21, loader: 'forge', path: 'platforms/mc1.21.1/forge/build/libs/jammarr-1.0.1+mc1.21.1-forge.jar'],
-        [minecraft: '1.21.1', java: 21, loader: 'neoforge', path: 'build/libs/jammarr-1.0.1+mc1.21.1-neoforge.jar'],
-        [minecraft: '26.1.2', java: 25, loader: 'fabric', path: 'platforms/mc26.1.2/fabric/build/libs/jammarr-1.0.1+mc26.1.2-fabric.jar'],
-        [minecraft: '26.1.2', java: 25, loader: 'forge', path: 'platforms/mc26.1.2/forge/build/libs/jammarr-1.0.1+mc26.1.2-forge.jar'],
-        [minecraft: '26.1.2', java: 25, loader: 'neoforge', path: 'platforms/mc26.1.2/neoforge/build/libs/jammarr-1.0.1+mc26.1.2-neoforge.jar'],
-        [minecraft: '26.2', java: 25, loader: 'fabric', path: 'platforms/mc26.2/fabric/build/libs/jammarr-1.0.1+mc26.2-fabric.jar'],
-        [minecraft: '26.2', java: 25, loader: 'forge', path: 'platforms/mc26.2/forge/build/libs/jammarr-1.0.1+mc26.2-forge.jar'],
-        [minecraft: '26.2', java: 25, loader: 'neoforge', path: 'platforms/mc26.2/neoforge/build/libs/jammarr-1.0.1+mc26.2-neoforge.jar']
+        [minecraft: '1.7.10', java: 8, loader: 'forge', path: 'platforms/mc1.7.10/forge/build/libs/jammarr-1.0.2+mc1.7.10-forge.jar'],
+        [minecraft: '1.20.1', java: 17, loader: 'fabric', path: 'platforms/mc1.20.1/fabric/build/libs/jammarr-1.0.2+mc1.20.1-fabric.jar'],
+        [minecraft: '1.20.1', java: 17, loader: 'forge', path: 'platforms/mc1.20.1/forge/build/libs/jammarr-1.0.2+mc1.20.1-forge.jar'],
+        [minecraft: '1.20.1', java: 17, loader: 'neoforge', path: 'platforms/mc1.20.1/neoforge/build/libs/jammarr-1.0.2+mc1.20.1-neoforge.jar'],
+        [minecraft: '1.20.2', java: 17, loader: 'fabric', path: 'platforms/mc1.20.2/fabric/build/libs/jammarr-1.0.2+mc1.20.2-fabric.jar'],
+        [minecraft: '1.20.2', java: 17, loader: 'forge', path: 'platforms/mc1.20.2/forge/build/libs/jammarr-1.0.2+mc1.20.2-forge.jar'],
+        [minecraft: '1.20.2', java: 17, loader: 'neoforge', path: 'platforms/mc1.20.2/neoforge/build/libs/jammarr-1.0.2+mc1.20.2-neoforge.jar'],
+        [minecraft: '1.21.1', java: 21, loader: 'fabric', path: 'platforms/mc1.21.1/fabric/build/libs/jammarr-1.0.2+mc1.21.1-fabric.jar'],
+        [minecraft: '1.21.1', java: 21, loader: 'forge', path: 'platforms/mc1.21.1/forge/build/libs/jammarr-1.0.2+mc1.21.1-forge.jar'],
+        [minecraft: '1.21.1', java: 21, loader: 'neoforge', path: 'build/libs/jammarr-1.0.2+mc1.21.1-neoforge.jar'],
+        [minecraft: '26.1.2', java: 25, loader: 'fabric', path: 'platforms/mc26.1.2/fabric/build/libs/jammarr-1.0.2+mc26.1.2-fabric.jar'],
+        [minecraft: '26.1.2', java: 25, loader: 'forge', path: 'platforms/mc26.1.2/forge/build/libs/jammarr-1.0.2+mc26.1.2-forge.jar'],
+        [minecraft: '26.1.2', java: 25, loader: 'neoforge', path: 'platforms/mc26.1.2/neoforge/build/libs/jammarr-1.0.2+mc26.1.2-neoforge.jar'],
+        [minecraft: '26.2', java: 25, loader: 'fabric', path: 'platforms/mc26.2/fabric/build/libs/jammarr-1.0.2+mc26.2-fabric.jar'],
+        [minecraft: '26.2', java: 25, loader: 'forge', path: 'platforms/mc26.2/forge/build/libs/jammarr-1.0.2+mc26.2-forge.jar'],
+        [minecraft: '26.2', java: 25, loader: 'neoforge', path: 'platforms/mc26.2/neoforge/build/libs/jammarr-1.0.2+mc26.2-neoforge.jar']
 ]
 
 def catalogVersions = { String minecraft ->

@@ -27,6 +27,7 @@ def main() -> None:
     tracks = [
         {
             "type": "track", "ratingKey": str(key),
+            "librarySectionID": "1",
             "title": f"Gate Track {key}",
             "grandparentTitle": f"Gate Artist {key % 3 + 1}",
             "parentTitle": f"Gate Album {key % 2 + 1}",
@@ -62,6 +63,7 @@ def main() -> None:
             path = request.path
             if path == "/library/sections":
                 body = {"MediaContainer": {"Directory": [
+                    {"type": "artist", "key": "2", "title": "ASMR"},
                     {"type": "artist", "key": "1", "title": "Music"}
                 ]}}
             elif path == "/":
@@ -70,7 +72,7 @@ def main() -> None:
                     "myPlexSubscription": True
                 }}
             elif path == "/library/sections/1/all":
-                body = {"MediaContainer": {"Metadata": tracks}}
+                body = {"MediaContainer": {"librarySectionID": "1", "Metadata": tracks}}
             elif path.startswith("/library/metadata/") and path.endswith("/nearest"):
                 key = path.removeprefix("/library/metadata/").removesuffix("/nearest")
                 if key not in tracks_by_key:
@@ -83,7 +85,7 @@ def main() -> None:
                     value = dict(candidate)
                     value["distance"] = round(0.05 + index * 0.02, 3)
                     nearest.append(value)
-                body = {"MediaContainer": {"Metadata": nearest}}
+                body = {"MediaContainer": {"librarySectionID": "1", "Metadata": nearest}}
             elif path == "/library/sections/1/computePath":
                 query = parse_qs(request.query)
                 start = query.get("startID", ["42"])[0]
@@ -92,14 +94,14 @@ def main() -> None:
                     self.respond(404, {})
                     return
                 middle = next(track for track in tracks if track["ratingKey"] not in (start, end))
-                body = {"MediaContainer": {"Metadata": [tracks_by_key[start], middle, tracks_by_key[end]]}}
+                body = {"MediaContainer": {"librarySectionID": "1", "Metadata": [tracks_by_key[start], middle, tracks_by_key[end]]}}
             elif path.startswith("/library/metadata/"):
                 key = path.removeprefix("/library/metadata/")
                 track = tracks_by_key.get(key)
                 if track is None:
                     self.respond(404, {})
                     return
-                body = {"MediaContainer": {"Metadata": [track]}}
+                body = {"MediaContainer": {"librarySectionID": "1", "Metadata": [track]}}
             elif path == "/music/:/transcode/universal/start.mp3" and audio_file is not None:
                 self.respond_bytes(200, audio_file.read_bytes(), "audio/mpeg")
                 return

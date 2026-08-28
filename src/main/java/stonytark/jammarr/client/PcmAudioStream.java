@@ -5,6 +5,7 @@ import javax.sound.sampled.AudioFormat;
 import java.nio.ByteBuffer;
 import stonytark.jammarr.Jammarr;
 import stonytark.jammarr.core.protocol.ProtocolLimits;
+import stonytark.jammarr.core.protocol.AudioTimingTrace;
 
 final class PcmAudioStream implements AudioStream {
     private final StreamingMp3Decoder decoder;
@@ -29,6 +30,8 @@ final class PcmAudioStream implements AudioStream {
             return null;
         }
         output.flip();
+        if (acceptanceReads == 0) AudioTimingTrace.record("pcm_drained", "bytes", output.remaining(),
+                "bufferedMs", decoder.bufferedMillis());
         if (ProtocolLimits.audioProbeEnabled() && acceptanceReads++ < 12) {
             Jammarr.LOGGER.info("Acceptance PCM read: requested={} returned={} finished={} bufferedMs={}",
                     requested, output.remaining(), decoder.finished(), decoder.bufferedMillis());

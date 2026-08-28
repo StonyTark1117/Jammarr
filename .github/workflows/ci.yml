@@ -17,97 +17,97 @@ jobs:
         include:
           - name: 1.7.10-forge
             task: verifyLegacy1710
-            artifact: platforms/mc1.7.10/forge/build/libs/jammarr-1.0.1+mc1.7.10-forge.jar
+            artifact: platforms/mc1.7.10/forge/build/libs/jammarr-1.0.2+mc1.7.10-forge.jar
             runtime: 1.7.10-forge
             quilt: ''
             game-tests: false
           - name: 1.20.1-fabric
             task: verifyFabric1201
-            artifact: platforms/mc1.20.1/fabric/build/libs/jammarr-1.0.1+mc1.20.1-fabric.jar
+            artifact: platforms/mc1.20.1/fabric/build/libs/jammarr-1.0.2+mc1.20.1-fabric.jar
             runtime: 1.20.1-fabric
             quilt: 1.20.1-quilt
             game-tests: false
           - name: 1.20.1-forge
             task: verifyForge1201
-            artifact: platforms/mc1.20.1/forge/build/libs/jammarr-1.0.1+mc1.20.1-forge.jar
+            artifact: platforms/mc1.20.1/forge/build/libs/jammarr-1.0.2+mc1.20.1-forge.jar
             runtime: 1.20.1-forge
             quilt: ''
             game-tests: false
           - name: 1.20.1-neoforge
             task: verifyNeoForge1201
-            artifact: platforms/mc1.20.1/neoforge/build/libs/jammarr-1.0.1+mc1.20.1-neoforge.jar
+            artifact: platforms/mc1.20.1/neoforge/build/libs/jammarr-1.0.2+mc1.20.1-neoforge.jar
             runtime: 1.20.1-neoforge
             quilt: ''
             game-tests: false
           - name: 1.20.2-fabric
             task: verifyFabric1202
-            artifact: platforms/mc1.20.2/fabric/build/libs/jammarr-1.0.1+mc1.20.2-fabric.jar
+            artifact: platforms/mc1.20.2/fabric/build/libs/jammarr-1.0.2+mc1.20.2-fabric.jar
             runtime: 1.20.2-fabric
             quilt: 1.20.2-quilt
             game-tests: false
           - name: 1.20.2-forge
             task: verifyForge1202
-            artifact: platforms/mc1.20.2/forge/build/libs/jammarr-1.0.1+mc1.20.2-forge.jar
+            artifact: platforms/mc1.20.2/forge/build/libs/jammarr-1.0.2+mc1.20.2-forge.jar
             runtime: 1.20.2-forge
             quilt: ''
             game-tests: false
           - name: 1.20.2-neoforge
             task: verifyNeoForge1202
-            artifact: platforms/mc1.20.2/neoforge/build/libs/jammarr-1.0.1+mc1.20.2-neoforge.jar
+            artifact: platforms/mc1.20.2/neoforge/build/libs/jammarr-1.0.2+mc1.20.2-neoforge.jar
             runtime: 1.20.2-neoforge
             quilt: ''
             game-tests: false
           - name: 1.21.1-fabric
             task: verifyFabric1211
-            artifact: platforms/mc1.21.1/fabric/build/libs/jammarr-1.0.1+mc1.21.1-fabric.jar
+            artifact: platforms/mc1.21.1/fabric/build/libs/jammarr-1.0.2+mc1.21.1-fabric.jar
             runtime: 1.21.1-fabric
             quilt: 1.21.1-quilt
             game-tests: false
           - name: 1.21.1-forge
             task: verifyForge1211
-            artifact: platforms/mc1.21.1/forge/build/libs/jammarr-1.0.1+mc1.21.1-forge.jar
+            artifact: platforms/mc1.21.1/forge/build/libs/jammarr-1.0.2+mc1.21.1-forge.jar
             runtime: 1.21.1-forge
             quilt: ''
             game-tests: false
           - name: 1.21.1-neoforge
             task: verifyRelease
-            artifact: build/libs/jammarr-1.0.1+mc1.21.1-neoforge.jar
+            artifact: build/libs/jammarr-1.0.2+mc1.21.1-neoforge.jar
             runtime: 1.21.1-neoforge
             quilt: ''
             game-tests: true
           - name: 26.1.2-fabric
             task: verifyFabric2612
-            artifact: platforms/mc26.1.2/fabric/build/libs/jammarr-1.0.1+mc26.1.2-fabric.jar
+            artifact: platforms/mc26.1.2/fabric/build/libs/jammarr-1.0.2+mc26.1.2-fabric.jar
             runtime: 26.1.2-fabric
             quilt: 26.1.2-quilt
             game-tests: false
           - name: 26.1.2-forge
             task: verifyForge2612
-            artifact: platforms/mc26.1.2/forge/build/libs/jammarr-1.0.1+mc26.1.2-forge.jar
+            artifact: platforms/mc26.1.2/forge/build/libs/jammarr-1.0.2+mc26.1.2-forge.jar
             runtime: 26.1.2-forge
             quilt: ''
             game-tests: false
           - name: 26.1.2-neoforge
             task: verifyNeoForge2612
-            artifact: platforms/mc26.1.2/neoforge/build/libs/jammarr-1.0.1+mc26.1.2-neoforge.jar
+            artifact: platforms/mc26.1.2/neoforge/build/libs/jammarr-1.0.2+mc26.1.2-neoforge.jar
             runtime: 26.1.2-neoforge
             quilt: ''
             game-tests: false
           - name: 26.2-fabric
             task: verifyFabric262
-            artifact: platforms/mc26.2/fabric/build/libs/jammarr-1.0.1+mc26.2-fabric.jar
+            artifact: platforms/mc26.2/fabric/build/libs/jammarr-1.0.2+mc26.2-fabric.jar
             runtime: 26.2-fabric
             quilt: 26.2-quilt
             game-tests: false
           - name: 26.2-forge
             task: verifyForge262
-            artifact: platforms/mc26.2/forge/build/libs/jammarr-1.0.1+mc26.2-forge.jar
+            artifact: platforms/mc26.2/forge/build/libs/jammarr-1.0.2+mc26.2-forge.jar
             runtime: 26.2-forge
             quilt: ''
             game-tests: false
           - name: 26.2-neoforge
             task: verifyNeoForge262
-            artifact: platforms/mc26.2/neoforge/build/libs/jammarr-1.0.1+mc26.2-neoforge.jar
+            artifact: platforms/mc26.2/neoforge/build/libs/jammarr-1.0.2+mc26.2-neoforge.jar
             runtime: 26.2-neoforge
             quilt: ''
             game-tests: false
@@ -234,10 +234,10 @@ jobs:
           ./gradlew indexReleaseArtifacts -PjammarrPrebuiltArtifactDir=build/prebuilt-release --no-daemon --max-workers=1
           python3 scripts/inspect-release-artifacts.py build/releases
           (cd build/releases && sha256sum -c SHA256SUMS)
-      - name: Upload 1.0.1 release candidate
+      - name: Upload 1.0.2 release candidate
         uses: actions/upload-artifact@v4
         with:
-          name: jammarr-1.0.1-${{ github.sha }}
+          name: jammarr-1.0.2-${{ github.sha }}
           path: build/releases
           if-no-files-found: error
           retention-days: 14

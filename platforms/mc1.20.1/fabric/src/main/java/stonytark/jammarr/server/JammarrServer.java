@@ -11,6 +11,7 @@ import stonytark.jammarr.Jammarr;
 import stonytark.jammarr.core.network.HelloGate;
 import stonytark.jammarr.core.platform.CanonicalConfigFiles;
 import stonytark.jammarr.core.platform.JammarrSettings;
+import stonytark.jammarr.core.protocol.ProtocolLimits;
 import stonytark.jammarr.network.JammarrNetwork;
 import stonytark.jammarr.network.JammarrPayloads;
 
@@ -19,9 +20,8 @@ import java.util.UUID;
 
 public final class JammarrServer {
     private static final JammarrServer INSTANCE = new JammarrServer();
-    private static final long HELLO_TIMEOUT_TICKS = 100;
     private GlobalPlayer player;
-    private final HelloGate<UUID> helloGate = new HelloGate<>(HELLO_TIMEOUT_TICKS);
+    private final HelloGate<UUID> helloGate = new HelloGate<>(ProtocolLimits.serverHelloTimeoutTicks());
     private long ticks;
 
     public static JammarrServer instance() { return INSTANCE; }

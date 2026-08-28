@@ -184,7 +184,7 @@ tasks.register('verifyRelease') {
             String metadata = zip.getInputStream(zip.getEntry('mcmod.info')).getText('UTF-8')
             [
                     '"modid": "jammarr"',
-                    '"version": "1.0.1"',
+                    '"version": "1.0.2"',
                     '"mcversion": "1.7.10"'
             ].each { required ->
                 if (!metadata.contains(required)) throw new GradleException("Legacy metadata is missing ${required}")

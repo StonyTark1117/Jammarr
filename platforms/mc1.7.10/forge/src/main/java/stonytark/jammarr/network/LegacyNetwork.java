@@ -13,15 +13,14 @@ import cpw.mods.fml.common.network.simpleimpl.SimpleNetworkWrapper;
 import cpw.mods.fml.relauncher.Side;
 import net.minecraft.entity.player.EntityPlayerMP;
 import stonytark.jammarr.Jammarr;
+import stonytark.jammarr.core.network.HelloGate;
 import stonytark.jammarr.core.protocol.ControlPackets;
 import stonytark.jammarr.core.protocol.ProtocolException;
 import stonytark.jammarr.core.protocol.ProtocolLimits;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Queue;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
@@ -35,14 +34,13 @@ public final class LegacyNetwork {
         void accept(LegacyPacketTypes.Type<?> type, Object message);
     }
 
-    private static final long HELLO_TIMEOUT_MS = 5_000L;
     private static final SimpleNetworkWrapper CHANNEL = NetworkRegistry.INSTANCE.newSimpleChannel(Jammarr.MOD_ID);
     private static final LegacyNetwork INSTANCE = new LegacyNetwork();
     private static final Queue<ServerIncoming> SERVER_INBOX = new ConcurrentLinkedQueue<ServerIncoming>();
     private static final Queue<ClientIncoming> CLIENT_INBOX = new ConcurrentLinkedQueue<ClientIncoming>();
 
-    private final Map<UUID, LoginDeadline> deadlines = new HashMap<UUID, LoginDeadline>();
-    private final Set<UUID> confirmed = new HashSet<UUID>();
+    private final Map<UUID, EntityPlayerMP> pendingPlayers = new HashMap<UUID, EntityPlayerMP>();
+    private final HelloGate<UUID> helloGate = new HelloGate<UUID>(ProtocolLimits.serverHelloTimeoutMs());
     private volatile ServerListener serverListener;
     private volatile ClientListener clientListener;
     private boolean registered;
@@ -73,8 +71,8 @@ public final class LegacyNetwork {
     public static synchronized void shutdown() {
         SERVER_INBOX.clear();
         CLIENT_INBOX.clear();
-        INSTANCE.deadlines.clear();
-        INSTANCE.confirmed.clear();
+        INSTANCE.pendingPlayers.clear();
+        INSTANCE.helloGate.clear();
         INSTANCE.serverListener = null;
         INSTANCE.clientListener = null;
     }
@@ -83,14 +81,16 @@ public final class LegacyNetwork {
     public void playerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
         if (!(event.player instanceof EntityPlayerMP)) return;
         EntityPlayerMP player = (EntityPlayerMP) event.player;
-        deadlines.put(player.getUniqueID(), new LoginDeadline(player, System.currentTimeMillis() + HELLO_TIMEOUT_MS));
+        UUID playerId = player.getUniqueID();
+        helloGate.require(playerId, System.currentTimeMillis());
+        pendingPlayers.put(playerId, player);
     }
 
     @SubscribeEvent
     public void playerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
         UUID playerId = event.player.getUniqueID();
-        deadlines.remove(playerId);
-        confirmed.remove(playerId);
+        pendingPlayers.remove(playerId);
+        helloGate.remove(playerId);
     }
 
     @SubscribeEvent
@@ -108,15 +108,12 @@ public final class LegacyNetwork {
         if (event.phase != TickEvent.Phase.END) return;
         ServerIncoming incoming;
         while ((incoming = SERVER_INBOX.poll()) != null) handleServer(incoming);
-        long now = System.currentTimeMillis();
-        java.util.Iterator<Map.Entry<UUID, LoginDeadline>> iterator = deadlines.entrySet().iterator();
-        while (iterator.hasNext()) {
-            Map.Entry<UUID, LoginDeadline> entry = iterator.next();
-            if (entry.getValue().deadlineMs <= now) {
-                entry.getValue().player.playerNetServerHandler.kickPlayerFromServer(
-                        "Jammarr protocol handshake timed out; install the matching Forge 1.7.10 Jammarr client");
-                iterator.remove();
-            }
+        for (UUID playerId : helloGate.expire(System.currentTimeMillis())) {
+            // Remove all mutable handshake state before kicking. Hybrid Forge
+            // servers may synchronously fire PlayerLoggedOutEvent from the kick.
+            EntityPlayerMP player = pendingPlayers.remove(playerId);
+            if (player != null) player.playerNetServerHandler.kickPlayerFromServer(
+                    "Jammarr protocol handshake timed out; install the matching Forge 1.7.10 Jammarr client");
         }
     }
 
@@ -135,21 +132,26 @@ public final class LegacyNetwork {
         if (incoming.type == LegacyPacketTypes.CLIENT_HELLO) {
             ControlPackets.ClientHello hello = (ControlPackets.ClientHello) incoming.message;
             if (hello.protocolVersion() != Jammarr.PROTOCOL) {
+                UUID playerId = player.getUniqueID();
+                pendingPlayers.remove(playerId);
+                helloGate.remove(playerId);
                 player.playerNetServerHandler.kickPlayerFromServer(
                         "Jammarr protocol mismatch: server requires protocol " + Jammarr.PROTOCOL);
-                deadlines.remove(player.getUniqueID());
-                confirmed.remove(player.getUniqueID());
                 return;
             }
-            deadlines.remove(player.getUniqueID());
-            confirmed.add(player.getUniqueID());
+            UUID playerId = player.getUniqueID();
+            if (!helloGate.accept(playerId) && !helloGate.accepted(playerId)) return;
+            pendingPlayers.remove(playerId);
             sendToPlayer(player, LegacyPacketTypes.SERVER_HELLO,
                     new ControlPackets.ServerHello(Jammarr.PROTOCOL, System.currentTimeMillis()));
             ServerListener listener = serverListener;
             if (listener != null) listener.accept(player, incoming.type, incoming.message);
             return;
         }
-        if (!confirmed.contains(player.getUniqueID())) {
+        if (!helloGate.accepted(player.getUniqueID())) {
+            UUID playerId = player.getUniqueID();
+            pendingPlayers.remove(playerId);
+            helloGate.remove(playerId);
             player.playerNetServerHandler.kickPlayerFromServer("Jammarr protocol hello is required before play packets");
             return;
         }
@@ -203,15 +205,6 @@ public final class LegacyNetwork {
         private ClientIncoming(LegacyPacketTypes.Type<?> type, Object message) {
             this.type = type;
             this.message = message;
-        }
-    }
-
-    private static final class LoginDeadline {
-        private final EntityPlayerMP player;
-        private final long deadlineMs;
-        private LoginDeadline(EntityPlayerMP player, long deadlineMs) {
-            this.player = player;
-            this.deadlineMs = deadlineMs;
         }
     }
 

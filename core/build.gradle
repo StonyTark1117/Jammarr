@@ -2,6 +2,11 @@ plugins {
     id 'java-library'
 }
 
+// This project is included by build roots that use several incompatible
+// Gradle versions.  Keep compiled classes and binary test metadata under the
+// consuming root instead of sharing core/build across those invocations.
+layout.buildDirectory = rootProject.layout.buildDirectory.dir('jammarr-core')
+
 group = rootProject.group
 version = rootProject.version
 

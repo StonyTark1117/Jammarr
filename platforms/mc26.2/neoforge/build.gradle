@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'stonytark'
-version = '1.0.1'
+version = '1.0.2'
 def artifactVersion = version.toString()
 def expectedReleaseName = "jammarr-${artifactVersion}+mc26.2-neoforge.jar"
 

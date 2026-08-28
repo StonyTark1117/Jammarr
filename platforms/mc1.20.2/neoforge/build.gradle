@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'stonytark'
-version = '1.0.1'
+version = '1.0.2'
 def artifactVersion = version.toString()
 def expectedReleaseName = "jammarr-${artifactVersion}+mc1.20.2-neoforge.jar"
 evaluationDependsOn(':core')
@@ -50,8 +50,8 @@ dependencies {
     implementation "net.neoforged:neoforge:${libs.versions.neoforge.loader.get()}"
     implementation sharedCoreDependency
     jarJar(sharedCoreDependency)
-    jarJar.pin(sharedCoreDependency, '1.0.1')
-    jarJar.ranged(sharedCoreDependency, '[1.0.1,1.0.2)')
+    jarJar.pin(sharedCoreDependency, '1.0.2')
+    jarJar.ranged(sharedCoreDependency, '[1.0.2,1.0.3)')
     implementation libs.jlayer
     jarJar('javazoom:jlayer:[1.0.1,1.0.2)') { version { prefer '1.0.1' } }
     implementation libs.jump3r

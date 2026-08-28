@@ -14,6 +14,7 @@ fake_plex_token="jammarr-dedicated-gate-token"
 fake_plex_port_file="$output_root/fake-plex.port"
 fake_plex_request_log="$output_root/fake-plex.requests.tsv"
 fake_plex_audio="$output_root/fake-plex-tone.mp3"
+fake_plex_reference="$output_root/fake-plex-timing-reference.s16le"
 fake_plex_state="$output_root/fake-plex.state"
 fake_audio_duration_seconds=${JAMMARR_GATE_AUDIO_DURATION_SECONDS:-600}
 client_log_limit_blocks=${JAMMARR_GATE_CLIENT_LOG_LIMIT_BLOCKS:-131072}
@@ -26,6 +27,7 @@ active_rcon_port=""
 active_audio_client_pids=()
 active_audio_recorder_pids=()
 active_audio_modules=()
+active_proxy_pid=""
 active_config=""
 active_config_backup=""
 active_config_existed=0
@@ -75,6 +77,7 @@ protocol_client_gate=${JAMMARR_PROTOCOL_CLIENT_GATE:-false}
 command_client_gate=${JAMMARR_COMMAND_CLIENT_GATE:-false}
 audio_client_gate=${JAMMARR_AUDIO_CLIENT_GATE:-false}
 audio_scenario_gate=${JAMMARR_AUDIO_SCENARIO_GATE:-false}
+network_profile=${JAMMARR_NETWORK_PROFILE:-direct}
 fabric_loader_version=${JAMMARR_FABRIC_LOADER_VERSION:-}
 quilt_modmenu_gate=${JAMMARR_QUILT_MODMENU_GATE:-false}
 
@@ -174,6 +177,11 @@ cleanup_all() {
   restore_server_properties
   restore_audio_cache
   restore_gate_world
+  if [[ -n "$active_proxy_pid" ]]; then
+    kill -TERM "$active_proxy_pid" 2>/dev/null || true
+    wait "$active_proxy_pid" 2>/dev/null || true
+    active_proxy_pid=""
+  fi
   if [[ -n "$fake_plex_pid" ]]; then
     kill "$fake_plex_pid" 2>/dev/null || true
     wait "$fake_plex_pid" 2>/dev/null || true
@@ -228,9 +236,14 @@ start_fake_plex() {
       echo "JAMMARR_GATE_AUDIO_DURATION_SECONDS must be an integer of at least 300" >&2
       return 1
     fi
-    ffmpeg -hide_banner -loglevel error -y -f lavfi \
-      -i "sine=frequency=997:sample_rate=44100:duration=${fake_audio_duration_seconds}" -ac 2 \
+    python3 "$repo_root/scripts/generate-audio-fixture.py" \
+      --duration "$fake_audio_duration_seconds" --sample-rate 44100 \
+      | ffmpeg -hide_banner -loglevel error -y -f s16le -ar 44100 -ac 2 -i pipe:0 \
       -codec:a libmp3lame -b:a 160k -write_xing 0 "$fake_plex_audio" || return 1
+    ffmpeg -hide_banner -loglevel error -y -t 12 -i "$fake_plex_audio" \
+      -f s16le -ar 48000 -ac 2 "$fake_plex_reference" || return 1
+    python3 "$repo_root/scripts/analyze-audio-timing.py" "$fake_plex_reference" \
+      --minimum-duration-ms 10000 > "$output_root/fake-plex-timing-reference.json" || return 1
     audio_args+=(--audio-file "$fake_plex_audio" \
       --track-duration-ms "$((fake_audio_duration_seconds * 1000))")
   fi
@@ -1165,34 +1178,52 @@ run_two_client_audio() {
   local metrics_leader="$output_root/$label.audio-leader.metrics.txt"
   local metrics_follower="$output_root/$label.audio-follower.metrics.txt"
   local evidence="$output_root/$label.two-client-audio.evidence.txt"
-  local module leader_pid follower_pid recorder_pid result=0
+  local module leader_pid follower_pid recorder_pid result=0 client_port="$port"
+  local proxy_port_file="$output_root/$label.audio-proxy.port"
+  local proxy_event_log="$output_root/$label.audio-proxy.jsonl"
 
   module=$(pactl load-module module-null-sink sink_name="$sink_leader" rate=48000 channels=2) || return 1
   active_audio_modules+=("$module")
   module=$(pactl load-module module-null-sink sink_name="$sink_follower" rate=48000 channels=2) || return 1
   active_audio_modules+=("$module")
-  : > "$raw_leader"
-  : > "$raw_follower"
-  parec --raw --latency-msec=50 --device="${sink_leader}.monitor" --format=s16le --rate=48000 --channels=2 \
-    > "$raw_leader" &
-  recorder_pid=$!; active_audio_recorder_pids+=("$recorder_pid")
-  parec --raw --latency-msec=50 --device="${sink_follower}.monitor" --format=s16le --rate=48000 --channels=2 \
-    > "$raw_follower" &
-  recorder_pid=$!; active_audio_recorder_pids+=("$recorder_pid")
-
-  if launch_audio_client "$label" "$target_dir" "$java_home" "$port" leader JammarrAudioA "$sink_leader"; then
+  if [[ "$network_profile" != "direct" ]]; then
+    rm -f -- "$proxy_port_file"
+    python3 "$repo_root/scripts/tcp-impairment-proxy.py" --target-port "$port" \
+      --profile "$network_profile" --port-file "$proxy_port_file" --event-log "$proxy_event_log" &
+    active_proxy_pid=$!
+    local proxy_deadline=$((SECONDS + 10))
+    while [[ ! -s "$proxy_port_file" ]]; do
+      if ! kill -0 "$active_proxy_pid" 2>/dev/null || (( SECONDS >= proxy_deadline )); then
+        echo "$label: audio impairment proxy failed to start" >&2
+        return 1
+      fi
+      sleep 0.1
+    done
+    client_port=$(<"$proxy_port_file")
+  fi
+  if launch_audio_client "$label" "$target_dir" "$java_home" "$client_port" leader JammarrAudioA "$sink_leader"; then
     leader_pid=$ready_audio_client_pid
   else
     result=1
   fi
   if (( result == 0 )); then
-    if launch_audio_client "$label" "$target_dir" "$java_home" "$port" follower JammarrAudioB "$sink_follower"; then
+    if launch_audio_client "$label" "$target_dir" "$java_home" "$client_port" follower JammarrAudioB "$sink_follower"; then
       follower_pid=$ready_audio_client_pid
     else
       result=1
     fi
   fi
-  if (( result == 0 )); then sleep 5; fi
+  if (( result == 0 )); then
+    : > "$raw_leader"
+    : > "$raw_follower"
+    parec --raw --latency-msec=50 --device="${sink_leader}.monitor" --format=s16le --rate=48000 --channels=2 \
+      > "$raw_leader" &
+    recorder_pid=$!; active_audio_recorder_pids+=("$recorder_pid")
+    parec --raw --latency-msec=50 --device="${sink_follower}.monitor" --format=s16le --rate=48000 --channels=2 \
+      > "$raw_follower" &
+    recorder_pid=$!; active_audio_recorder_pids+=("$recorder_pid")
+    sleep 11
+  fi
 
   for recorder_pid in "${active_audio_recorder_pids[@]}"; do
     kill -TERM "$recorder_pid" 2>/dev/null || true
@@ -1207,6 +1238,12 @@ run_two_client_audio() {
     echo "$label: late-join follower sink did not contain observable 997 Hz program audio" >&2
     result=1
   fi
+  if (( result == 0 )) && ! python3 "$repo_root/scripts/analyze-audio-timing.py" \
+      "$raw_leader" --reference "$raw_follower" --minimum-duration-ms 10000 \
+      > "$output_root/$label.audio-timing.json"; then
+    echo "$label: deterministic audio timing thresholds failed" >&2
+    result=1
+  fi
   if (( result == 0 )) && ! awk -F '\t' '$2 == "/music/:/transcode/universal/start.mp3" { found = 1 } END { exit !found }' \
       "$fake_plex_request_log"; then
     echo "$label: fake Plex did not serve the real MP3 transcode" >&2
@@ -1218,17 +1255,25 @@ run_two_client_audio() {
       grep -F 'Acceptance audio state: PLAYING' "$output_root/$label.audio-follower.console.log" | tail -n 1
       grep -E 'mean_volume:|max_volume:' "$metrics_leader" | tail -n 2
       grep -E 'mean_volume:|max_volume:' "$metrics_follower" | tail -n 2
+      sed -n '/"duration_ms"\|"marker_count"\|"max_marker_interval_error_ms"\|"max_silence_ms"\|"inter_client_skew_ms"/p' \
+        "$output_root/$label.audio-timing.json"
+      printf 'Network profile: %s\n' "$network_profile"
       printf 'Fake Plex transcode served; follower joined after leader reached PLAYING.\n'
     } > "$evidence"
   fi
   if (( result == 0 )) && [[ "$audio_scenario_gate" == "true" ]]; then
-    if ! run_audio_control_scenarios "$label" "$target_dir" "$java_home" "$port" \
+    if ! run_audio_control_scenarios "$label" "$target_dir" "$java_home" "$client_port" \
         "$sink_leader" "$sink_follower" "$leader_pid" "$follower_pid" \
         "$rcon_port" "$rcon_password" "$fifo_fd"; then
       result=1
     fi
   fi
   cleanup_audio_processes
+  if [[ -n "$active_proxy_pid" ]]; then
+    kill -TERM "$active_proxy_pid" 2>/dev/null || true
+    wait "$active_proxy_pid" 2>/dev/null || true
+    active_proxy_pid=""
+  fi
   return "$result"
 }
 
@@ -1420,6 +1465,7 @@ run_invalid_config_check() {
     cd "$target_dir" || exit 1
     exec setsid env JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAMMARR_PLEX_TOKEN="$fake_plex_token" \
+      JAVA_TOOL_OPTIONS='-Djammarr.acceptance.enabled=true -Djammarr.acceptance.audioProbe=true -Djammarr.acceptance.helloTimeoutMs=5000' \
       ./gradlew runServer --no-daemon --max-workers=1 --console=plain "${cache_args[@]}" \
       "${runtime_args[@]}" \
       < /dev/null > "$console_log" 2>&1
@@ -1590,6 +1636,7 @@ run_target() {
     cd "$target_dir" || exit 1
     exec setsid env JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAMMARR_PLEX_TOKEN="$fake_plex_token" \
+      JAVA_TOOL_OPTIONS='-Djammarr.acceptance.enabled=true -Djammarr.acceptance.audioProbe=true -Djammarr.acceptance.helloTimeoutMs=5000' \
       ./gradlew runServer --no-daemon --max-workers=1 --console=plain "${cache_args[@]}" \
       "${runtime_args[@]}" \
       < "$fifo" > "$console_log" 2>&1
@@ -1759,7 +1806,7 @@ run_target() {
     result=1
   fi
   if [[ "$label" == "1.7.10-forge" ]]; then
-    if ! grep -q 'Initializing Jammarr 1.0.1 for Forge 1.7.10 protocol 5' "$run_dir/logs/fml-server-latest.log"; then
+    if ! grep -q 'Initializing Jammarr 1.0.2 for Forge 1.7.10 protocol 5' "$run_dir/logs/fml-server-latest.log"; then
       echo "$label: FML log does not prove Jammarr initialized" >&2
       result=1
     fi

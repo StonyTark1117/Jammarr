@@ -4,7 +4,7 @@ plugins {
 apply from: file('../../../gradle/quilt-runtime.gradle')
 
 group = 'stonytark'
-version = '1.0.1'
+version = '1.0.2'
 def artifactVersion = version.toString()
 def runtimeLoader = providers.gradleProperty('jammarrRuntimeLoader').orElse('fabric')
 def quiltRuntime = runtimeLoader.map { it == 'quilt' }
@@ -143,7 +143,7 @@ tasks.named('remapJar') {
 
 def releaseArchive = tasks.named('remapJar').flatMap { it.archiveFile }
 def expectedReleaseName = "jammarr-${artifactVersion}+mc1.20.2-fabric.jar"
-def releaseEntries = ['META-INF/jars/core-1.0.1.jar', 'META-INF/jars/jlayer-1.0.1.jar',
+def releaseEntries = ['META-INF/jars/core-1.0.2.jar', 'META-INF/jars/jlayer-1.0.1.jar',
                       'META-INF/jars/jump3r-1.0.5.jar', 'META-INF/LICENSE-Jammarr-CC0-1.0.txt',
                       'META-INF/LICENSE-LGPL-2.1-or-later.txt', 'META-INF/THIRD_PARTY_NOTICES.md',
                       'fabric.mod.json', 'jammarr.mixins.json', 'jammarr.png',
@@ -175,7 +175,7 @@ tasks.register('verifyRelease') {
             if (!zip.getInputStream(zip.getEntry('jammarr.mixins.json')).getText('UTF-8').contains('"JAVA_17"')) {
                 throw new GradleException('Fabric 1.20.2 mixin metadata does not target Java 17')
             }
-            new java.util.zip.ZipInputStream(zip.getInputStream(zip.getEntry('META-INF/jars/core-1.0.1.jar'))).withCloseable { nested ->
+            new java.util.zip.ZipInputStream(zip.getInputStream(zip.getEntry('META-INF/jars/core-1.0.2.jar'))).withCloseable { nested ->
                 boolean foundCoreClass = false
                 for (def entry = nested.nextEntry; entry != null; entry = nested.nextEntry) {
                     if (entry.name == 'stonytark/jammarr/core/server/ChunkTransferPolicy.class') {

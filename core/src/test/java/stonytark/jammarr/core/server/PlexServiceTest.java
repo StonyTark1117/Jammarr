@@ -24,16 +24,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.ConcurrentHashMap;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PlexServiceTest {
-    private enum Mode { NORMAL, UNAUTHORIZED, MALFORMED, TIMEOUT, TRANSCODE_FAILURE, CHUNKED_OVERSIZE, STALLED_BODY, STALLED_POST, NO_PASS, UNANALYZED, OLD_SERVER }
+    private enum Mode { NORMAL, UNAUTHORIZED, MALFORMED, TIMEOUT, TRANSCODE_FAILURE, CHUNKED_OVERSIZE, STALLED_BODY, STALLED_POST, NO_PASS, UNANALYZED, OLD_SERVER, NO_PREFERRED_MUSIC, NO_MUSIC_LIBRARY }
     private HttpServer server;
     private PlexService client;
     private final AtomicReference<Mode> mode = new AtomicReference<>(Mode.NORMAL);
     private final AtomicReference<String> lastPath = new AtomicReference<>();
     private final AtomicReference<String> lastMethod = new AtomicReference<>();
     private final AtomicReference<Map<String, String>> lastQuery = new AtomicReference<>(Collections.<String, String>emptyMap());
+    private final Map<String, Map<String, String>> queriesByPath = new ConcurrentHashMap<String, Map<String, String>>();
 
     @BeforeEach void start() throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -47,6 +49,28 @@ class PlexServiceTest {
     @Test void validatesNamedMusicLibraryAndSendsHeaderAuthentication() throws Exception {
         client.validate();
         assertEquals("/library/sections", lastPath.get());
+    }
+
+    @Test void blankLibraryPrefersMusicOverAnEarlierAsmrLibrary() throws Exception {
+        PlexService automatic = new PlexService(baseUrl(), "secret", "", Duration.ofSeconds(2));
+        automatic.validate();
+        automatic.browse(ControlPackets.BrowseKind.SEARCH, "Song", 0, 2);
+        assertEquals("/library/sections/1/all", lastPath.get());
+    }
+
+    @Test void blankLibraryFallsBackToTheFirstValidMusicSection() throws Exception {
+        mode.set(Mode.NO_PREFERRED_MUSIC);
+        PlexService automatic = new PlexService(baseUrl(), "secret", "", Duration.ofSeconds(2));
+        automatic.validate();
+        automatic.browse(ControlPackets.BrowseKind.SEARCH, "Song", 0, 2);
+        assertEquals("/library/sections/2/all", lastPath.get());
+    }
+
+    @Test void blankLibraryFailsWhenPlexHasNoMusicSections() {
+        mode.set(Mode.NO_MUSIC_LIBRARY);
+        PlexException error = assertThrows(PlexException.class,
+                () -> new PlexService(baseUrl(), "secret", "", Duration.ofSeconds(2)).validate());
+        assertEquals(PlexException.Kind.CONFIGURATION, error.kind());
     }
 
     @Test void rejectsInvalidAuthenticationWithTypedFailure() {
@@ -78,7 +102,9 @@ class PlexServiceTest {
         client.validate();
         PlexService.Page page = client.browse(ControlPackets.BrowseKind.PLAYLISTS, "", 0, 20);
         assertEquals(StationModels.ItemKind.PLAYLIST, page.items().get(0).kind());
-        assertEquals("audio", lastQuery.get().get("playlistType"));
+        assertEquals(1, page.items().size());
+        assertEquals("audio", queriesByPath.get("/playlists").get("playlistType"));
+        assertEquals("1", queriesByPath.get("/playlists").get("sectionID"));
         QueueTrack track = client.expand(StationModels.ItemKind.PLAYLIST, "88", 2).get(0);
         assertEquals("2", lastQuery.get().get("X-Plex-Container-Size"));
         assertEquals("Song", track.title()); assertEquals("Artist", track.artist()); assertEquals("Album", track.album());
@@ -115,6 +141,18 @@ class PlexServiceTest {
         assertEquals(Arrays.asList("43", "44"), tracks.stream().map(QueueTrack::key).collect(Collectors.toList()));
         assertEquals("POST", lastMethod.get()); assertEquals("audio", lastQuery.get().get("type"));
         assertEquals("1", lastQuery.get().get("continuous")); assertTrue(lastQuery.get().get("uri").contains("/library/metadata/77/station/native"));
+    }
+
+    @Test void filtersItemsFromOtherMusicLibrariesAcrossUnscopedEndpoints() throws Exception {
+        client.validate(); client.sonicStatus();
+        assertEquals(Arrays.asList("43", "44"), client.nearestTracks("42", 10, 0.25).stream()
+                .map(QueueTrack::key).collect(Collectors.toList()));
+        assertEquals(Arrays.asList("43", "44"), client.nativeRadioTracks(
+                new StationModels.StationSeed(StationModels.ItemKind.ARTIST, "77", "Artist", ""), 10).stream()
+                .map(QueueTrack::key).collect(Collectors.toList()));
+        PlexService.Page playlists = client.browse(ControlPackets.BrowseKind.PLAYLISTS, "", 0, 20);
+        assertEquals(Collections.singletonList("88"), playlists.items().stream()
+                .map(StationModels.MediaItem::key).collect(Collectors.toList()));
     }
 
     @Test void boundsNativeStationBodyReadTimeoutsAfterHeadersArrive() throws Exception {
@@ -205,6 +243,7 @@ class PlexServiceTest {
         lastPath.set(exchange.getRequestURI().getPath());
         lastMethod.set(exchange.getRequestMethod());
         lastQuery.set(query(exchange.getRequestURI().getRawQuery()));
+        queriesByPath.put(exchange.getRequestURI().getPath(), lastQuery.get());
         Mode current = mode.get();
         if (current == Mode.TIMEOUT) {
             try { Thread.sleep(250); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
@@ -248,22 +287,28 @@ class PlexServiceTest {
                     : current == Mode.OLD_SERVER ? "{\"MediaContainer\":{\"myPlexSubscription\":true,\"version\":\"1.23.9\"}}"
                     : "{\"MediaContainer\":{\"myPlexSubscription\":true,\"version\":\"1.41.0\",\"machineIdentifier\":\"machine\"}}";
         } else if ("/library/sections".equals(path)) {
-            body = "{\"MediaContainer\":{\"Directory\":[{\"type\":\"movie\",\"key\":\"9\",\"title\":\"Films\"},{\"type\":\"artist\",\"key\":\"1\",\"title\":\"Music\"}]}}";
+            body = current == Mode.NO_MUSIC_LIBRARY
+                    ? "{\"MediaContainer\":{\"Directory\":[{\"type\":\"movie\",\"key\":\"9\",\"title\":\"Films\"}]}}"
+                    : current == Mode.NO_PREFERRED_MUSIC
+                    ? "{\"MediaContainer\":{\"Directory\":[{\"type\":\"artist\",\"key\":\"2\",\"title\":\"ASMR\"}]}}"
+                    : "{\"MediaContainer\":{\"Directory\":[{\"type\":\"movie\",\"key\":\"9\",\"title\":\"Films\"},{\"type\":\"artist\",\"key\":\"2\",\"title\":\"ASMR\"},{\"type\":\"artist\",\"key\":\"1\",\"title\":\"Music\"}]}}";
         } else if ("/library/sections/1/all".equals(path)) {
             body = current == Mode.UNANALYZED ? "{\"MediaContainer\":{\"Metadata\":[]}}"
-                    : "{\"MediaContainer\":{\"Metadata\":[{\"type\":\"track\",\"ratingKey\":\"42\",\"title\":\"Song\",\"grandparentTitle\":\"Artist\",\"duration\":123000,\"musicAnalysisVersion\":1},{\"type\":\"track\",\"title\":\"Missing key\"},\"bad\",{\"type\":\"track\",\"ratingKey\":\"43\",\"title\":\"Song 2\",\"grandparentTitle\":\"Artist 2\",\"duration\":124000},{\"type\":\"track\",\"ratingKey\":\"44\",\"title\":\"Overflow\",\"grandparentTitle\":\"Artist 3\",\"duration\":125000}]}}";
+                    : "{\"MediaContainer\":{\"librarySectionID\":\"1\",\"Metadata\":[{\"type\":\"track\",\"ratingKey\":\"42\",\"title\":\"Song\",\"grandparentTitle\":\"Artist\",\"duration\":123000,\"musicAnalysisVersion\":1},{\"type\":\"track\",\"title\":\"Missing key\"},\"bad\",{\"type\":\"track\",\"ratingKey\":\"43\",\"title\":\"Song 2\",\"grandparentTitle\":\"Artist 2\",\"duration\":124000},{\"type\":\"track\",\"ratingKey\":\"44\",\"title\":\"Overflow\",\"grandparentTitle\":\"Artist 3\",\"duration\":125000}]}}";
         } else if ("/library/metadata/42/nearest".equals(path)) {
-            body = "{\"MediaContainer\":{\"Metadata\":[{\"type\":\"track\",\"ratingKey\":\"42\",\"title\":\"Seed\"},{\"type\":\"track\",\"ratingKey\":\"43\",\"title\":\"Near\",\"grandparentTitle\":\"Artist 2\",\"duration\":124000,\"distance\":0.1},{\"type\":\"track\",\"ratingKey\":\"44\",\"title\":\"Farther\",\"grandparentTitle\":\"Artist 3\",\"duration\":125000,\"distance\":0.2}]}}";
+            body = "{\"MediaContainer\":{\"Metadata\":[{\"type\":\"track\",\"librarySectionID\":\"1\",\"ratingKey\":\"42\",\"title\":\"Seed\"},{\"type\":\"track\",\"librarySectionID\":\"2\",\"ratingKey\":\"99\",\"title\":\"Private ASMR\",\"distance\":0.05},{\"type\":\"track\",\"librarySectionID\":\"1\",\"ratingKey\":\"43\",\"title\":\"Near\",\"grandparentTitle\":\"Artist 2\",\"duration\":124000,\"distance\":0.1},{\"type\":\"track\",\"librarySectionID\":\"1\",\"ratingKey\":\"44\",\"title\":\"Farther\",\"grandparentTitle\":\"Artist 3\",\"duration\":125000,\"distance\":0.2}]}}";
         } else if ("/library/sections/1/computePath".equals(path)) {
             body = "{\"MediaContainer\":{\"Metadata\":[{\"type\":\"track\",\"ratingKey\":\"42\",\"title\":\"Start\",\"duration\":1000},{\"type\":\"track\",\"ratingKey\":\"43\",\"title\":\"Middle\",\"duration\":1000},{\"type\":\"track\",\"ratingKey\":\"44\",\"title\":\"End\",\"duration\":1000}]}}";
         } else if ("/library/metadata/77".equals(path)) {
-            body = "{\"MediaContainer\":{\"Metadata\":[{\"type\":\"artist\",\"ratingKey\":\"77\",\"title\":\"Artist\",\"musicAnalysisVersion\":1,\"Stations\":{\"Metadata\":[{\"key\":\"/library/metadata/77/station/native?type=10\"}]}}]}}";
+            body = "{\"MediaContainer\":{\"librarySectionID\":\"1\",\"Metadata\":[{\"type\":\"artist\",\"ratingKey\":\"77\",\"title\":\"Artist\",\"musicAnalysisVersion\":1,\"Stations\":{\"Metadata\":[{\"key\":\"/library/metadata/77/station/native?type=10\"}]}}]}}";
         } else if ("/playQueues".equals(path)) {
-            body = "{\"MediaContainer\":{\"playQueueID\":1,\"Metadata\":[{\"type\":\"track\",\"ratingKey\":\"43\",\"title\":\"Native 1\",\"grandparentTitle\":\"Artist 2\",\"duration\":124000},{\"type\":\"track\",\"ratingKey\":\"44\",\"title\":\"Native 2\",\"grandparentTitle\":\"Artist 3\",\"duration\":125000}]}}";
+            body = "{\"MediaContainer\":{\"playQueueID\":1,\"Metadata\":[{\"type\":\"track\",\"librarySectionID\":\"2\",\"ratingKey\":\"99\",\"title\":\"Private ASMR\"},{\"type\":\"track\",\"librarySectionID\":\"1\",\"ratingKey\":\"43\",\"title\":\"Native 1\",\"grandparentTitle\":\"Artist 2\",\"duration\":124000},{\"type\":\"track\",\"librarySectionID\":\"1\",\"ratingKey\":\"44\",\"title\":\"Native 2\",\"grandparentTitle\":\"Artist 3\",\"duration\":125000}]}}";
         } else if ("/playlists".equals(path)) {
-            body = "{\"MediaContainer\":{\"Metadata\":[{\"type\":\"playlist\",\"ratingKey\":\"88\",\"title\":\"Road Trip\"}]}}";
+            body = "{\"MediaContainer\":{\"Metadata\":[{\"type\":\"playlist\",\"ratingKey\":\"88\",\"title\":\"Road Trip\"},{\"type\":\"playlist\",\"ratingKey\":\"89\",\"title\":\"Private ASMR\"}]}}";
         } else if ("/playlists/88/items".equals(path) || "/library/metadata/42".equals(path)) {
-            body = "{\"MediaContainer\":{\"Metadata\":[{\"type\":\"track\",\"ratingKey\":\"42\",\"title\":\"Song\",\"grandparentTitle\":\"Artist\",\"parentTitle\":\"Album\",\"duration\":123000,\"musicAnalysisVersion\":1}]}}";
+            body = "{\"MediaContainer\":{\"librarySectionID\":\"1\",\"totalSize\":1,\"Metadata\":[{\"type\":\"track\",\"ratingKey\":\"42\",\"title\":\"Song\",\"grandparentTitle\":\"Artist\",\"parentTitle\":\"Album\",\"duration\":123000,\"musicAnalysisVersion\":1}]}}";
+        } else if ("/playlists/89/items".equals(path)) {
+            body = "{\"MediaContainer\":{\"librarySectionID\":\"2\",\"totalSize\":1,\"Metadata\":[{\"type\":\"track\",\"ratingKey\":\"99\",\"title\":\"Private ASMR\",\"duration\":123000}]}}";
         } else {
             body = "{\"MediaContainer\":{}}";
         }

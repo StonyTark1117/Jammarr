@@ -350,8 +350,20 @@ final class LegacyScreen extends GuiScreen {
         String shownNotice = empty(notice) ? (empty(state.notice()) ? playback.statusMessage() : state.notice()) : notice;
         if (!empty(shownNotice)) drawCenteredString(fontRendererObj, trim(shownNotice, width - 20), width / 2, height - 40, 0xFFB36B);
         if (requestPending) drawCenteredString(fontRendererObj, "Searching...", width / 2, height / 2, 0xA0D8FF);
+        if (view.browseKind != null && view != View.QUEUE) {
+            drawCenteredString(fontRendererObj, "+ Queue   R Radio   M Mix   A Adventure", width / 2, 56, 0x9FAFCF);
+        }
         drawString(fontRendererObj, "Volume " + Math.round(JammarrSettings.volume() * 100.0) + "%", left + 134, height - 21, 0xCFCFCF);
         super.drawScreen(mouseX, mouseY, partialTicks);
+        for (Object item : buttonList) {
+            GuiButton button = (GuiButton)item;
+            String tooltip = tooltip(button.id);
+            if (tooltip != null && mouseX >= button.xPosition && mouseX < button.xPosition + button.width
+                    && mouseY >= button.yPosition && mouseY < button.yPosition + button.height) {
+                drawHoveringText(Collections.singletonList(tooltip), mouseX, mouseY, fontRendererObj);
+                break;
+            }
+        }
     }
 
     private void drawNow(int left, int top, int panel) {
@@ -403,6 +415,15 @@ final class LegacyScreen extends GuiScreen {
     }
 
     private String trim(String value, int pixels) { return fontRendererObj.trimStringToWidth(value, Math.max(10, pixels)); }
+    private static String tooltip(int id) {
+        if (id >= ADD_BASE && id < RADIO_BASE) return "Add to the shared manual queue";
+        if (id >= RADIO_BASE && id < MIX_BASE) return "Start radio; metadata fallback can work without Plex Pass";
+        if (id >= MIX_BASE && id < ADVENTURE_ADD_BASE) return "Add to Sonic Mix; metadata fallback can be enabled";
+        if (id >= ADVENTURE_ADD_BASE && id < REMOVE_BASE) return "Add Adventure waypoint; Sonic and Plex Pass are required";
+        if (id == SHUFFLE) return "Shuffle the selected music library; Plex Pass is not required";
+        if (id == AUTOPLAY) return "Continue playback with Sonic or configured metadata fallback";
+        return null;
+    }
     private static boolean empty(String value) { return value == null || value.isEmpty(); }
     private static String time(long millis) {
         long seconds = Math.max(0L, millis / 1_000L);

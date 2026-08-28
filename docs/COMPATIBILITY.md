@@ -1,6 +1,6 @@
 # Compatibility
 
-Jammarr 1.0.1 produces 16 required client-and-server artifacts covering 21 supported loader/version runtimes. The server and every client must use the same Minecraft version, loader, and Jammarr version. Supported Quilt installations use the matching Fabric artifact.
+Jammarr 1.0.2 produces 16 required client-and-server artifacts covering 21 supported loader/version runtimes. The server and every client must use the same Minecraft version, loader, and Jammarr version. Supported Quilt installations use the matching Fabric artifact.
 
 | Minecraft | Java | Loader | Pinned loader/API |
 | --- | ---: | --- | --- |

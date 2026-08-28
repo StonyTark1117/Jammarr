@@ -36,6 +36,11 @@ public final class PlexLiveSmokeTest {
         QueueTrack track = albumTracks.get(0);
         PlexService.Page search = plex.browse(ControlPackets.BrowseKind.SEARCH, track.title(), 0, 20);
         assertTrue(contains(search.items(), track.key()), "Exact-title live Plex search missed its track");
+        String privateSentinel = environment("JAMMARR_PRIVATE_PLEX_SENTINEL").trim();
+        if (!privateSentinel.isEmpty()) {
+            assertTrue(plex.browse(ControlPackets.BrowseKind.SEARCH, privateSentinel, 0, 20).items().isEmpty(),
+                    "Selected-library isolation returned content from another Plex music library");
+        }
 
         List<QueueTrack> analyzed = plex.analyzedTracks(10);
         assertTrue(analyzed.size() >= 2, "The live Plex library did not return two analyzed tracks");

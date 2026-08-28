@@ -39,4 +39,34 @@ class HelloGateTest {
         gate.remove("accepted");
         assertFalse(gate.accepted("accepted"));
     }
+
+    @Test void expiryRemovesStateBeforeDisconnectCallbacksRun() {
+        HelloGate<String> gate = new HelloGate<String>(5);
+        gate.require("uranium-player", 10);
+        for (String expired : gate.expire(15)) {
+            assertFalse(gate.accept(expired));
+            gate.remove(expired);
+        }
+        assertTrue(gate.expire(20).isEmpty());
+    }
+
+    @Test void reconnectReplacesTheOldDeadline() {
+        HelloGate<String> gate = new HelloGate<String>(20);
+        gate.require("player", 0);
+        gate.require("player", 15);
+        assertTrue(gate.expire(20).isEmpty());
+        assertEquals(Collections.singletonList("player"), gate.expire(35));
+    }
+
+    @Test void productionGracePeriodAcceptsAt59SecondsAndExpiresAt60Seconds() {
+        HelloGate<String> gate = new HelloGate<String>(1200);
+        gate.require("just-in-time", 0);
+        assertTrue(gate.expire(1180).isEmpty());
+        assertTrue(gate.accept("just-in-time"));
+
+        gate.require("too-late", 0);
+        assertEquals(Collections.singletonList("too-late"), gate.expire(1200));
+        assertFalse(gate.accept("too-late"));
+        assertTrue(gate.expire(1220).isEmpty());
+    }
 }
