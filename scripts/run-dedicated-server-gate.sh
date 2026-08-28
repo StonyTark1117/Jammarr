@@ -42,9 +42,24 @@ active_world_existed=0
 
 java21_home=${JAMMARR_JAVA21_HOME:-/usr/lib/jvm/java-21-openjdk}
 java26_home=${JAMMARR_JAVA26_HOME:-/usr/lib/jvm/java-26-openjdk}
+delayed_hello_gate=${JAMMARR_DELAYED_HELLO_GATE:-false}
+delayed_hello_ms=${JAMMARR_DELAYED_HELLO_MS:-12000}
+hello_timeout_ms=${JAMMARR_GATE_HELLO_TIMEOUT_MS:-5000}
 
 if [[ ! "$client_log_limit_blocks" =~ ^[0-9]+$ ]] || (( client_log_limit_blocks < 16384 )); then
   echo "JAMMARR_GATE_CLIENT_LOG_LIMIT_BLOCKS must be an integer of at least 16384" >&2
+  exit 2
+fi
+if [[ ! "$hello_timeout_ms" =~ ^[0-9]+$ ]] || (( hello_timeout_ms < 1 || hello_timeout_ms > 60000 )); then
+  echo "JAMMARR_GATE_HELLO_TIMEOUT_MS must be an integer from 1 through 60000" >&2
+  exit 2
+fi
+if [[ ! "$delayed_hello_ms" =~ ^[0-9]+$ ]] || (( delayed_hello_ms < 1 || delayed_hello_ms >= 60000 )); then
+  echo "JAMMARR_DELAYED_HELLO_MS must be an integer from 1 through 59999" >&2
+  exit 2
+fi
+if [[ "$delayed_hello_gate" == "true" ]] && (( delayed_hello_ms >= hello_timeout_ms )); then
+  echo "JAMMARR_GATE_HELLO_TIMEOUT_MS must exceed JAMMARR_DELAYED_HELLO_MS" >&2
   exit 2
 fi
 
@@ -339,6 +354,88 @@ run_missing_hello_client() {
     missing-client JammarrMissing \
     '-Djammarr.acceptance.enabled=true -Djammarr.acceptance.suppressClientHello=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
     'Jammarr protocol handshake timed out'
+}
+
+run_delayed_hello_client() {
+  local label=$1
+  local target_dir=$2
+  local java_home=$3
+  local port=$4
+  local scenario=delayed-hello-client
+  local username=JammarrDelayed
+  local client_dir="$output_root/$label.$scenario"
+  local client_console="$output_root/$label.$scenario.console.log"
+  local evidence="$output_root/$label.$scenario.evidence.txt"
+  local pid deadline result=0
+  local -a runtime_args=()
+  [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
+  [[ "$label" == *-quilt && "$quilt_modmenu_gate" == true ]] && runtime_args+=(-PjammarrIncludeModMenu=true)
+  [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
+
+  mkdir -p "$client_dir"
+  : > "$client_console"
+  printf '%s\n' \
+    'onboardAccessibility:false' \
+    'skipMultiplayerWarning:true' \
+    'joinedFirstServer:true' \
+    'narrator:0' > "$client_dir/options.txt"
+  (
+    cd "$target_dir" || exit 1
+    ulimit -f "$client_log_limit_blocks"
+    exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 \
+      xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' env \
+      JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
+      JAVA_TOOL_OPTIONS="-Djammarr.acceptance.enabled=true -Djammarr.acceptance.clientHelloDelayMs=${delayed_hello_ms} -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true" \
+      LIBGL_ALWAYS_SOFTWARE=1 \
+      ./gradlew runClient --no-daemon --max-workers=1 --console=plain \
+      "${runtime_args[@]}" \
+      -PjammarrAcceptanceUsername="$username" \
+      -PjammarrAcceptanceServer="127.0.0.1:${port}" \
+      -PjammarrAcceptanceGameDir="$client_dir" \
+      > "$client_console" 2>&1
+  ) &
+  pid=$!
+  active_client_pid=$pid
+
+  deadline=$((SECONDS + 600))
+  while ! grep -Fq 'Acceptance client received server hello after delayed handshake' "$client_console"; do
+    if client_bootstrap_failed "$client_console"; then
+      echo "$label: delayed-hello client could not initialize its headless display; see $client_console" >&2
+      result=1
+      break
+    fi
+    if ! group_alive "$pid"; then
+      echo "$label: delayed-hello client exited before handshake acceptance; see $client_console" >&2
+      result=1
+      break
+    fi
+    if grep -Fq 'Jammarr protocol handshake timed out' "$client_console"; then
+      echo "$label: delayed hello was incorrectly rejected; see $client_console" >&2
+      result=1
+      break
+    fi
+    if (( SECONDS >= deadline )); then
+      echo "$label: delayed hello was not accepted within 600 seconds; see $client_console" >&2
+      result=1
+      break
+    fi
+    sleep 1
+  done
+
+  if (( result == 0 )); then
+    sleep 10
+    if ! group_alive "$pid" || grep -Fq 'Jammarr protocol handshake timed out' "$client_console"; then
+      echo "$label: delayed-hello client did not remain connected after acceptance" >&2
+      result=1
+    else
+      grep -F 'Acceptance client' "$client_console" \
+        | grep -E 'delaying Jammarr hello|sent delayed Jammarr hello|received server hello' \
+        | tail -n 3 > "$evidence"
+    fi
+  fi
+  terminate_client_launch "$pid" 20 || result=1
+  active_client_pid=""
+  return "$result"
 }
 
 run_acceptance_client() {
@@ -1465,7 +1562,7 @@ run_invalid_config_check() {
     cd "$target_dir" || exit 1
     exec setsid env JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAMMARR_PLEX_TOKEN="$fake_plex_token" \
-      JAVA_TOOL_OPTIONS='-Djammarr.acceptance.enabled=true -Djammarr.acceptance.audioProbe=true -Djammarr.acceptance.helloTimeoutMs=5000' \
+      JAVA_TOOL_OPTIONS="-Djammarr.acceptance.enabled=true -Djammarr.acceptance.audioProbe=true -Djammarr.acceptance.helloTimeoutMs=${hello_timeout_ms}" \
       ./gradlew runServer --no-daemon --max-workers=1 --console=plain "${cache_args[@]}" \
       "${runtime_args[@]}" \
       < /dev/null > "$console_log" 2>&1
@@ -1636,7 +1733,7 @@ run_target() {
     cd "$target_dir" || exit 1
     exec setsid env JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAMMARR_PLEX_TOKEN="$fake_plex_token" \
-      JAVA_TOOL_OPTIONS='-Djammarr.acceptance.enabled=true -Djammarr.acceptance.audioProbe=true -Djammarr.acceptance.helloTimeoutMs=5000' \
+      JAVA_TOOL_OPTIONS="-Djammarr.acceptance.enabled=true -Djammarr.acceptance.audioProbe=true -Djammarr.acceptance.helloTimeoutMs=${hello_timeout_ms}" \
       ./gradlew runServer --no-daemon --max-workers=1 --console=plain "${cache_args[@]}" \
       "${runtime_args[@]}" \
       < "$fifo" > "$console_log" 2>&1
@@ -1692,6 +1789,12 @@ run_target() {
 
   if (( result == 0 )) && [[ "$protocol_client_gate" == "true" ]]; then
     if ! run_wrong_protocol_client "$label" "$target_dir" "$java_home" "$port" "$console_log"; then
+      result=1
+    fi
+  fi
+
+  if (( result == 0 )) && [[ "$delayed_hello_gate" == "true" ]]; then
+    if ! run_delayed_hello_client "$label" "$target_dir" "$java_home" "$port"; then
       result=1
     fi
   fi

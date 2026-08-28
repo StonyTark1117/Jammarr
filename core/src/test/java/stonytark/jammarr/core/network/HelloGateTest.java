@@ -3,6 +3,10 @@ package stonytark.jammarr.core.network;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
+import java.util.ConcurrentModificationException;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -68,5 +72,46 @@ class HelloGateTest {
         assertEquals(Collections.singletonList("too-late"), gate.expire(1200));
         assertFalse(gate.accept("too-late"));
         assertTrue(gate.expire(1220).isEmpty());
+    }
+
+    @Test void reproducesUraniumReentrantLogoutCrashFromVersion101AndAvoidsItNow() {
+        final Map<String, Long> oldDeadlines = new HashMap<String, Long>();
+        oldDeadlines.put("uranium-player", 5L);
+        assertThrows(ConcurrentModificationException.class, () -> {
+            Iterator<Map.Entry<String, Long>> iterator = oldDeadlines.entrySet().iterator();
+            Map.Entry<String, Long> expired = iterator.next();
+            // Uranium B285 synchronously fires PlayerLoggedOutEvent while the
+            // 1.0.1 timeout loop is still holding this iterator.
+            oldDeadlines.remove(expired.getKey());
+            iterator.remove();
+        });
+
+        HelloGate<String> current = new HelloGate<String>(5);
+        current.require("uranium-player", 0L);
+        for (String expired : current.expire(5L)) current.remove(expired);
+        assertTrue(current.expire(6L).isEmpty());
+    }
+
+    @Test void reproducesFiveSecondHeavyClientTimeoutAndAcceptsReportedTwelveSecondLoginNow() {
+        HelloGate<String> version101 = new HelloGate<String>(5_000L);
+        version101.require("174-mod-client", 0L);
+        assertEquals(Collections.singletonList("174-mod-client"), version101.expire(12_000L));
+
+        HelloGate<String> current = new HelloGate<String>(60_000L);
+        current.require("174-mod-client", 0L);
+        assertTrue(current.expire(12_000L).isEmpty());
+        assertTrue(current.accept("174-mod-client"));
+    }
+
+    @Test void duplicateHelloDoesNotReopenGateAndSaturatedDeadlineStillExpires() {
+        HelloGate<String> gate = new HelloGate<String>(60_000L);
+        gate.require("duplicate", 0L);
+        assertTrue(gate.accept("duplicate"));
+        assertFalse(gate.accept("duplicate"));
+        assertTrue(gate.accepted("duplicate"));
+
+        gate.require("saturated", Long.MAX_VALUE - 1L);
+        assertTrue(gate.expire(Long.MAX_VALUE - 1L).isEmpty());
+        assertEquals(Collections.singletonList("saturated"), gate.expire(Long.MAX_VALUE));
     }
 }

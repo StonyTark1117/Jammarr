@@ -34,6 +34,7 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
     private ControlPackets.BrowseResults browse = new ControlPackets.BrowseResults(
             ControlPackets.BrowseKind.SEARCH, "", 0, false, Collections.<StationModels.MediaItem>emptyList());
     private boolean helloSent;
+    private long helloEligibleAt;
     private boolean commandProbeSent;
     private boolean operatorProbeSent;
     private boolean acceptanceAudioQueued;
@@ -50,6 +51,9 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
             minecraft.displayGuiScreen(new LegacyScreen(this));
         } else if (type == LegacyPacketTypes.SERVER_HELLO) {
             ControlPackets.ServerHello hello = (ControlPackets.ServerHello) message;
+            if (ProtocolLimits.clientHelloDelayMs() > 0L) {
+                Jammarr.LOGGER.info("Acceptance client received server hello after delayed handshake");
+            }
             if (hello.protocolVersion() != ProtocolLimits.clientHelloVersion() && minecraft.getNetHandler() != null) {
                 minecraft.getNetHandler().getNetworkManager().closeChannel(
                         new ChatComponentText("Jammarr protocol mismatch: server requires version "
@@ -119,12 +123,20 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
 
     private void hello() {
         if (ProtocolLimits.clientHelloSuppressed()) return;
+        long now = System.currentTimeMillis();
+        long delayMs = ProtocolLimits.clientHelloDelayMs();
+        if (helloEligibleAt == 0L && delayMs > 0L) {
+            helloEligibleAt = now + delayMs;
+            Jammarr.LOGGER.info("Acceptance client delaying Jammarr hello by {} ms", delayMs);
+        }
+        if (helloEligibleAt > now) return;
         LegacyNetwork.sendToServer(LegacyPacketTypes.CLIENT_HELLO, new ControlPackets.ClientHello(ProtocolLimits.clientHelloVersion()));
         helloSent = true;
+        if (delayMs > 0L) Jammarr.LOGGER.info("Acceptance client sent delayed Jammarr hello");
     }
 
     void stop() {
-        audio.stop(); clock.reset(); notice = ""; helloSent = false; commandProbeSent = false;
+        audio.stop(); clock.reset(); notice = ""; helloSent = false; helloEligibleAt = 0L; commandProbeSent = false;
         operatorProbeSent = false; lastTimeSync = 0L;
         acceptanceAudioQueued = false; lastAcceptanceAudioState = "";
         acceptanceScreenOpened = false; acceptanceScreenLogged = false; acceptanceScreenTicks = 0;

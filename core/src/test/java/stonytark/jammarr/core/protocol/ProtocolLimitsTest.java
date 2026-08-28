@@ -10,6 +10,7 @@ class ProtocolLimitsTest {
         System.clearProperty(ProtocolLimits.ACCEPTANCE_ENABLED_PROPERTY);
         System.clearProperty(ProtocolLimits.ACCEPTANCE_CLIENT_PROTOCOL_PROPERTY);
         System.clearProperty(ProtocolLimits.ACCEPTANCE_SUPPRESS_HELLO_PROPERTY);
+        System.clearProperty(ProtocolLimits.ACCEPTANCE_CLIENT_HELLO_DELAY_MS_PROPERTY);
         System.clearProperty(ProtocolLimits.ACCEPTANCE_COMMAND_PROBE_PROPERTY);
         System.clearProperty(ProtocolLimits.ACCEPTANCE_AUDIO_PROBE_PROPERTY);
         System.clearProperty(ProtocolLimits.ACCEPTANCE_AUDIO_LEADER_PROPERTY);
@@ -41,6 +42,17 @@ class ProtocolLimitsTest {
         assertEquals(false, ProtocolLimits.clientHelloSuppressed());
         System.setProperty(ProtocolLimits.ACCEPTANCE_ENABLED_PROPERTY, "true");
         assertEquals(true, ProtocolLimits.clientHelloSuppressed());
+    }
+
+    @Test void clientHelloDelayRequiresAcceptanceModeAndStaysInsideProductionDeadline() {
+        System.setProperty(ProtocolLimits.ACCEPTANCE_CLIENT_HELLO_DELAY_MS_PROPERTY, "12000");
+        assertEquals(0L, ProtocolLimits.clientHelloDelayMs());
+        System.setProperty(ProtocolLimits.ACCEPTANCE_ENABLED_PROPERTY, "true");
+        assertEquals(12000L, ProtocolLimits.clientHelloDelayMs());
+        System.setProperty(ProtocolLimits.ACCEPTANCE_CLIENT_HELLO_DELAY_MS_PROPERTY, "60000");
+        assertEquals(0L, ProtocolLimits.clientHelloDelayMs());
+        System.setProperty(ProtocolLimits.ACCEPTANCE_CLIENT_HELLO_DELAY_MS_PROPERTY, "invalid");
+        assertEquals(0L, ProtocolLimits.clientHelloDelayMs());
     }
 
     @Test void commandProbeRequiresTheExplicitAcceptanceGate() {

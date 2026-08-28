@@ -5,6 +5,7 @@ public final class ProtocolLimits {
     public static final String ACCEPTANCE_ENABLED_PROPERTY = "jammarr.acceptance.enabled";
     public static final String ACCEPTANCE_CLIENT_PROTOCOL_PROPERTY = "jammarr.acceptance.clientProtocol";
     public static final String ACCEPTANCE_SUPPRESS_HELLO_PROPERTY = "jammarr.acceptance.suppressClientHello";
+    public static final String ACCEPTANCE_CLIENT_HELLO_DELAY_MS_PROPERTY = "jammarr.acceptance.clientHelloDelayMs";
     public static final String ACCEPTANCE_COMMAND_PROBE_PROPERTY = "jammarr.acceptance.commandProbe";
     public static final String ACCEPTANCE_AUDIO_PROBE_PROPERTY = "jammarr.acceptance.audioProbe";
     public static final String ACCEPTANCE_AUDIO_LEADER_PROPERTY = "jammarr.acceptance.audioLeader";
@@ -39,6 +40,19 @@ public final class ProtocolLimits {
     public static boolean clientHelloSuppressed() {
         return Boolean.getBoolean(ACCEPTANCE_ENABLED_PROPERTY)
                 && Boolean.getBoolean(ACCEPTANCE_SUPPRESS_HELLO_PROPERTY);
+    }
+
+    /** Delays the real client hello only when the acceptance harness is enabled. */
+    public static long clientHelloDelayMs() {
+        if (!Boolean.getBoolean(ACCEPTANCE_ENABLED_PROPERTY)) return 0L;
+        String configured = System.getProperty(ACCEPTANCE_CLIENT_HELLO_DELAY_MS_PROPERTY);
+        if (configured == null) return 0L;
+        try {
+            long parsed = Long.parseLong(configured);
+            return parsed < 0L || parsed >= SERVER_HELLO_TIMEOUT_MS ? 0L : parsed;
+        } catch (NumberFormatException ignored) {
+            return 0L;
+        }
     }
 
     /** Enables real-client command-tree and diagnostics acceptance checks. */

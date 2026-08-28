@@ -26,6 +26,7 @@ public final class JammarrClientState {
     private JammarrPayloads.AdventurePreview adventurePreview = new JammarrPayloads.AdventurePreview(0, "", List.of());
     private JammarrPayloads.BrowseResults browse = new JammarrPayloads.BrowseResults(JammarrPayloads.BrowseKind.SEARCH, "", 0, false, List.of());
     private long lastTimeSync;
+    private long helloDueMs = -1L;
     private String notice = "";
     private boolean nonOperatorCommandsVerified;
     private boolean operatorCommandsVerified;
@@ -43,6 +44,9 @@ public final class JammarrClientState {
             minecraft.setScreenAndShow(new JammarrScreen(this));
             JammarrNetwork.sendToServer(new JammarrPayloads.BrowseRequest(JammarrPayloads.BrowseKind.SEARCH, "", 0));
         } else if (payload instanceof JammarrPayloads.ServerHello value) {
+            if (ProtocolLimits.clientHelloDelayMs() > 0L) {
+                Jammarr.LOGGER.info("Acceptance client received server hello after delayed handshake");
+            }
             if (value.protocolVersion() != ProtocolLimits.clientHelloVersion() && minecraft.getConnection() != null) {
                 minecraft.getConnection().getConnection().disconnect(net.minecraft.network.chat.Component.literal(
                         "Jammarr protocol mismatch: server requires version " + value.protocolVersion()));
@@ -119,6 +123,7 @@ public final class JammarrClientState {
         return true;
     }
     public void tick() {
+        sendDelayedHello();
         probeCommandPermissions();
         probeScreenRendering();
         runAcceptanceControl();
@@ -127,13 +132,22 @@ public final class JammarrClientState {
         if (now - lastTimeSync >= 10_000) requestTimeSync();
         audio.tick();
     }
-    public void hello() { JammarrNetwork.sendToServer(new JammarrPayloads.ClientHello(ProtocolLimits.clientHelloVersion())); requestTimeSync(); }
+    public void hello() {
+        if (ProtocolLimits.clientHelloSuppressed()) return;
+        long delayMs = ProtocolLimits.clientHelloDelayMs();
+        if (delayMs > 0L) {
+            helloDueMs = System.currentTimeMillis() + delayMs;
+            Jammarr.LOGGER.info("Acceptance client delaying Jammarr hello by {} ms", delayMs);
+            return;
+        }
+        sendHello();
+    }
     public void ensureAudio() { audio.ensureStarted(); }
     public void listeningChanged() { audio.listeningChanged(); }
     public void retryAudio() { audio.retry(); refreshScreen(Minecraft.getInstance()); }
     public void audioEngineReloaded() { audio.audioEngineReloaded(); }
     public void stop() {
-        audio.stop(); clock.reset(); notice = ""; lastTimeSync = 0;
+        audio.stop(); clock.reset(); notice = ""; lastTimeSync = 0; helloDueMs = -1L;
         nonOperatorCommandsVerified = false; operatorCommandsVerified = false;
         acceptanceScreenProbeSent = false; acceptanceScreenVerified = false; acceptanceScreenTicks = 0;
         acceptanceConfigScreenVerified = false; acceptanceConfigScreenTicks = 0;
@@ -150,6 +164,16 @@ public final class JammarrClientState {
         long now = System.currentTimeMillis();
         JammarrNetwork.sendToServer(new JammarrPayloads.TimeSyncRequest(timeNonce.incrementAndGet(), now));
         lastTimeSync = now;
+    }
+    private void sendDelayedHello() {
+        if (helloDueMs < 0L || System.currentTimeMillis() < helloDueMs) return;
+        helloDueMs = -1L;
+        sendHello();
+        Jammarr.LOGGER.info("Acceptance client sent delayed Jammarr hello");
+    }
+    private void sendHello() {
+        JammarrNetwork.sendToServer(new JammarrPayloads.ClientHello(ProtocolLimits.clientHelloVersion()));
+        requestTimeSync();
     }
     private void probeCommandPermissions() {
         if (!ProtocolLimits.commandProbeEnabled()) return;
