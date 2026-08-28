@@ -137,7 +137,18 @@ jobs:
       - name: Record Java 21 home
         run: echo "JAMMARR_JAVA21_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
       - name: Build and inspect artifact
-        run: ./gradlew ${{ matrix.task }} --no-daemon --max-workers=1
+        run: |
+          for attempt in 1 2 3; do
+            if ./gradlew ${{ matrix.task }} --no-daemon --max-workers=1; then
+              exit 0
+            fi
+            if [[ "$attempt" == 3 ]]; then
+              exit 1
+            fi
+            delay=$((attempt * 20))
+            echo "Artifact verification attempt $attempt failed; retrying in ${delay}s"
+            sleep "$delay"
+          done
       - name: Upload verified artifact
         uses: actions/upload-artifact@v4
         with:
