@@ -1597,7 +1597,7 @@ ensure_runtime_files() {
   fi
 }
 
-run_invalid_config_check() {
+run_invalid_config_check_once() {
   local label=$1
   local target_dir=$2
   local run_dir=$3
@@ -1664,6 +1664,12 @@ run_invalid_config_check() {
   fi
   wait "$pid" 2>/dev/null || true
   active_server_pid=""
+  if ! grep -Fq 'Invalid Jammarr configuration value for plexUrl' "$latest_log" "$console_log" 2>/dev/null \
+      && grep -Eq 'Failed to get asset:|SocketTimeoutException|HttpTimeoutException|Could not download' \
+        "$console_log" 2>/dev/null; then
+    restore_server_config
+    return 75
+  fi
   if ! grep -Fq 'Invalid Jammarr configuration value for plexUrl' "$latest_log" "$console_log" 2>/dev/null; then
     echo "$label: invalid configuration failure did not identify the rejected key" >&2
     result=1
@@ -1681,6 +1687,23 @@ run_invalid_config_check() {
     echo "$label: invalid configuration rejected without leaking its value"
   fi
   return "$result"
+}
+
+run_invalid_config_check() {
+  local attempt status
+  for attempt in 1 2; do
+    if run_invalid_config_check_once "$@"; then
+      return 0
+    else
+      status=$?
+    fi
+    if (( status != 75 || attempt == 2 )); then
+      return "$status"
+    fi
+    echo "$1: retrying invalid-configuration launch after a transient runtime download failure" >&2
+    sleep 10
+  done
+  return 1
 }
 
 set_property() {
