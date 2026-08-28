@@ -9,6 +9,7 @@
 - Start decoded audio with enough of the server's scheduling lead remaining, wait for measured clock synchronization, skip PCM elapsed during asynchronous channel creation, and give newly aligned channels a short correction grace instead of accepting startup skew or same-tick recovery churn.
 - Bootstrap time synchronization with a short sample burst, immediately prefer the lowest-round-trip measurement, and ignore unmeasured playback-state timestamps so a slow first response cannot misalign late joiners.
 - Tolerate transient chunk-delivery delays without prematurely rebuffering audio that the sound backend still has queued, while retaining explicit forced-underrun recovery coverage.
+- Coalesce sound-thread volume updates so stale per-tick commands cannot delay a local volume change under load.
 - Add descriptive legacy action help plus deterministic marked-audio, two-client timing, pre-backend legacy PCM classification, and isolated network-impairment acceptance tooling.
 - Isolate shared-core build outputs per Gradle root so incremental cross-version release verification cannot reuse incompatible binary test metadata.
 - Retain protocol 5, saved-data schema 4, and the complete 16-artifact / 21-runtime compatibility matrix.

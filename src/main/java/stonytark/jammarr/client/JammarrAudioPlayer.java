@@ -51,6 +51,7 @@ public final class JammarrAudioPlayer {
     private int receivedChunks;
     private int underruns;
     private boolean started;
+    private float appliedVolume = Float.NaN;
     private final AsyncStartGuard channelStarts = new AsyncStartGuard();
 
     public JammarrAudioPlayer(ClockSynchronizer clock) { this.clock = clock; }
@@ -139,7 +140,10 @@ public final class JammarrAudioPlayer {
         }
         if (channel != null) {
             float volume = JammarrSettings.enabled() ? (float)(JammarrSettings.volume() * minecraft.options.getSoundSourceVolume(SoundSource.MUSIC)) : 0;
-            channel.execute(c -> c.setVolume(volume));
+            if (Float.compare(volume, appliedVolume) != 0) {
+                appliedVolume = volume;
+                channel.execute(c -> c.setVolume(volume));
+            }
             if (started && !manifest.paused() && decoder.bufferedMillis() == 0 && !window.complete() && now - lastAudioDataMs > UNDERRUN_GRACE_MS) {
                 underruns++;
                 requestRebuffer("decoder starvation");
@@ -265,6 +269,7 @@ public final class JammarrAudioPlayer {
             // tick; exposing channel/started first lets that tick compare the
             // new channel against zero-valued timing fields and immediately
             // tear a successful recovery back down as clock drift.
+            appliedVolume = Float.NaN;
             channel = handle;
             started = true;
         });
@@ -359,6 +364,7 @@ public final class JammarrAudioPlayer {
         if (decoder != null) { decoder.close(); decoder = null; }
         window = null;
         started = false;
+        appliedVolume = Float.NaN;
         firstChunkStartMs = -1;
         channelStartedLocalMs = 0;
         channelStartedPositionMs = 0;
