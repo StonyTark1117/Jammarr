@@ -111,7 +111,12 @@ def skew(first: dict, second: dict) -> int | None:
         for b in right[:4]:
             if a["type"] != b["type"]:
                 continue
-            candidate = abs(a["time_ms"] - b["time_ms"])
+            # Each detected boundary is the start of a 10 ms analysis window.
+            # Remove that single-window measurement uncertainty just as the
+            # cadence check does, so a reported 160 ms boundary delta remains
+            # subject to the configured 150 ms synchronization policy rather
+            # than failing solely on the analyzer's quantization.
+            candidate = max(0, abs(a["time_ms"] - b["time_ms"]) - 10)
             best = candidate if best is None else min(best, candidate)
     return best
 

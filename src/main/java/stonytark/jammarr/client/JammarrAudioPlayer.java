@@ -241,8 +241,6 @@ public final class JammarrAudioPlayer {
                 handle.execute(com.mojang.blaze3d.audio.Channel::stop);
                 return;
             }
-            channel = handle;
-            started = true;
             long readyNow = System.currentTimeMillis();
             long authoritativePosition = Math.max(startingPosition,
                     clock.toServerTime(readyNow) - manifest.startedAtEpochMs());
@@ -262,6 +260,13 @@ public final class JammarrAudioPlayer {
                 value.disableAttenuation(); value.setRelative(true); value.setVolume(0);
                 value.attachBufferStream(new PcmAudioStream(startingDecoder)); value.play();
             });
+            // Publish the channel only after its timing baseline is complete.
+            // The completion callback may run concurrently with the render
+            // tick; exposing channel/started first lets that tick compare the
+            // new channel against zero-valued timing fields and immediately
+            // tear a successful recovery back down as clock drift.
+            channel = handle;
+            started = true;
         });
     }
 
