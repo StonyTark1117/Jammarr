@@ -13,15 +13,13 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class StreamingMp3DecoderTest {
     @Test
-    void pcmStreamWaitsForTheFirstChunkInsteadOfReturningFalseEndOfStream() throws Exception {
+    void pcmStreamYieldsTheSoundExecutorWhenLiveDecoderHasNoPcm() throws Exception {
         StreamingMp3Decoder decoder = new StreamingMp3Decoder(0, 1);
         try {
             PcmAudioStream stream = new PcmAudioStream(decoder);
             CompletableFuture<ByteBuffer> pending = CompletableFuture.supplyAsync(() -> stream.read(256));
-            Thread.sleep(300);
-            assertFalse(pending.isDone(), "an empty buffer would make OpenAL stop a live stream");
-            stream.close();
-            assertNull(pending.get(2, TimeUnit.SECONDS));
+            assertNull(pending.get(1, TimeUnit.SECONDS),
+                    "a temporary network gap must not monopolize Minecraft's sound executor");
         } finally {
             decoder.close();
         }

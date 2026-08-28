@@ -10,10 +10,12 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 final class StreamingMp3Decoder implements AutoCloseable {
     static final long MAX_BUFFERED_MS = 12_000;
+    private static final long PCM_WAIT_MS = 100;
     private final ChunkInputStream input;
     private final Queue<byte[]> pcm = new ConcurrentLinkedQueue<>();
     private final AtomicLong bufferedBytes = new AtomicLong();
@@ -58,11 +60,15 @@ final class StreamingMp3Decoder implements AutoCloseable {
     }
     byte[] poll() {
         byte[] value = pcm.poll();
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(PCM_WAIT_MS);
         while (value == null && !finished && !closed) {
             synchronized (pcmAvailable) {
                 value = pcm.poll();
                 if (value == null && !finished && !closed) {
-                    try { pcmAvailable.wait(250); }
+                    long remainingNanos = deadline - System.nanoTime();
+                    if (remainingNanos <= 0) break;
+                    long waitMillis = Math.max(1, TimeUnit.NANOSECONDS.toMillis(remainingNanos));
+                    try { pcmAvailable.wait(waitMillis); }
                     catch (InterruptedException interrupted) {
                         Thread.currentThread().interrupt();
                         return null;

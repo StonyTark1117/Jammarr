@@ -24,9 +24,10 @@ final class PcmAudioStream implements AudioStream {
             if (remainderOffset == remainder.length) remainder = null;
         }
         if (!wrote) {
-            // StreamingMp3Decoder.poll blocks until PCM arrives, recovery
-            // closes it, or the stream really finishes. An empty OpenAL
-            // buffer is treated like end-of-stream by some sound engines.
+            // Yield the sound executor after a bounded decoder wait. Minecraft
+            // skips a null streaming buffer and tries again on a later channel
+            // update; an indefinite wait here would also block volume, stop,
+            // reload, and recovery commands queued to that executor.
             return null;
         }
         output.flip();
