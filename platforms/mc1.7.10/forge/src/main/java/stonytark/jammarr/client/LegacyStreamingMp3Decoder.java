@@ -45,6 +45,25 @@ final class LegacyStreamingMp3Decoder implements AutoCloseable {
                 / Math.max(1L, (long) value.getSampleRate() * value.getChannels() * 2L);
     }
 
+    long discardMillis(long requestedMillis) {
+        AudioFormat value = format;
+        if (value == null || requestedMillis <= 0L) return 0L;
+        long bytesPerSecond = Math.max(1L,
+                (long) value.getSampleRate() * value.getChannels() * 2L);
+        long requestedBytes = requestedMillis * bytesPerSecond / 1_000L;
+        long discardedBytes = 0L;
+        byte[] next;
+        while ((next = pcm.peek()) != null && discardedBytes + next.length <= requestedBytes) {
+            if (pcm.poll() != next) continue;
+            discardedBytes += next.length;
+            bufferedBytes.addAndGet(-next.length);
+        }
+        if (discardedBytes > 0L) {
+            synchronized (flowControl) { flowControl.notifyAll(); }
+        }
+        return discardedBytes * 1_000L / bytesPerSecond;
+    }
+
     byte[] drain(int maximumBytes) {
         ByteArrayOutputStream output = new ByteArrayOutputStream(maximumBytes);
         while (output.size() < maximumBytes) {

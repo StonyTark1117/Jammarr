@@ -139,8 +139,9 @@ final class LegacyAudioPlayer {
         SoundSystem current = LegacySoundAccess.soundSystem(minecraft);
         if (started && current != soundSystem) { requestRebuffer("sound engine reload"); return; }
         long localStart = clock.toLocalTime(manifest.startedAtEpochMs() + Math.max(0L, firstChunkStartMs));
-        if (!started && !manifest.paused() && JammarrSettings.enabled() && decoder.format() != null
-                && decoder.bufferedMillis() >= START_BUFFER_MS && firstChunkStartMs >= 0L && now >= localStart) {
+        if (!started && !manifest.paused() && JammarrSettings.enabled() && clock.initialized()
+                && decoder.format() != null && decoder.bufferedMillis() >= START_BUFFER_MS
+                && firstChunkStartMs >= 0L && now >= localStart) {
             startSource(current, now);
         }
         if (started && soundSystem != null) {
@@ -169,12 +170,15 @@ final class LegacyAudioPlayer {
         soundSystem.rawDataStream(decoder.format(), true, SOURCE, 0.0F, 0.0F, 0.0F, 0, 0.0F);
         soundSystem.setLooping(SOURCE, false);
         soundSystem.setAttenuation(SOURCE, 0);
+        long authoritativePosition = Math.max(firstChunkStartMs,
+                clock.toServerTime(now) - manifest.startedAtEpochMs());
+        long skippedMillis = decoder.discardMillis(authoritativePosition - firstChunkStartMs);
         sourceStartedLocalMs = now;
-        sourceStartedPositionMs = Math.max(0L, firstChunkStartMs);
+        sourceStartedPositionMs = Math.max(0L, firstChunkStartMs + skippedMillis);
         queuedUntilLocalMs = now;
         started = true;
         AudioTimingTrace.record("channel_started", "positionMs", sourceStartedPositionMs,
-                "scheduledLocalMs", now);
+                "scheduledLocalMs", now, "skippedMs", skippedMillis);
         // A live Paulscode source proves the previous recovery succeeded, so
         // only consecutive failures consume the retry allowance.
         recoveryAttempts = 0;

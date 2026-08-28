@@ -71,10 +71,6 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
         } else if (type == LegacyPacketTypes.PLAYBACK_STATE) {
             playback = (StatePackets.PlaybackState) message;
             logAcceptancePlayback(playback);
-            if (playback.serverEpochMs() > 0L && !clock.initialized()) {
-                long now = System.currentTimeMillis();
-                clock.accept(now, playback.serverEpochMs(), now);
-            }
             refreshQueueBrowse(); screenChanged();
         } else if (type == LegacyPacketTypes.STATION_STATE) {
             station = (StatePackets.StationState) message;

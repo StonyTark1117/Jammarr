@@ -131,7 +131,10 @@ public final class JammarrAudioPlayer {
         Minecraft minecraft = Minecraft.getInstance();
         if (JammarrSettings.enabled()) minecraft.getMusicManager().stopPlaying();
         long localStart = clock.toLocalTime(manifest.startedAtEpochMs() + Math.max(0, firstChunkStartMs));
-        if (!started && !channelStarts.pending() && !manifest.paused() && JammarrSettings.enabled() && decoder.format() != null && decoder.bufferedMillis() >= START_BUFFER_MS && firstChunkStartMs >= 0 && now >= localStart) {
+        if (!started && !channelStarts.pending() && !manifest.paused() && JammarrSettings.enabled()
+                && clock.initialized() && decoder.format() != null
+                && decoder.bufferedMillis() >= START_BUFFER_MS && firstChunkStartMs >= 0
+                && now >= localStart) {
             startChannel(now);
         }
         if (channel != null) {
@@ -240,14 +243,20 @@ public final class JammarrAudioPlayer {
             }
             channel = handle;
             started = true;
-            AudioTimingTrace.record("channel_started", "positionMs", startingPosition,
-                    "scheduledLocalMs", now);
+            long readyNow = System.currentTimeMillis();
+            long authoritativePosition = Math.max(startingPosition,
+                    clock.toServerTime(readyNow) - manifest.startedAtEpochMs());
+            long skippedMillis = startingDecoder.discardMillis(authoritativePosition - startingPosition);
+            long actualPosition = startingPosition + skippedMillis;
+            AudioTimingTrace.record("channel_started", "positionMs", actualPosition,
+                    "scheduledLocalMs", now, "readyLocalMs", readyNow,
+                    "skippedMs", skippedMillis);
             // Recovery attempts are consecutive failures, not a lifetime budget
             // for the current track. Reaching a working OpenAL channel proves the
             // previous attempt succeeded and restores the normal retry allowance.
             recoveryAttempts = 0;
-            channelStartedLocalMs = now;
-            channelStartedPositionMs = startingPosition;
+            channelStartedLocalMs = readyNow;
+            channelStartedPositionMs = actualPosition;
             handle.execute(value -> {
                 value.disableAttenuation(); value.setRelative(true); value.setVolume(0);
                 value.attachBufferStream(new PcmAudioStream(startingDecoder)); value.play();

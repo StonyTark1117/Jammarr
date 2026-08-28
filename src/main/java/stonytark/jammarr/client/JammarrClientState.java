@@ -63,7 +63,6 @@ public final class JammarrClientState {
             audio.playbackActive(value.status() == JammarrPayloads.PlaybackStatus.PLAYING
                     || value.status() == JammarrPayloads.PlaybackStatus.PAUSED);
             logAcceptancePlayback(value);
-            if (value.serverEpochMs() > 0 && !clock.initialized()) clock.accept(System.currentTimeMillis(), value.serverEpochMs(), System.currentTimeMillis());
             boolean queueBrowseChanged = refreshQueueBrowse();
             if (minecraft.screen instanceof JammarrScreen screen) {
                 screen.playbackChanged();

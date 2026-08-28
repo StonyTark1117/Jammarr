@@ -23,11 +23,11 @@ def main() -> None:
         carrier = 0.22 * math.sin(2.0 * math.pi * 997.0 * time)
         marker_slot = int(time / 0.250)
         marker_frequency = 1477.0 if marker_slot % 2 == 0 else 1975.0
-        # A 120 ms marker remains well below the 250 ms cadence while giving
+        # A 180 ms marker remains below the 250 ms cadence while giving
         # LWJGL 2 / Paulscode enough steady-state signal after MP3 decoding and
         # OpenAL resampling to classify both alternating frequencies reliably.
         marker = 0.42 * math.sin(2.0 * math.pi * marker_frequency * time) \
-            if time % 0.250 < 0.120 else 0.0
+            if time % 0.250 < 0.180 else 0.0
         sample = max(-32768, min(32767, int((carrier + marker) * 32767.0)))
         block.extend(struct.pack("<hh", sample, sample))
         if len(block) >= 65536:

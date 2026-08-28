@@ -39,6 +39,23 @@ final class StreamingMp3Decoder implements AutoCloseable {
         AudioFormat value = format; if (value == null) return 0;
         return bufferedBytes.get() * 1000L / Math.max(1, (long)value.getSampleRate() * value.getChannels() * 2L);
     }
+    long discardMillis(long requestedMillis) {
+        AudioFormat value = format;
+        if (value == null || requestedMillis <= 0) return 0;
+        long bytesPerSecond = Math.max(1, (long)value.getSampleRate() * value.getChannels() * 2L);
+        long requestedBytes = requestedMillis * bytesPerSecond / 1_000L;
+        long discardedBytes = 0;
+        byte[] next;
+        while ((next = pcm.peek()) != null && discardedBytes + next.length <= requestedBytes) {
+            if (pcm.poll() != next) continue;
+            discardedBytes += next.length;
+            bufferedBytes.addAndGet(-next.length);
+        }
+        if (discardedBytes > 0) {
+            synchronized (flowControl) { flowControl.notifyAll(); }
+        }
+        return discardedBytes * 1_000L / bytesPerSecond;
+    }
     byte[] poll() {
         byte[] value = pcm.poll();
         while (value == null && !finished && !closed) {
