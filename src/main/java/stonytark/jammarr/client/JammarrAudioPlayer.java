@@ -35,7 +35,7 @@ public final class JammarrAudioPlayer {
     private JammarrPayloads.AudioManifest manifest;
     private StreamingMp3Decoder decoder;
     private ChunkWindowTracker window;
-    private ChannelAccess.ChannelHandle channel;
+    private volatile ChannelAccess.ChannelHandle channel;
     private long firstChunkStartMs = -1;
     private long channelStartedLocalMs;
     private long channelStartedPositionMs;
@@ -50,7 +50,7 @@ public final class JammarrAudioPlayer {
     private boolean recoveryFailed;
     private int receivedChunks;
     private int underruns;
-    private boolean started;
+    private volatile boolean started;
     private float appliedVolume = Float.NaN;
     private final AsyncStartGuard channelStarts = new AsyncStartGuard();
 
@@ -132,7 +132,10 @@ public final class JammarrAudioPlayer {
         Minecraft minecraft = Minecraft.getInstance();
         if (JammarrSettings.enabled()) minecraft.getMusicManager().stopPlaying();
         long localStart = clock.toLocalTime(manifest.startedAtEpochMs() + Math.max(0, firstChunkStartMs));
-        if (!started && !channelStarts.pending() && !manifest.paused() && JammarrSettings.enabled()
+        // Read the synchronized guard before the volatile publication flag.
+        // The async sound thread clears pending only after publishing started;
+        // the reverse order can use a stale false and create a second channel.
+        if (!channelStarts.pending() && !started && !manifest.paused() && JammarrSettings.enabled()
                 && clock.readyForPlayback() && decoder.format() != null
                 && decoder.bufferedMillis() >= START_BUFFER_MS && firstChunkStartMs >= 0
                 && now >= localStart) {
@@ -247,34 +250,34 @@ public final class JammarrAudioPlayer {
                 if (channelStarts.complete(startToken)) requestRebuffer("audio channel creation");
                 return;
             }
-            boolean published = channelStarts.complete(startToken, () -> {
-                long readyNow = System.currentTimeMillis();
-                long authoritativePosition = Math.max(startingPosition,
-                        clock.toServerTime(readyNow) - manifest.startedAtEpochMs());
-                long skippedMillis = startingDecoder.discardMillis(authoritativePosition - startingPosition);
-                long actualPosition = startingPosition + skippedMillis;
-                AudioTimingTrace.record("channel_started", "positionMs", actualPosition,
-                        "scheduledLocalMs", now, "readyLocalMs", readyNow,
-                        "skippedMs", skippedMillis);
-                // Recovery attempts are consecutive failures, not a lifetime budget
-                // for the current track. Reaching a working OpenAL channel proves the
-                // previous attempt succeeded and restores the normal retry allowance.
-                recoveryAttempts = 0;
-                channelStartedLocalMs = readyNow;
-                channelStartedPositionMs = actualPosition;
-                lastCorrectionMs = readyNow;
-                handle.execute(value -> {
+            handle.execute(value -> {
+                boolean published = channelStarts.complete(startToken, () -> {
+                    long readyNow = System.currentTimeMillis();
+                    long authoritativePosition = Math.max(startingPosition,
+                            clock.toServerTime(readyNow) - manifest.startedAtEpochMs());
+                    long skippedMillis = startingDecoder.discardMillis(authoritativePosition - startingPosition);
+                    long actualPosition = startingPosition + skippedMillis;
+                    AudioTimingTrace.record("channel_started", "positionMs", actualPosition,
+                            "scheduledLocalMs", now, "readyLocalMs", readyNow,
+                            "skippedMs", skippedMillis);
+                    // Recovery attempts are consecutive failures, not a lifetime budget
+                    // for the current track. Reaching a working OpenAL channel proves the
+                    // previous attempt succeeded and restores the normal retry allowance.
+                    recoveryAttempts = 0;
+                    channelStartedLocalMs = readyNow;
+                    channelStartedPositionMs = actualPosition;
+                    lastCorrectionMs = readyNow;
                     value.disableAttenuation(); value.setRelative(true); value.setVolume(0);
                     value.attachBufferStream(new PcmAudioStream(startingDecoder)); value.play();
+                    // Publish only after the backend initialization command has run,
+                    // while the start guard is still held. Until this point the handle
+                    // can legitimately report stopped and must not be polled by tick().
+                    appliedVolume = Float.NaN;
+                    channel = handle;
+                    started = true;
                 });
-                // Publish the channel and its timing baseline while the start guard
-                // is still held. A render tick must never observe "not pending" and
-                // "not started" between async completion and handle publication.
-                appliedVolume = Float.NaN;
-                channel = handle;
-                started = true;
+                if (!published) value.stop();
             });
-            if (!published) handle.execute(com.mojang.blaze3d.audio.Channel::stop);
         });
     }
 

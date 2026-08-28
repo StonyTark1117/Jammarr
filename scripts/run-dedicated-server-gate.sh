@@ -907,6 +907,20 @@ wait_for_audio_pair_playing() {
   return 1
 }
 
+audio_log_has_rapid_duplicate_channel_start() {
+  local client_console=$1
+  awk '
+    /JAMMARR_AUDIO_TIMING stage=channel_started/ {
+      if (match($0, /monotonicNanos=[0-9]+/)) {
+        current = substr($0, RSTART + 15, RLENGTH - 15) + 0
+        if (previous > 0 && current - previous < 500000000) duplicate = 1
+        previous = current
+      }
+    }
+    END { exit !duplicate }
+  ' "$client_console"
+}
+
 launch_audio_client() {
   local label=$1
   local target_dir=$2
@@ -1394,6 +1408,10 @@ run_two_client_audio() {
   fi
   if (( result == 0 )); then
     if ! wait_for_audio_pair_playing "$label" "$leader_pid" "$follower_pid"; then
+      result=1
+    elif audio_log_has_rapid_duplicate_channel_start "$output_root/$label.audio-leader.console.log" \
+        || audio_log_has_rapid_duplicate_channel_start "$output_root/$label.audio-follower.console.log"; then
+      echo "$label: an audio client created duplicate channels within 500 ms" >&2
       result=1
     fi
   fi
