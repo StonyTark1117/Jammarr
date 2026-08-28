@@ -13,9 +13,13 @@ import stonytark.jammarr.core.platform.JammarrSettings;
 import stonytark.jammarr.core.protocol.StatePackets;
 import stonytark.jammarr.core.protocol.TransportPackets;
 import stonytark.jammarr.core.protocol.AudioTimingTrace;
+import stonytark.jammarr.core.protocol.ProtocolLimits;
 import stonytark.jammarr.network.LegacyNetwork;
 import stonytark.jammarr.network.LegacyPacketTypes;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -57,6 +61,7 @@ final class LegacyAudioPlayer {
     private long lastSoundReloadMs;
     private boolean started;
     private boolean timingDrainRecorded;
+    private FileOutputStream acceptancePcmTrace;
 
     LegacyAudioPlayer(ClockSynchronizer clock) { this.clock = clock; }
 
@@ -175,8 +180,10 @@ final class LegacyAudioPlayer {
         long skippedMillis = decoder.discardMillis(authoritativePosition - firstChunkStartMs);
         sourceStartedLocalMs = now;
         sourceStartedPositionMs = Math.max(0L, firstChunkStartMs + skippedMillis);
+        lastCorrectionMs = now;
         queuedUntilLocalMs = now;
         started = true;
+        openAcceptancePcmTrace();
         AudioTimingTrace.record("channel_started", "positionMs", sourceStartedPositionMs,
                 "scheduledLocalMs", now, "skippedMs", skippedMillis);
         // A live Paulscode source proves the previous recovery succeeded, so
@@ -198,6 +205,7 @@ final class LegacyAudioPlayer {
                     AudioTimingTrace.record("pcm_drained", "bytes", pcm.length,
                             "bufferedMs", decoder.bufferedMillis());
                 }
+                traceAcceptancePcm(pcm);
                 PcmGain.apply(pcm, JammarrSettings.volume()
                         * Minecraft.getMinecraft().gameSettings.getSoundLevel(SoundCategory.MUSIC));
                 soundSystem.feedRawAudioData(SOURCE, pcm);
@@ -330,6 +338,7 @@ final class LegacyAudioPlayer {
     }
 
     private void resetAudio() {
+        closeAcceptancePcmTrace();
         SoundSystem previous = soundSystem;
         soundSystem = null;
         if (previous != null) {
@@ -342,6 +351,41 @@ final class LegacyAudioPlayer {
         if (decoder != null) { decoder.close(); decoder = null; }
         window = null; started = false; firstChunkStartMs = -1L;
         sourceStartedLocalMs = 0L; sourceStartedPositionMs = 0L; queuedUntilLocalMs = 0L;
+    }
+
+    private void openAcceptancePcmTrace() {
+        if (!ProtocolLimits.audioProbeEnabled() || manifest == null) return;
+        String traceDirectory = System.getProperty("jammarr.acceptance.pcmTraceDir", "");
+        if (traceDirectory.length() == 0) return;
+        File directory = new File(traceDirectory);
+        if (!directory.isDirectory() && !directory.mkdirs()) return;
+        File trace = new File(directory, manifest.sessionId() + "-" + manifest.firstChunk()
+                + "-" + System.nanoTime() + ".s16le");
+        try {
+            acceptancePcmTrace = new FileOutputStream(trace);
+        } catch (IOException error) {
+            Jammarr.LOGGER.warn("Unable to open the legacy acceptance PCM trace", error);
+        }
+    }
+
+    private void traceAcceptancePcm(byte[] pcm) {
+        if (acceptancePcmTrace == null) return;
+        try {
+            acceptancePcmTrace.write(pcm);
+            acceptancePcmTrace.flush();
+        } catch (IOException error) {
+            Jammarr.LOGGER.warn("Unable to write the legacy acceptance PCM trace", error);
+            closeAcceptancePcmTrace();
+        }
+    }
+
+    private void closeAcceptancePcmTrace() {
+        if (acceptancePcmTrace == null) return;
+        try {
+            acceptancePcmTrace.close();
+        } catch (IOException ignored) {
+        }
+        acceptancePcmTrace = null;
     }
 
     private void markSoundUnavailable(LinkageError unavailable) {

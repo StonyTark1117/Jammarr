@@ -116,6 +116,21 @@ def skew(first: dict, second: dict) -> int | None:
     return best
 
 
+def validate_stream(value: dict, label: str, args: argparse.Namespace,
+                    failures: list[str]) -> None:
+    prefix = f"{label} " if label else ""
+    if value["duration_ms"] < args.minimum_duration_ms:
+        failures.append(f"{prefix}capture is shorter than the required duration")
+    if value["marker_count"] < max(4, args.minimum_duration_ms // 350):
+        failures.append(f"{prefix}has too few detected timing markers")
+    if value["first_marker_ms"] is None or value["first_marker_ms"] > args.maximum_onset_ms:
+        failures.append(f"{prefix}marker onset exceeded the threshold")
+    if value["max_silence_ms"] > args.maximum_silence_ms:
+        failures.append(f"{prefix}post-start silence gap exceeded the threshold")
+    if value["max_marker_interval_error_ms"] > args.maximum_marker_error_ms:
+        failures.append(f"{prefix}marker displacement exceeded the threshold")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("capture", type=Path)
@@ -133,19 +148,11 @@ def main() -> None:
     report = {"capture": analyze(args.capture, args.sample_rate)}
     failures: list[str] = []
     capture = report["capture"]
-    if capture["duration_ms"] < args.minimum_duration_ms:
-        failures.append("capture is shorter than the required duration")
-    if capture["marker_count"] < max(4, args.minimum_duration_ms // 350):
-        failures.append("too few timing markers were detected")
-    if capture["first_marker_ms"] is None or capture["first_marker_ms"] > args.maximum_onset_ms:
-        failures.append("marker onset exceeded the threshold")
-    if capture["max_silence_ms"] > args.maximum_silence_ms:
-        failures.append("a post-start silence gap exceeded the threshold")
-    if capture["max_marker_interval_error_ms"] > args.maximum_marker_error_ms:
-        failures.append("marker displacement exceeded the threshold")
+    validate_stream(capture, "", args, failures)
 
     if args.reference is not None:
         report["reference"] = analyze(args.reference, args.sample_rate)
+        validate_stream(report["reference"], "reference", args, failures)
         report["inter_client_skew_ms"] = skew(capture, report["reference"])
         if report["inter_client_skew_ms"] is None or report["inter_client_skew_ms"] > args.maximum_skew_ms:
             failures.append("inter-client skew exceeded the threshold")

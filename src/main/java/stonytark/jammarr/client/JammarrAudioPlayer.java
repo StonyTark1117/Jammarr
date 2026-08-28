@@ -257,6 +257,7 @@ public final class JammarrAudioPlayer {
             recoveryAttempts = 0;
             channelStartedLocalMs = readyNow;
             channelStartedPositionMs = actualPosition;
+            lastCorrectionMs = readyNow;
             handle.execute(value -> {
                 value.disableAttenuation(); value.setRelative(true); value.setVolume(0);
                 value.attachBufferStream(new PcmAudioStream(startingDecoder)); value.play();
