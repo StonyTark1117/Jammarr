@@ -144,11 +144,9 @@ public final class JammarrAudioPlayer {
                 appliedVolume = volume;
                 channel.execute(c -> c.setVolume(volume));
             }
-            if (started && !manifest.paused() && decoder.bufferedMillis() == 0 && !window.complete() && now - lastAudioDataMs > UNDERRUN_GRACE_MS) {
-                underruns++;
-                requestRebuffer("decoder starvation");
-                return;
-            }
+            // An empty decoder is not itself an underrun: OpenAL may still
+            // hold audible PCM while the server intentionally defers the next
+            // compressed window to enforce its maximum playback lead.
             if (channel.isStopped()) {
                 if (!window.complete() && now - lastAudioDataMs > UNDERRUN_GRACE_MS) {
                     underruns++;
