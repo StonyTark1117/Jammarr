@@ -64,9 +64,9 @@ public final class JammarrScreen extends Screen {
     private void addSearch(int left, int top, int panelWidth) {
         search = addRenderableWidget(new EditBox(font, left, top, panelWidth - 126, 20, Component.translatable("jammarr.screen.search")));
         search.setMaxLength(128); search.setHint(Component.translatable("jammarr.screen.search")); search.setValue(searchQuery); search.setResponder(value -> searchQuery = value);
-        Button go = Button.builder(Component.translatable("jammarr.screen.go"), b -> request(0)).bounds(left + panelWidth - 122, top, 58, 20).build(); go.active = !requestPending; addRenderableWidget(go);
+        Button go = described(Button.builder(Component.translatable("jammarr.screen.go"), b -> request(0)).bounds(left + panelWidth - 122, top, 58, 20).build(), "Run this search"); go.active = !requestPending; addRenderableWidget(go);
         Button clear = Button.builder(Component.translatable("jammarr.screen.clear"), b -> { searchQuery = ""; search.setValue(""); request(0); })
-                .bounds(left + panelWidth - 60, top, 60, 20).build(); clear.active = !requestPending; addRenderableWidget(clear);
+                .bounds(left + panelWidth - 60, top, 60, 20).build(); described(clear, "Clear the search and refresh results"); clear.active = !requestPending; addRenderableWidget(clear);
     }
 
     private void addNowPlaying(int left, int top, int panelWidth) {
@@ -80,7 +80,7 @@ public final class JammarrScreen extends Screen {
         } : playing.sourceName();
         if (!source.isBlank()) addRenderableWidget(disabled("Source: " + source, left, top + 66, panelWidth));
         if (state.audioState() == AudioPlaybackState.ERROR)
-            addRenderableWidget(Button.builder(Component.translatable("jammarr.screen.retry_audio"), b -> state.retryAudio()).bounds(left + panelWidth / 2 - 48, top + 92, 96, 20).build());
+            addRenderableWidget(described(Button.builder(Component.translatable("jammarr.screen.retry_audio"), b -> state.retryAudio()).bounds(left + panelWidth / 2 - 48, top + 92, 96, 20).build(), "Retry local audio playback after an error"));
     }
 
     private void addStations(int left, int top, int panelWidth) {
@@ -91,28 +91,28 @@ public final class JammarrScreen extends Screen {
         if (!state.playback().operator()) return;
         Button autoplay = Button.builder(Component.literal("Autoplay: " + (station.autoplayEnabled() ? "On" : "Off")), b ->
                 stationRequest(JammarrPayloads.StationAction.SET_AUTOPLAY, JammarrPayloads.StationType.AUTOPLAY, !station.autoplayEnabled(), List.of()))
-                .bounds(left, top + 48, 110, 20).build(); addRenderableWidget(autoplay);
-        addRenderableWidget(Button.builder(Component.translatable("jammarr.screen.library_shuffle"), b ->
+                .bounds(left, top + 48, 110, 20).build(); described(autoplay, "Continue after the queue using Sonic or configured metadata fallback"); addRenderableWidget(autoplay);
+        addRenderableWidget(described(Button.builder(Component.translatable("jammarr.screen.library_shuffle"), b ->
                 stationRequest(JammarrPayloads.StationAction.START, JammarrPayloads.StationType.LIBRARY_SHUFFLE, false, List.of()))
-                .bounds(left + 116, top + 48, 126, 20).build());
+                .bounds(left + 116, top + 48, 126, 20).build(), "Shuffle the selected music library; Plex Pass is not required"));
         Button stop = Button.builder(Component.translatable("jammarr.screen.stop_station"), b ->
                 stationRequest(JammarrPayloads.StationAction.STOP, JammarrPayloads.StationType.NONE, false, List.of()))
-                .bounds(left + 248, top + 48, 100, 20).build(); stop.active = station.active(); addRenderableWidget(stop);
+                .bounds(left + 248, top + 48, 100, 20).build(); described(stop, "Stop the active station or autoplay source"); stop.active = station.active(); addRenderableWidget(stop);
 
         addRenderableWidget(disabled("Sonic Mix seeds (2-5, one type)", left, top + 76, panelWidth));
         for (int i = 0; i < Math.min(5, mixSeeds.size()); i++) {
             int index = i, y = top + 99 + i * 22; JammarrPayloads.StationSeed seed = mixSeeds.get(i);
             addRenderableWidget(disabled((i + 1) + ". " + seed.title() + (seed.subtitle().isBlank() ? "" : " — " + seed.subtitle()), left, y, panelWidth - 34));
-            addRenderableWidget(Button.builder(Component.literal("×"), b -> { mixSeeds.remove(index); rebuildWidgets(); }).bounds(left + panelWidth - 30, y, 30, 20).build());
+            addRenderableWidget(described(Button.builder(Component.literal("×"), b -> { mixSeeds.remove(index); rebuildWidgets(); }).bounds(left + panelWidth - 30, y, 30, 20).build(), "Remove this Sonic Mix seed"));
         }
         int actionY = top + 99 + Math.min(5, mixSeeds.size()) * 22;
         Button start = Button.builder(Component.translatable("jammarr.screen.start"), b ->
                 stationRequest(JammarrPayloads.StationAction.START, JammarrPayloads.StationType.SONIC_MIX, false, mixSeeds)).bounds(left, actionY, 78, 20).build();
-        start.active = mixSeeds.size() >= 2; addRenderableWidget(start);
+        described(start, "Start this Sonic Mix after queued manual requests"); start.active = mixSeeds.size() >= 2; addRenderableWidget(start);
         Button startNow = Button.builder(Component.translatable("jammarr.screen.start_now"), b -> confirmStartNow(JammarrPayloads.StationType.SONIC_MIX, mixSeeds))
-                .bounds(left + 84, actionY, 92, 20).build(); startNow.active = mixSeeds.size() >= 2; addRenderableWidget(startNow);
-        addRenderableWidget(Button.builder(Component.translatable("jammarr.screen.clear_builder"), b -> { mixSeeds.clear(); rebuildWidgets(); })
-                .bounds(left + 182, actionY, 102, 20).build());
+                .bounds(left + 84, actionY, 92, 20).build(); described(startNow, "Replace current shared playback with this Sonic Mix"); startNow.active = mixSeeds.size() >= 2; addRenderableWidget(startNow);
+        addRenderableWidget(described(Button.builder(Component.translatable("jammarr.screen.clear_builder"), b -> { mixSeeds.clear(); rebuildWidgets(); })
+                .bounds(left + 182, actionY, 102, 20).build(), "Remove all Sonic Mix seeds"));
         int previewY = actionY + 26;
         if (!station.preview().isEmpty()) {
             addRenderableWidget(disabled("Generated next:", left, previewY, panelWidth));
@@ -129,19 +129,19 @@ public final class JammarrScreen extends Screen {
         for (int i = 0; i < adventureWaypoints.size(); i++) {
             int index = i, y = listTop + i * 22; JammarrPayloads.StationSeed seed = adventureWaypoints.get(i);
             addRenderableWidget(disabled((i + 1) + ". " + seed.title() + (seed.subtitle().isBlank() ? "" : " — " + seed.subtitle()), left, y, panelWidth - 94));
-            Button up = Button.builder(Component.literal("↑"), b -> moveWaypoint(index, -1)).bounds(left + panelWidth - 90, y, 28, 20).build(); up.active = i > 0; addRenderableWidget(up);
-            Button down = Button.builder(Component.literal("↓"), b -> moveWaypoint(index, 1)).bounds(left + panelWidth - 60, y, 28, 20).build(); down.active = i + 1 < adventureWaypoints.size(); addRenderableWidget(down);
-            addRenderableWidget(Button.builder(Component.literal("×"), b -> { adventureWaypoints.remove(index); rebuildWidgets(); }).bounds(left + panelWidth - 30, y, 30, 20).build());
+            Button up = described(Button.builder(Component.literal("↑"), b -> moveWaypoint(index, -1)).bounds(left + panelWidth - 90, y, 28, 20).build(), "Move this Adventure waypoint earlier"); up.active = i > 0; addRenderableWidget(up);
+            Button down = described(Button.builder(Component.literal("↓"), b -> moveWaypoint(index, 1)).bounds(left + panelWidth - 60, y, 28, 20).build(), "Move this Adventure waypoint later"); down.active = i + 1 < adventureWaypoints.size(); addRenderableWidget(down);
+            addRenderableWidget(described(Button.builder(Component.literal("×"), b -> { adventureWaypoints.remove(index); rebuildWidgets(); }).bounds(left + panelWidth - 30, y, 30, 20).build(), "Remove this Adventure waypoint"));
         }
         int actionsY = listTop + adventureWaypoints.size() * 22;
         Button preview = Button.builder(Component.translatable("jammarr.screen.preview"), b -> stationRequest(JammarrPayloads.StationAction.PREVIEW_ADVENTURE,
-                JammarrPayloads.StationType.SONIC_ADVENTURE, false, adventureWaypoints)).bounds(left, actionsY, 76, 20).build(); preview.active = adventureWaypoints.size() >= 2; addRenderableWidget(preview);
+                JammarrPayloads.StationType.SONIC_ADVENTURE, false, adventureWaypoints)).bounds(left, actionsY, 76, 20).build(); described(preview, "Preview the generated Sonic path without changing playback"); preview.active = adventureWaypoints.size() >= 2; addRenderableWidget(preview);
         Button start = Button.builder(Component.translatable("jammarr.screen.start"), b -> stationRequest(JammarrPayloads.StationAction.START,
-                JammarrPayloads.StationType.SONIC_ADVENTURE, false, adventureWaypoints)).bounds(left + 82, actionsY, 76, 20).build(); start.active = adventureWaypoints.size() >= 2; addRenderableWidget(start);
+                JammarrPayloads.StationType.SONIC_ADVENTURE, false, adventureWaypoints)).bounds(left + 82, actionsY, 76, 20).build(); described(start, "Start this Adventure after queued manual requests"); start.active = adventureWaypoints.size() >= 2; addRenderableWidget(start);
         Button startNow = Button.builder(Component.translatable("jammarr.screen.start_now"), b -> confirmStartNow(JammarrPayloads.StationType.SONIC_ADVENTURE, adventureWaypoints))
-                .bounds(left + 164, actionsY, 92, 20).build(); startNow.active = adventureWaypoints.size() >= 2; addRenderableWidget(startNow);
-        addRenderableWidget(Button.builder(Component.translatable("jammarr.screen.clear_builder"), b -> { adventureWaypoints.clear(); rebuildWidgets(); })
-                .bounds(left + 262, actionsY, 104, 20).build());
+                .bounds(left + 164, actionsY, 92, 20).build(); described(startNow, "Replace current shared playback with this Adventure"); startNow.active = adventureWaypoints.size() >= 2; addRenderableWidget(startNow);
+        addRenderableWidget(described(Button.builder(Component.translatable("jammarr.screen.clear_builder"), b -> { adventureWaypoints.clear(); rebuildWidgets(); })
+                .bounds(left + 262, actionsY, 104, 20).build(), "Remove all Adventure waypoints"));
         int resultsTop = actionsY + 26;
         JammarrPayloads.AdventurePreview path = state.adventurePreview();
         if (!path.message().isBlank()) {
@@ -188,10 +188,10 @@ public final class JammarrScreen extends Screen {
         return item.kind() == JammarrPayloads.ItemKind.TRACK ? 124 : 94;
     }
     private void addQueueControls(int left, int panelWidth, int y, int index, JammarrPayloads.QueueEntry entry) {
-        int x = left + panelWidth - 88; Button up = Button.builder(Component.literal("↑"), b -> control(JammarrPayloads.ControlAction.MOVE_UP, index, entry.key())).bounds(x, y, 28, 20).build();
-        Button down = Button.builder(Component.literal("↓"), b -> control(JammarrPayloads.ControlAction.MOVE_DOWN, index, entry.key())).bounds(x + 30, y, 28, 20).build();
+        int x = left + panelWidth - 88; Button up = described(Button.builder(Component.literal("↑"), b -> control(JammarrPayloads.ControlAction.MOVE_UP, index, entry.key())).bounds(x, y, 28, 20).build(), "Move this manual request earlier");
+        Button down = described(Button.builder(Component.literal("↓"), b -> control(JammarrPayloads.ControlAction.MOVE_DOWN, index, entry.key())).bounds(x + 30, y, 28, 20).build(), "Move this manual request later");
         up.active = index > 0 && state.playback().queue().get(index - 1).editable(); down.active = index + 1 < state.playback().queue().size() && state.playback().queue().get(index + 1).editable();
-        addRenderableWidget(up); addRenderableWidget(down); addRenderableWidget(Button.builder(Component.literal("×"), b -> control(JammarrPayloads.ControlAction.REMOVE, index, entry.key())).bounds(x + 60, y, 28, 20).build());
+        addRenderableWidget(up); addRenderableWidget(down); addRenderableWidget(described(Button.builder(Component.literal("×"), b -> control(JammarrPayloads.ControlAction.REMOVE, index, entry.key())).bounds(x + 60, y, 28, 20).build(), "Remove this manual request"));
     }
     private void addBrowseControls(int left, int panelWidth, int y, JammarrPayloads.MediaItem item) {
         int button = 28, gap = 2, actions = state.playback().operator() && item.kind() != JammarrPayloads.ItemKind.PLAYLIST ? (item.kind() == JammarrPayloads.ItemKind.TRACK ? 4 : 3) : 1;
@@ -208,31 +208,31 @@ public final class JammarrScreen extends Screen {
 
     private void addBottomControls(int left, int panelWidth) {
         int bottom = height - 27;
-        addRenderableWidget(Button.builder(Component.translatable(JammarrSettings.enabled() ? "jammarr.screen.mute" : "jammarr.screen.unmute"), b -> {
+        addRenderableWidget(described(Button.builder(Component.translatable(JammarrSettings.enabled() ? "jammarr.screen.mute" : "jammarr.screen.unmute"), b -> {
             JammarrSettings.enabled(!JammarrSettings.enabled()); JammarrSettings.saveEnabled(); state.listeningChanged(); rebuildWidgets();
-        }).bounds(left, bottom, 68, 20).build()); addRenderableWidget(new VolumeSlider(left + 74, bottom, 130, 20));
+        }).bounds(left, bottom, 68, 20).build(), "Toggle Jammarr audio on this client only")); addRenderableWidget(new VolumeSlider(left + 74, bottom, 130, 20));
         if (state.playback().operator()) {
-            addRenderableWidget(Button.builder(Component.translatable(state.playback().paused() ? "jammarr.screen.resume" : "jammarr.screen.pause"), b ->
-                    control(state.playback().paused() ? JammarrPayloads.ControlAction.RESUME : JammarrPayloads.ControlAction.PAUSE, -1)).bounds(left + 210, bottom, 72, 20).build());
-            addRenderableWidget(Button.builder(Component.translatable("jammarr.screen.skip"), b -> control(JammarrPayloads.ControlAction.SKIP, -1)).bounds(left + 288, bottom, 58, 20).build());
+            addRenderableWidget(described(Button.builder(Component.translatable(state.playback().paused() ? "jammarr.screen.resume" : "jammarr.screen.pause"), b ->
+                    control(state.playback().paused() ? JammarrPayloads.ControlAction.RESUME : JammarrPayloads.ControlAction.PAUSE, -1)).bounds(left + 210, bottom, 72, 20).build(), "Pause or resume shared playback for everyone"));
+            addRenderableWidget(described(Button.builder(Component.translatable("jammarr.screen.skip"), b -> control(JammarrPayloads.ControlAction.SKIP, -1)).bounds(left + 288, bottom, 58, 20).build(), "Skip the current track for everyone"));
             boolean armed = System.currentTimeMillis() < clearArmedUntil;
-            addRenderableWidget(Button.builder(Component.translatable(armed ? "jammarr.screen.confirm" : "jammarr.screen.clear"), b -> {
+            addRenderableWidget(described(Button.builder(Component.translatable(armed ? "jammarr.screen.confirm" : "jammarr.screen.clear"), b -> {
                 if (System.currentTimeMillis() < clearArmedUntil) { clearArmedUntil = 0; control(JammarrPayloads.ControlAction.CLEAR, -1); }
                 else { clearArmedUntil = System.currentTimeMillis() + 5_000; screenNotice = Component.translatable("jammarr.screen.confirm_clear_notice").getString(); rebuildWidgets(); }
-            }).bounds(left + 352, bottom, 72, 20).build());
+            }).bounds(left + 352, bottom, 72, 20).build(), armed ? "Confirm clearing all shared playback" : "Clear all shared playback after confirmation"));
         }
     }
     private void addPaging(int left, int panelWidth) {
         JammarrPayloads.BrowseResults results = state.browse(); if (view.browseKind == null || results.kind() != view.browseKind) return; int bottom = height - 27;
-        if (results.page() > 0) { Button previous = Button.builder(Component.literal("<"), b -> request(results.page() - 1)).bounds(left + panelWidth - 70, bottom, 32, 20).build(); previous.active = !requestPending; addRenderableWidget(previous); }
-        if (results.hasMore()) { Button next = Button.builder(Component.literal(">"), b -> request(results.page() + 1)).bounds(left + panelWidth - 34, bottom, 32, 20).build(); next.active = !requestPending; addRenderableWidget(next); }
+        if (results.page() > 0) { Button previous = described(Button.builder(Component.literal("<"), b -> request(results.page() - 1)).bounds(left + panelWidth - 70, bottom, 32, 20).build(), "Show the previous results page"); previous.active = !requestPending; addRenderableWidget(previous); }
+        if (results.hasMore()) { Button next = described(Button.builder(Component.literal(">"), b -> request(results.page() + 1)).bounds(left + panelWidth - 34, bottom, 32, 20).build(), "Show the next results page"); next.active = !requestPending; addRenderableWidget(next); }
     }
 
     private void addTab(int x, int y, int width, View candidate) {
         Button button = Button.builder(Component.translatable(candidate.label), b -> {
             view = candidate; rowOffset = 0; requestPending = false; queuePending = false; pendingQueueKey = ""; screenNotice = ""; state.clearNotice();
             if (candidate.browseKind != null && candidate != View.ADVENTURE) request(0); rebuildWidgets();
-        }).bounds(x, y, width, 20).build(); if (candidate == View.SEARCH) searchTab = button; button.active = view != candidate; addRenderableWidget(button);
+        }).bounds(x, y, width, 20).build(); described(button, tabTooltip(candidate)); if (candidate == View.SEARCH) searchTab = button; button.active = view != candidate; addRenderableWidget(button);
     }
     private void activate(JammarrPayloads.MediaItem item) {
         if (queuePending) return; queuePending = true; pendingQueueKey = item.key(); screenNotice = Component.translatable("jammarr.screen.queuing").getString();
@@ -300,6 +300,17 @@ public final class JammarrScreen extends Screen {
         else if (playing.status() == JammarrPayloads.PlaybackStatus.PLEX_OFFLINE && notice.isBlank()) graphics.drawCenteredString(font, Component.translatable("jammarr.screen.plex_unavailable"), width / 2, height / 2, 0xFF7777);
     }
 
+    private Button described(Button button, String description) { button.setTooltip(Tooltip.create(Component.literal(description))); return button; }
+    private static String tabTooltip(View view) { return switch (view) {
+        case NOW -> "Show current shared playback and its source";
+        case SEARCH -> "Find tracks, albums, artists, and playlists in the selected music library";
+        case ARTISTS -> "Browse artists in the selected music library";
+        case ALBUMS -> "Browse albums in the selected music library";
+        case PLAYLISTS -> "Browse playlists in the selected music library";
+        case STATIONS -> "Configure autoplay, Library Shuffle, and Sonic Mix";
+        case ADVENTURE -> "Build a Sonic path through two to five tracks; Plex Pass is required";
+        case QUEUE -> "View and reorder the shared playback queue";
+    }; }
     private Button disabled(String value, int x, int y, int width) { Button button = Button.builder(Component.literal(trim(value, width - 12)), b -> {}).bounds(x, y, width, 20).build(); button.active = false; return button; }
     private static String capabilityLabel(JammarrPayloads.StationState station) { return "Sonic: " + station.capability().name().replace('_', ' ').toLowerCase() + " — " + station.capabilityMessage(); }
     private static String statusLabel(JammarrPayloads.PlaybackState state) { return Component.translatable(switch (state.status()) { case IDLE -> "jammarr.status.idle"; case PREPARING -> "jammarr.status.preparing"; case PLAYING -> "jammarr.status.playing"; case PAUSED -> "jammarr.status.paused"; case PLEX_OFFLINE -> "jammarr.status.plex_offline"; }).getString(); }
@@ -309,7 +320,7 @@ public final class JammarrScreen extends Screen {
     @Override public boolean isPauseScreen() { return false; }
 
     private final class VolumeSlider extends AbstractSliderButton {
-        private VolumeSlider(int x, int y, int width, int height) { super(x, y, width, height, Component.empty(), JammarrSettings.volume()); updateMessage(); }
+        private VolumeSlider(int x, int y, int width, int height) { super(x, y, width, height, Component.empty(), JammarrSettings.volume()); setTooltip(Tooltip.create(Component.literal("Set Jammarr volume on this client only"))); updateMessage(); }
         @Override protected void updateMessage() { setMessage(Component.translatable("jammarr.screen.volume", Math.round(value * 100))); }
         @Override protected void applyValue() { JammarrSettings.volume(value); JammarrSettings.saveVolume(); }
     }

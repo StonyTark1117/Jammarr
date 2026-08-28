@@ -56,7 +56,8 @@ Client listening and volume settings are separate from the server file. Forge an
 - Every player may browse and append tracks, albums, artists, or audio playlists.
 - Permission-level 2 operators may pause, resume, skip, clear, remove, and reorder queue entries.
 - Each player may independently mute Jammarr and set a persistent local volume. Local opt-out never changes the global queue.
-- Operators can run one shared endless source: Sonic Autoplay, Library Shuffle, Track Radio, Artist Radio, Album Radio, or a 2–5 seed Sonic Mix. Track, artist, and album browse rows expose radio/mix actions; the compact `+`, `R`, `M`, and `A` actions have descriptive hover help.
+- Operators can run one shared endless source: Sonic Autoplay, Library Shuffle, Track Radio, Artist Radio, Album Radio, or a 2–5 seed Sonic Mix. Track, artist, and album browse rows expose radio/mix actions.
+- Every main-menu button has concise hover help, including the compact `+`, `R`, `M`, and `A` browse actions, queue arrows, station builders, shared playback controls, paging, tabs, local mute/volume, and audio retry.
 - **Adventure is a separate tab.** Operators build an ordered route of 2–5 track waypoints, preview Plex's sonic path, and start it normally or immediately. After the final waypoint, Jammarr continues with Track Radio from that track.
 - Manual requests always play before generated station tracks after the current song. The Queue view marks generated preview entries as read-only; they do not consume the manual queue limit.
 - The Now Playing screen reports both server playback and local audio state. Decoder or transfer recovery is bounded and can be retried from the screen after a final local audio error.

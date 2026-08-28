@@ -87,7 +87,7 @@ final class LegacyScreen extends GuiScreen {
                 "Autoplay: " + (state.station().autoplayEnabled() ? "On" : "Off"));
         button(SHUFFLE, left + 116, top + 46, 120, 20, "Library Shuffle");
         GuiButton mix = button(MIX_START, left + 242, top + 46, 100, 20, "Start Mix");
-        mix.enabled = !mixSeeds.isEmpty();
+        mix.enabled = mixSeeds.size() >= 2;
         button(STATION_STOP, left + 348, top + 46, 100, 20, "Stop Station");
     }
 
@@ -415,15 +415,7 @@ final class LegacyScreen extends GuiScreen {
     }
 
     private String trim(String value, int pixels) { return fontRendererObj.trimStringToWidth(value, Math.max(10, pixels)); }
-    private static String tooltip(int id) {
-        if (id >= ADD_BASE && id < RADIO_BASE) return "Add to the shared manual queue";
-        if (id >= RADIO_BASE && id < MIX_BASE) return "Start radio; metadata fallback can work without Plex Pass";
-        if (id >= MIX_BASE && id < ADVENTURE_ADD_BASE) return "Add to Sonic Mix; metadata fallback can be enabled";
-        if (id >= ADVENTURE_ADD_BASE && id < REMOVE_BASE) return "Add Adventure waypoint; Sonic and Plex Pass are required";
-        if (id == SHUFFLE) return "Shuffle the selected music library; Plex Pass is not required";
-        if (id == AUTOPLAY) return "Continue playback with Sonic or configured metadata fallback";
-        return null;
-    }
+    static String tooltip(int id) { return LegacyUiTooltips.tooltip(id); }
     private static boolean empty(String value) { return value == null || value.isEmpty(); }
     private static String time(long millis) {
         long seconds = Math.max(0L, millis / 1_000L);
