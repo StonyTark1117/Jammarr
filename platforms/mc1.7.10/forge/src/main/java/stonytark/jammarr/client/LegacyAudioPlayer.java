@@ -144,7 +144,7 @@ final class LegacyAudioPlayer {
         SoundSystem current = LegacySoundAccess.soundSystem(minecraft);
         if (started && current != soundSystem) { requestRebuffer("sound engine reload"); return; }
         long localStart = clock.toLocalTime(manifest.startedAtEpochMs() + Math.max(0L, firstChunkStartMs));
-        if (!started && !manifest.paused() && JammarrSettings.enabled() && clock.initialized()
+        if (!started && !manifest.paused() && JammarrSettings.enabled() && clock.readyForPlayback()
                 && decoder.format() != null && decoder.bufferedMillis() >= START_BUFFER_MS
                 && firstChunkStartMs >= 0L && now >= localStart) {
             startSource(current, now);

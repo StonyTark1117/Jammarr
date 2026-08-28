@@ -55,7 +55,12 @@ public final class JammarrClientState {
                 queueAcceptanceAudio();
             }
         } else if (payload instanceof JammarrPayloads.TimeSyncResponse value) {
-            clock.accept(value.clientSentEpochMs(), value.serverEpochMs(), System.currentTimeMillis());
+            ClockSynchronizer.Sample sample = clock.accept(
+                    value.clientSentEpochMs(), value.serverEpochMs(), System.currentTimeMillis());
+            if (ProtocolLimits.audioProbeEnabled() && clock.sampleCount() <= ClockSynchronizer.STARTUP_SAMPLE_TARGET) {
+                Jammarr.LOGGER.info("Acceptance clock sample: count={} rttMs={} rawOffsetMs={} selectedOffsetMs={}",
+                        clock.sampleCount(), sample.roundTripMs(), sample.rawOffsetMs(), sample.filteredOffsetMs());
+            }
         } else if (payload instanceof JammarrPayloads.BrowseResults value) {
             browse = value; refreshScreen(minecraft);
         } else if (payload instanceof JammarrPayloads.PlaybackState value) {
@@ -128,7 +133,7 @@ public final class JammarrClientState {
         runAcceptanceControl();
         logAcceptanceAudioState();
         long now = System.currentTimeMillis();
-        long syncIntervalMs = clock.sampleCount() < 5 ? 500L : 10_000L;
+        long syncIntervalMs = clock.sampleCount() < ClockSynchronizer.STARTUP_SAMPLE_TARGET ? 500L : 10_000L;
         if (now - lastTimeSync >= syncIntervalMs) requestTimeSync();
         audio.tick();
     }

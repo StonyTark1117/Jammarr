@@ -1123,8 +1123,12 @@ run_audio_control_scenarios() {
   fi
   printf 'Resume restored captured program audio.\n' >> "$scenario_evidence"
 
+  first=$(wc -l < "$leader_log")
   send_audio_control "$label" leader 'volume:0.2'
-  sleep 2
+  if ! wait_for_marker_after "$leader_log" "$first" 'Acceptance backend volume applied: 0.2' 60; then
+    echo "$label: reduced local volume did not reach the audio backend" >&2; return 1
+  fi
+  sleep 1
   capture_audio_sink "$sink_leader" "$raw" 4
   if ! audio_capture_is_attenuated "$raw" "$metrics" \
       "$output_root/$label.audio-leader.metrics.txt"; then

@@ -30,6 +30,22 @@ class TransportTimingTest {
         assertEquals(0, clock.sampleCount());
     }
 
+    @Test void keepsTheLowestLatencySampleAndWaitsForACompleteBootstrap() {
+        ClockSynchronizer clock = new ClockSynchronizer();
+        clock.accept(1_000, 1_100, 1_100);
+        assertEquals(50, clock.offsetMs());
+        assertFalse(clock.readyForPlayback());
+
+        // A nearly equivalent RTT can still contain asymmetric server-thread
+        // queueing, so it must not pull the established best sample off course.
+        clock.accept(2_000, 2_180, 2_120);
+        assertEquals(50, clock.offsetMs());
+        for (int sample = 2; sample < ClockSynchronizer.STARTUP_SAMPLE_TARGET; sample++) {
+            clock.accept(3_000 + sample, 3_070 + sample, 3_100 + sample);
+        }
+        assertTrue(clock.readyForPlayback());
+    }
+
     @Test void retriesMissingWindowAndAcknowledgesOnlyWhenComplete() {
         ChunkWindowTracker tracker = new ChunkWindowTracker(10, 20, 4, 1_000);
         ChunkWindowTracker.Request first = tracker.request(0, 0, 12_000).get(); assertEquals(10, first.startIndex()); assertEquals(4, first.count());

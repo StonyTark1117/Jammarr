@@ -18,7 +18,10 @@ class AsyncStartGuardTest {
         assertEquals(1, second);
         assertFalse(guard.complete(first));
         assertTrue(guard.pending());
-        assertTrue(guard.complete(second));
+        assertTrue(guard.complete(second, () -> {
+            assertTrue(guard.pending());
+            assertEquals(-1, guard.begin());
+        }));
         assertFalse(guard.pending());
     }
 }

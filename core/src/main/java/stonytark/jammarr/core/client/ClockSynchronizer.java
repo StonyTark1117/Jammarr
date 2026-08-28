@@ -2,6 +2,8 @@ package stonytark.jammarr.core.client;
 
 /** Estimates server wall-clock offset using NTP-style request/response timestamps. */
 public final class ClockSynchronizer {
+    public static final int STARTUP_SAMPLE_TARGET = 10;
+
     private boolean initialized;
     private long offsetMs;
     private long bestRoundTripMs = Long.MAX_VALUE;
@@ -14,8 +16,6 @@ public final class ClockSynchronizer {
         if (!initialized || roundTrip < bestRoundTripMs) {
             offsetMs = estimate;
             initialized = true;
-        } else if (roundTrip <= bestRoundTripMs + 25) {
-            offsetMs = Math.round(offsetMs * 0.75 + estimate * 0.25);
         }
         bestRoundTripMs = Math.min(bestRoundTripMs, roundTrip);
         samples++;
@@ -26,6 +26,7 @@ public final class ClockSynchronizer {
     public synchronized long toServerTime(long clientEpochMs) { return clientEpochMs + offsetMs; }
     public synchronized long offsetMs() { return offsetMs; }
     public synchronized boolean initialized() { return initialized; }
+    public synchronized boolean readyForPlayback() { return initialized && samples >= STARTUP_SAMPLE_TARGET; }
     public synchronized int sampleCount() { return samples; }
     public synchronized void reset() { initialized = false; offsetMs = 0; bestRoundTripMs = Long.MAX_VALUE; samples = 0; }
 

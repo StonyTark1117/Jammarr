@@ -64,7 +64,12 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
             }
         } else if (type == LegacyPacketTypes.TIME_SYNC_RESPONSE) {
             ControlPackets.TimeSyncResponse response = (ControlPackets.TimeSyncResponse) message;
-            clock.accept(response.clientSentEpochMs(), response.serverEpochMs(), System.currentTimeMillis());
+            ClockSynchronizer.Sample sample = clock.accept(
+                    response.clientSentEpochMs(), response.serverEpochMs(), System.currentTimeMillis());
+            if (ProtocolLimits.audioProbeEnabled() && clock.sampleCount() <= ClockSynchronizer.STARTUP_SAMPLE_TARGET) {
+                Jammarr.LOGGER.info("Acceptance clock sample: count={} rttMs={} rawOffsetMs={} selectedOffsetMs={}",
+                        clock.sampleCount(), sample.roundTripMs(), sample.rawOffsetMs(), sample.filteredOffsetMs());
+            }
         } else if (type == LegacyPacketTypes.BROWSE_RESULTS) {
             browse = (ControlPackets.BrowseResults) message;
             screenResultsChanged();
@@ -112,7 +117,7 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
         runAcceptanceControl();
         logAcceptanceAudioState();
         long now = System.currentTimeMillis();
-        long syncIntervalMs = clock.sampleCount() < 5 ? 500L : 10_000L;
+        long syncIntervalMs = clock.sampleCount() < ClockSynchronizer.STARTUP_SAMPLE_TARGET ? 500L : 10_000L;
         if (now - lastTimeSync >= syncIntervalMs) requestTimeSync();
         audio.tick();
         runAcceptanceScreenProbe();

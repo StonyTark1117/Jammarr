@@ -133,7 +133,7 @@ public final class JammarrAudioPlayer {
         if (JammarrSettings.enabled()) minecraft.getMusicManager().stopPlaying();
         long localStart = clock.toLocalTime(manifest.startedAtEpochMs() + Math.max(0, firstChunkStartMs));
         if (!started && !channelStarts.pending() && !manifest.paused() && JammarrSettings.enabled()
-                && clock.initialized() && decoder.format() != null
+                && clock.readyForPlayback() && decoder.format() != null
                 && decoder.bufferedMillis() >= START_BUFFER_MS && firstChunkStartMs >= 0
                 && now >= localStart) {
             startChannel(now);
@@ -142,7 +142,12 @@ public final class JammarrAudioPlayer {
             float volume = JammarrSettings.enabled() ? (float)(JammarrSettings.volume() * minecraft.options.getSoundSourceVolume(SoundSource.MUSIC)) : 0;
             if (Float.compare(volume, appliedVolume) != 0) {
                 appliedVolume = volume;
-                channel.execute(c -> c.setVolume(volume));
+                channel.execute(c -> {
+                    c.setVolume(volume);
+                    if (ProtocolLimits.audioProbeEnabled()) {
+                        Jammarr.LOGGER.info("Acceptance backend volume applied: {}", volume);
+                    }
+                });
             }
             // OpenAL may still hold audible PCM while the server intentionally
             // defers the next compressed window. Avoid querying the backend
@@ -238,46 +243,38 @@ public final class JammarrAudioPlayer {
         long startingPosition = Math.max(0, firstChunkStartMs);
         ChannelAccess access = channelAccess(Minecraft.getInstance().getSoundManager());
         access.createHandle(Library.Pool.STREAMING).whenComplete((handle, error) -> {
-            boolean current = decoder == startingDecoder && manifest != null && manifest.sessionId().equals(startingSession);
-            if (!current || !channelStarts.complete(startToken)) {
-                if (handle != null) handle.execute(com.mojang.blaze3d.audio.Channel::stop);
-                return;
-            }
             if (error != null || handle == null) {
-                requestRebuffer("audio channel creation");
+                if (channelStarts.complete(startToken)) requestRebuffer("audio channel creation");
                 return;
             }
-            if (decoder != startingDecoder || manifest == null || !manifest.sessionId().equals(startingSession)) {
-                handle.execute(com.mojang.blaze3d.audio.Channel::stop);
-                return;
-            }
-            long readyNow = System.currentTimeMillis();
-            long authoritativePosition = Math.max(startingPosition,
-                    clock.toServerTime(readyNow) - manifest.startedAtEpochMs());
-            long skippedMillis = startingDecoder.discardMillis(authoritativePosition - startingPosition);
-            long actualPosition = startingPosition + skippedMillis;
-            AudioTimingTrace.record("channel_started", "positionMs", actualPosition,
-                    "scheduledLocalMs", now, "readyLocalMs", readyNow,
-                    "skippedMs", skippedMillis);
-            // Recovery attempts are consecutive failures, not a lifetime budget
-            // for the current track. Reaching a working OpenAL channel proves the
-            // previous attempt succeeded and restores the normal retry allowance.
-            recoveryAttempts = 0;
-            channelStartedLocalMs = readyNow;
-            channelStartedPositionMs = actualPosition;
-            lastCorrectionMs = readyNow;
-            handle.execute(value -> {
-                value.disableAttenuation(); value.setRelative(true); value.setVolume(0);
-                value.attachBufferStream(new PcmAudioStream(startingDecoder)); value.play();
+            boolean published = channelStarts.complete(startToken, () -> {
+                long readyNow = System.currentTimeMillis();
+                long authoritativePosition = Math.max(startingPosition,
+                        clock.toServerTime(readyNow) - manifest.startedAtEpochMs());
+                long skippedMillis = startingDecoder.discardMillis(authoritativePosition - startingPosition);
+                long actualPosition = startingPosition + skippedMillis;
+                AudioTimingTrace.record("channel_started", "positionMs", actualPosition,
+                        "scheduledLocalMs", now, "readyLocalMs", readyNow,
+                        "skippedMs", skippedMillis);
+                // Recovery attempts are consecutive failures, not a lifetime budget
+                // for the current track. Reaching a working OpenAL channel proves the
+                // previous attempt succeeded and restores the normal retry allowance.
+                recoveryAttempts = 0;
+                channelStartedLocalMs = readyNow;
+                channelStartedPositionMs = actualPosition;
+                lastCorrectionMs = readyNow;
+                handle.execute(value -> {
+                    value.disableAttenuation(); value.setRelative(true); value.setVolume(0);
+                    value.attachBufferStream(new PcmAudioStream(startingDecoder)); value.play();
+                });
+                // Publish the channel and its timing baseline while the start guard
+                // is still held. A render tick must never observe "not pending" and
+                // "not started" between async completion and handle publication.
+                appliedVolume = Float.NaN;
+                channel = handle;
+                started = true;
             });
-            // Publish the channel only after its timing baseline is complete.
-            // The completion callback may run concurrently with the render
-            // tick; exposing channel/started first lets that tick compare the
-            // new channel against zero-valued timing fields and immediately
-            // tear a successful recovery back down as clock drift.
-            appliedVolume = Float.NaN;
-            channel = handle;
-            started = true;
+            if (!published) handle.execute(com.mojang.blaze3d.audio.Channel::stop);
         });
     }
 

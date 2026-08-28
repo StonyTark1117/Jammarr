@@ -12,8 +12,17 @@ public final class AsyncStartGuard {
     }
 
     public synchronized boolean complete(long token) {
+        return complete(token, () -> {});
+    }
+
+    /** Publishes a completed start before another caller can begin one. */
+    public synchronized boolean complete(long token, Runnable publish) {
         if (!pending || token != generation) return false;
-        pending = false;
+        try {
+            publish.run();
+        } finally {
+            pending = false;
+        }
         return true;
     }
 
