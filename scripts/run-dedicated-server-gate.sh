@@ -1130,7 +1130,9 @@ run_audio_control_scenarios() {
   if ! wait_for_marker_after "$leader_log" "$first" 'Acceptance audio state: PLAYING' 60; then
     echo "$label: resume did not restore client playback" >&2; return 1
   fi
-  sleep 1
+  # Legacy Paulscode keeps up to one second of already-scaled PCM queued.
+  # Start capture only after that prior gain window has certainly drained.
+  sleep 2
   capture_audio_sink "$sink_leader" "$raw" 4
   if ! audio_capture_is_audible "$raw" "$metrics"; then
     echo "$label: resumed leader did not emit program audio" >&2; return 1

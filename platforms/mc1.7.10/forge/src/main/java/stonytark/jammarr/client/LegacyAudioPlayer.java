@@ -61,6 +61,7 @@ final class LegacyAudioPlayer {
     private long lastSoundReloadMs;
     private boolean started;
     private boolean timingDrainRecorded;
+    private double appliedVolume = Double.NaN;
     private FileOutputStream acceptancePcmTrace;
 
     LegacyAudioPlayer(ClockSynchronizer clock) { this.clock = clock; }
@@ -206,8 +207,15 @@ final class LegacyAudioPlayer {
                             "bufferedMs", decoder.bufferedMillis());
                 }
                 traceAcceptancePcm(pcm);
-                PcmGain.apply(pcm, JammarrSettings.volume()
-                        * Minecraft.getMinecraft().gameSettings.getSoundLevel(SoundCategory.MUSIC));
+                double volume = JammarrSettings.volume()
+                        * Minecraft.getMinecraft().gameSettings.getSoundLevel(SoundCategory.MUSIC);
+                PcmGain.apply(pcm, volume);
+                if (Double.compare(volume, appliedVolume) != 0) {
+                    appliedVolume = volume;
+                    if (ProtocolLimits.audioProbeEnabled()) {
+                        Jammarr.LOGGER.info("Acceptance backend volume applied: {}", volume);
+                    }
+                }
                 soundSystem.feedRawAudioData(SOURCE, pcm);
                 queuedUntilLocalMs += decoder.durationMs(pcm);
             }
@@ -350,6 +358,7 @@ final class LegacyAudioPlayer {
         }
         if (decoder != null) { decoder.close(); decoder = null; }
         window = null; started = false; firstChunkStartMs = -1L;
+        appliedVolume = Double.NaN;
         sourceStartedLocalMs = 0L; sourceStartedPositionMs = 0L; queuedUntilLocalMs = 0L;
     }
 
