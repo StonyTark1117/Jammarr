@@ -21,12 +21,11 @@ PROTOCOL_VERSION = TARGET_MANIFEST["protocolVersion"]
 CLASS_MAJOR = {8: 52, 17: 61, 21: 65, 25: 69}
 TARGETS = tuple(
     (target["minecraft"], loader["id"], target["java"]["runtime"],
-     CLASS_MAJOR[target["java"]["bytecode"]])
+     CLASS_MAJOR[target["java"]["bytecode"]], loader.get("artifactProfile", "modern"))
     for target in TARGET_MANIFEST["targets"]
     for loader in target["loaders"]
     if loader["implemented"]
 )
-LEGACY_MINECRAFT = {"1.7.10", "1.12.2"}
 COMMON_ENTRIES = {
     "META-INF/LICENSE-Jammarr-CC0-1.0.txt",
     "META-INF/LICENSE-LGPL-2.1-or-later.txt",
@@ -227,7 +226,7 @@ def verify_no_deployment_secrets(archive: zipfile.ZipFile, filename: str) -> Non
 
 
 def verify_remappable_keybinding(archive: zipfile.ZipFile, minecraft: str,
-                                 loader: str, filename: str) -> None:
+                                 loader: str, artifact_profile: str, filename: str) -> None:
     translations = json.loads(archive.read("assets/jammarr/lang/en_us.json"))
     required_translation_keys = ["key.jammarr.open", "key.categories.jammarr"]
     # 26.x registers a namespaced custom category, whose translation key is
@@ -259,7 +258,7 @@ def verify_remappable_keybinding(archive: zipfile.ZipFile, minecraft: str,
         if not isinstance(translations.get(key), str) or not translations[key].strip():
             fail(f"{filename} is missing the Controls translation {key}")
 
-    legacy = minecraft in LEGACY_MINECRAFT
+    legacy = artifact_profile == "legacy-java8"
     class_name = ("stonytark/jammarr/client/LegacyClient.class" if legacy
                   else "stonytark/jammarr/client/JammarrClient.class")
     try:
@@ -299,8 +298,8 @@ def verify_remappable_keybinding(archive: zipfile.ZipFile, minecraft: str,
 
 
 def verify_config_translations(archive: zipfile.ZipFile, minecraft: str,
-                               loader: str, filename: str) -> None:
-    if minecraft in LEGACY_MINECRAFT or loader == "fabric":
+                               loader: str, artifact_profile: str, filename: str) -> None:
+    if artifact_profile == "legacy-java8" or loader == "fabric":
         return
     config = archive.read("stonytark/jammarr/config/JammarrConfig.class")
     keys = (
@@ -315,7 +314,7 @@ def verify_config_translations(archive: zipfile.ZipFile, minecraft: str,
 
 
 def verify_metadata(archive: zipfile.ZipFile, names: set[str], minecraft: str, loader: str,
-                    java: int, filename: str) -> None:
+                    java: int, artifact_profile: str, filename: str) -> None:
     if loader == "fabric":
         metadata = json.loads(archive.read("fabric.mod.json"))
         if metadata.get("id") != "jammarr" or metadata.get("version") != PRODUCT_VERSION:
@@ -352,7 +351,7 @@ def verify_metadata(archive: zipfile.ZipFile, names: set[str], minecraft: str, l
             fail(f"{filename} has incorrect nested-library metadata: {sorted(declared_jars)}")
         return
 
-    if minecraft in LEGACY_MINECRAFT:
+    if artifact_profile == "legacy-java8":
         metadata = json.loads(archive.read("mcmod.info"))
         if len(metadata) != 1 or metadata[0].get("modid") != "jammarr":
             fail(f"{filename} has incorrect legacy mod identity")
@@ -379,7 +378,8 @@ def verify_metadata(archive: zipfile.ZipFile, names: set[str], minecraft: str, l
         fail(f"{filename} does not permit an optional remote mod")
 
 
-def verify_jar(path: Path, minecraft: str, loader: str, java: int, expected_major: int) -> None:
+def verify_jar(path: Path, minecraft: str, loader: str, java: int,
+               expected_major: int, artifact_profile: str) -> None:
     filename = path.name
     with zipfile.ZipFile(path) as archive:
         names = safe_entries(archive, filename)
@@ -388,13 +388,13 @@ def verify_jar(path: Path, minecraft: str, loader: str, java: int, expected_majo
             fail(f"{filename} is missing required entries: {sorted(missing)}")
         if loader == "fabric" and "fabric.mod.json" not in names:
             fail(f"{filename} is missing Fabric metadata")
-        if minecraft in LEGACY_MINECRAFT and "mcmod.info" not in names:
+        if artifact_profile == "legacy-java8" and "mcmod.info" not in names:
             fail(f"{filename} is missing legacy Forge metadata")
 
-        verify_metadata(archive, names, minecraft, loader, java, filename)
+        verify_metadata(archive, names, minecraft, loader, java, artifact_profile, filename)
         json.loads(archive.read("assets/jammarr/lang/en_us.json"))
-        verify_remappable_keybinding(archive, minecraft, loader, filename)
-        verify_config_translations(archive, minecraft, loader, filename)
+        verify_remappable_keybinding(archive, minecraft, loader, artifact_profile, filename)
+        verify_config_translations(archive, minecraft, loader, artifact_profile, filename)
         verify_png(archive.read("jammarr.png"), filename)
         for notice in ("META-INF/LICENSE-Jammarr-CC0-1.0.txt", "META-INF/LICENSE-LGPL-2.1-or-later.txt",
                        "META-INF/THIRD_PARTY_NOTICES.md"):
@@ -405,7 +405,7 @@ def verify_jar(path: Path, minecraft: str, loader: str, java: int, expected_majo
         if main_major != expected_major:
             fail(f"{filename} targets class major {main_major}, expected {expected_major} for Java {java}")
 
-        if minecraft in LEGACY_MINECRAFT:
+        if artifact_profile == "legacy-java8":
             required_legacy = {
                 "assets/jammarr/lang/en_US.lang",
                 "stonytark/jammarr/core/server/ChunkTransferPolicy.class",
@@ -489,7 +489,7 @@ def main() -> int:
     if manifest.get("productVersion") != PRODUCT_VERSION or manifest.get("protocolVersion") != PROTOCOL_VERSION:
         fail("release manifest has incorrect product or protocol version")
 
-    expected_names = {f"jammarr-{PRODUCT_VERSION}+mc{mc}-{loader}.jar" for mc, loader, _, _ in TARGETS}
+    expected_names = {f"jammarr-{PRODUCT_VERSION}+mc{mc}-{loader}.jar" for mc, loader, _, _, _ in TARGETS}
     actual_names = {path.name for path in release_dir.glob("*.jar")}
     if actual_names != expected_names:
         fail(f"release JAR set mismatch; missing={sorted(expected_names - actual_names)}, extra={sorted(actual_names - expected_names)}")
@@ -508,7 +508,7 @@ def main() -> int:
     if set(sums) != expected_names:
         fail(f"SHA256SUMS does not cover exactly the {len(TARGETS)} canonical artifacts")
 
-    for minecraft, loader, java, major in TARGETS:
+    for minecraft, loader, java, major, artifact_profile in TARGETS:
         filename = f"jammarr-{PRODUCT_VERSION}+mc{minecraft}-{loader}.jar"
         path = release_dir / filename
         digest = sha256(path)
@@ -527,7 +527,7 @@ def main() -> int:
         if loader == "fabric" \
                 and entry["dependencies"].get("quilt-loader") != "0.30.0":
             fail(f"{filename} does not record the certified Quilt Loader version")
-        verify_jar(path, minecraft, loader, java, major)
+        verify_jar(path, minecraft, loader, java, major, artifact_profile)
 
     print(f"Inspected {len(TARGETS)} Jammarr release artifacts in {release_dir}")
     return 0

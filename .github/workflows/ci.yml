@@ -9,431 +9,33 @@ permissions:
   contents: read
 
 jobs:
+  matrix:
+    name: Generate target matrices
+    runs-on: ubuntu-latest
+    outputs:
+      artifact: ${{ steps.generate.outputs.artifact }}
+      runtime: ${{ steps.generate.outputs.runtime }}
+      expected_artifacts: ${{ steps.generate.outputs.expected_artifacts }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: generate
+        name: Generate matrices from gradle/targets.json
+        run: |
+          echo "artifact=$(python3 scripts/target-matrix.py artifact-matrix)" >> "$GITHUB_OUTPUT"
+          echo "runtime=$(python3 scripts/target-matrix.py runtime-matrix)" >> "$GITHUB_OUTPUT"
+          echo "expected_artifacts=$(python3 scripts/target-matrix.py summary | jq -r .artifacts)" >> "$GITHUB_OUTPUT"
+
   artifact:
+    name: ${{ matrix.name }}
+    needs: matrix
     strategy:
       fail-fast: false
       max-parallel: 16
-      matrix:
-        include:
-          - name: 1.7.10-forge
-            task: verifyLegacy1710
-            artifact: platforms/mc1.7.10/forge/build/libs/jammarr-1.1.0+mc1.7.10-forge.jar
-            runtime: 1.7.10-forge
-            quilt: ''
-            game-tests: false
-          - name: 1.12.2-forge
-            task: verifyForge1122
-            artifact: platforms/mc1.12.2/forge/build/libs/jammarr-1.1.0+mc1.12.2-forge.jar
-            runtime: 1.12.2-forge
-            quilt: ''
-            game-tests: false
-          - name: 1.16.5-fabric
-            task: verifyFabric1165
-            artifact: platforms/mc1.16.5/fabric/build/libs/jammarr-1.1.0+mc1.16.5-fabric.jar
-            runtime: 1.16.5-fabric
-            quilt: 1.16.5-quilt
-            game-tests: false
-          - name: 1.16.5-forge
-            task: verifyForge1165
-            artifact: platforms/mc1.16.5/forge/build/libs/jammarr-1.1.0+mc1.16.5-forge.jar
-            runtime: 1.16.5-forge
-            quilt: ''
-            game-tests: false
-          - name: 1.18.2-fabric
-            task: verifyFabric1182
-            artifact: platforms/mc1.18.2/fabric/build/libs/jammarr-1.1.0+mc1.18.2-fabric.jar
-            runtime: 1.18.2-fabric
-            quilt: 1.18.2-quilt
-            game-tests: false
-          - name: 1.18.2-forge
-            task: verifyForge1182
-            artifact: platforms/mc1.18.2/forge/build/libs/jammarr-1.1.0+mc1.18.2-forge.jar
-            runtime: 1.18.2-forge
-            quilt: ''
-            game-tests: false
-          - name: 1.19.2-fabric
-            task: verifyFabric1192
-            artifact: platforms/mc1.19.2/fabric/build/libs/jammarr-1.1.0+mc1.19.2-fabric.jar
-            runtime: 1.19.2-fabric
-            quilt: 1.19.2-quilt
-            game-tests: false
-          - name: 1.19.2-forge
-            task: verifyForge1192
-            artifact: platforms/mc1.19.2/forge/build/libs/jammarr-1.1.0+mc1.19.2-forge.jar
-            runtime: 1.19.2-forge
-            quilt: ''
-            game-tests: false
-          - name: 1.20-fabric
-            task: verifyFabric120
-            artifact: platforms/mc1.20/fabric/build/libs/jammarr-1.1.0+mc1.20-fabric.jar
-            runtime: 1.20-fabric
-            quilt: 1.20-quilt
-            game-tests: false
-          - name: 1.20-forge
-            task: verifyForge120
-            artifact: platforms/mc1.20/forge/build/libs/jammarr-1.1.0+mc1.20-forge.jar
-            runtime: 1.20-forge
-            quilt: ''
-            game-tests: false
-          - name: 1.20.1-fabric
-            task: verifyFabric1201
-            artifact: platforms/mc1.20.1/fabric/build/libs/jammarr-1.1.0+mc1.20.1-fabric.jar
-            runtime: 1.20.1-fabric
-            quilt: 1.20.1-quilt
-            game-tests: false
-          - name: 1.20.1-forge
-            task: verifyForge1201
-            artifact: platforms/mc1.20.1/forge/build/libs/jammarr-1.1.0+mc1.20.1-forge.jar
-            runtime: 1.20.1-forge
-            quilt: ''
-            game-tests: false
-          - name: 1.20.1-neoforge
-            task: verifyNeoForge1201
-            artifact: platforms/mc1.20.1/neoforge/build/libs/jammarr-1.1.0+mc1.20.1-neoforge.jar
-            runtime: 1.20.1-neoforge
-            quilt: ''
-            game-tests: false
-          - name: 1.20.2-fabric
-            task: verifyFabric1202
-            artifact: platforms/mc1.20.2/fabric/build/libs/jammarr-1.1.0+mc1.20.2-fabric.jar
-            runtime: 1.20.2-fabric
-            quilt: 1.20.2-quilt
-            game-tests: false
-          - name: 1.20.2-forge
-            task: verifyForge1202
-            artifact: platforms/mc1.20.2/forge/build/libs/jammarr-1.1.0+mc1.20.2-forge.jar
-            runtime: 1.20.2-forge
-            quilt: ''
-            game-tests: false
-          - name: 1.20.2-neoforge
-            task: verifyNeoForge1202
-            artifact: platforms/mc1.20.2/neoforge/build/libs/jammarr-1.1.0+mc1.20.2-neoforge.jar
-            runtime: 1.20.2-neoforge
-            quilt: ''
-            game-tests: false
-          - name: 1.20.3-fabric
-            task: verifyFabric1203
-            artifact: platforms/mc1.20.3/fabric/build/libs/jammarr-1.1.0+mc1.20.3-fabric.jar
-            runtime: 1.20.3-fabric
-            quilt: 1.20.3-quilt
-            game-tests: false
-          - name: 1.20.3-forge
-            task: verifyForge1203
-            artifact: platforms/mc1.20.3/forge/build/libs/jammarr-1.1.0+mc1.20.3-forge.jar
-            runtime: 1.20.3-forge
-            quilt: ''
-            game-tests: false
-          - name: 1.20.3-neoforge
-            task: verifyNeoForge1203
-            artifact: platforms/mc1.20.3/neoforge/build/libs/jammarr-1.1.0+mc1.20.3-neoforge.jar
-            runtime: 1.20.3-neoforge
-            quilt: ''
-            game-tests: false
-          - name: 1.20.4-fabric
-            task: verifyFabric1204
-            artifact: platforms/mc1.20.4/fabric/build/libs/jammarr-1.1.0+mc1.20.4-fabric.jar
-            runtime: 1.20.4-fabric
-            quilt: 1.20.4-quilt
-            game-tests: false
-          - name: 1.20.4-forge
-            task: verifyForge1204
-            artifact: platforms/mc1.20.4/forge/build/libs/jammarr-1.1.0+mc1.20.4-forge.jar
-            runtime: 1.20.4-forge
-            quilt: ''
-            game-tests: false
-          - name: 1.20.4-neoforge
-            task: verifyNeoForge1204
-            artifact: platforms/mc1.20.4/neoforge/build/libs/jammarr-1.1.0+mc1.20.4-neoforge.jar
-            runtime: 1.20.4-neoforge
-            quilt: ''
-            game-tests: false
-          - name: 1.20.5-fabric
-            task: verifyFabric1205
-            artifact: platforms/mc1.20.5/fabric/build/libs/jammarr-1.1.0+mc1.20.5-fabric.jar
-            runtime: 1.20.5-fabric
-            quilt: 1.20.5-quilt
-            game-tests: false
-          - name: 1.20.5-neoforge
-            task: verifyNeoForge1205
-            artifact: platforms/mc1.20.5/neoforge/build/libs/jammarr-1.1.0+mc1.20.5-neoforge.jar
-            runtime: 1.20.5-neoforge
-            quilt: ''
-            game-tests: false
-          - name: 1.20.6-fabric
-            task: verifyFabric1206
-            artifact: platforms/mc1.20.6/fabric/build/libs/jammarr-1.1.0+mc1.20.6-fabric.jar
-            runtime: 1.20.6-fabric
-            quilt: 1.20.6-quilt
-            game-tests: false
-          - name: 1.20.6-forge
-            task: verifyForge1206
-            artifact: platforms/mc1.20.6/forge/build/libs/jammarr-1.1.0+mc1.20.6-forge.jar
-            runtime: 1.20.6-forge
-            quilt: ''
-            game-tests: false
-          - name: 1.20.6-neoforge
-            task: verifyNeoForge1206
-            artifact: platforms/mc1.20.6/neoforge/build/libs/jammarr-1.1.0+mc1.20.6-neoforge.jar
-            runtime: 1.20.6-neoforge
-            quilt: ''
-            game-tests: false
-          - name: 1.21-fabric
-            task: verifyFabric121
-            artifact: platforms/mc1.21/fabric/build/libs/jammarr-1.1.0+mc1.21-fabric.jar
-            runtime: 1.21-fabric
-            quilt: 1.21-quilt
-            game-tests: false
-          - name: 1.21-forge
-            task: verifyForge121
-            artifact: platforms/mc1.21/forge/build/libs/jammarr-1.1.0+mc1.21-forge.jar
-            runtime: 1.21-forge
-            quilt: ''
-            game-tests: false
-          - name: 1.21-neoforge
-            task: verifyNeoForge121
-            artifact: platforms/mc1.21/neoforge/build/libs/jammarr-1.1.0+mc1.21-neoforge.jar
-            runtime: 1.21-neoforge
-            quilt: ''
-            game-tests: false
-          - name: 1.21.1-fabric
-            task: verifyFabric1211
-            artifact: platforms/mc1.21.1/fabric/build/libs/jammarr-1.1.0+mc1.21.1-fabric.jar
-            runtime: 1.21.1-fabric
-            quilt: 1.21.1-quilt
-            game-tests: false
-          - name: 1.21.1-forge
-            task: verifyForge1211
-            artifact: platforms/mc1.21.1/forge/build/libs/jammarr-1.1.0+mc1.21.1-forge.jar
-            runtime: 1.21.1-forge
-            quilt: ''
-            game-tests: false
-          - name: 1.21.1-neoforge
-            task: verifyNeoForge1211
-            artifact: platforms/mc1.21.1/neoforge/build/libs/jammarr-1.1.0+mc1.21.1-neoforge.jar
-            runtime: 1.21.1-neoforge
-            quilt: ''
-            game-tests: true
-          - name: 1.21.2-fabric
-            task: verifyFabric1212
-            artifact: platforms/mc1.21.2/fabric/build/libs/jammarr-1.1.0+mc1.21.2-fabric.jar
-            runtime: 1.21.2-fabric
-            quilt: 1.21.2-quilt
-            game-tests: false
-          - name: 1.21.2-neoforge
-            task: verifyNeoForge1212
-            artifact: platforms/mc1.21.2/neoforge/build/libs/jammarr-1.1.0+mc1.21.2-neoforge.jar
-            runtime: 1.21.2-neoforge
-            quilt: ''
-            game-tests: false
-          - name: 1.21.3-fabric
-            task: verifyFabric1213
-            artifact: platforms/mc1.21.3/fabric/build/libs/jammarr-1.1.0+mc1.21.3-fabric.jar
-            runtime: 1.21.3-fabric
-            quilt: 1.21.3-quilt
-            game-tests: false
-          - name: 1.21.3-forge
-            task: verifyForge1213
-            artifact: platforms/mc1.21.3/forge/build/libs/jammarr-1.1.0+mc1.21.3-forge.jar
-            runtime: 1.21.3-forge
-            quilt: ''
-            game-tests: false
-          - name: 1.21.3-neoforge
-            task: verifyNeoForge1213
-            artifact: platforms/mc1.21.3/neoforge/build/libs/jammarr-1.1.0+mc1.21.3-neoforge.jar
-            runtime: 1.21.3-neoforge
-            quilt: ''
-            game-tests: false
-          - name: 1.21.4-fabric
-            task: verifyFabric1214
-            artifact: platforms/mc1.21.4/fabric/build/libs/jammarr-1.1.0+mc1.21.4-fabric.jar
-            runtime: 1.21.4-fabric
-            quilt: 1.21.4-quilt
-            game-tests: false
-          - name: 1.21.4-forge
-            task: verifyForge1214
-            artifact: platforms/mc1.21.4/forge/build/libs/jammarr-1.1.0+mc1.21.4-forge.jar
-            runtime: 1.21.4-forge
-            quilt: ''
-            game-tests: false
-          - name: 1.21.4-neoforge
-            task: verifyNeoForge1214
-            artifact: platforms/mc1.21.4/neoforge/build/libs/jammarr-1.1.0+mc1.21.4-neoforge.jar
-            runtime: 1.21.4-neoforge
-            quilt: ''
-            game-tests: false
-          - name: 1.21.5-fabric
-            task: verifyFabric1215
-            artifact: platforms/mc1.21.5/fabric/build/libs/jammarr-1.1.0+mc1.21.5-fabric.jar
-            runtime: 1.21.5-fabric
-            quilt: 1.21.5-quilt
-            game-tests: false
-          - name: 1.21.5-forge
-            task: verifyForge1215
-            artifact: platforms/mc1.21.5/forge/build/libs/jammarr-1.1.0+mc1.21.5-forge.jar
-            runtime: 1.21.5-forge
-            quilt: ''
-            game-tests: false
-          - name: 1.21.5-neoforge
-            task: verifyNeoForge1215
-            artifact: platforms/mc1.21.5/neoforge/build/libs/jammarr-1.1.0+mc1.21.5-neoforge.jar
-            runtime: 1.21.5-neoforge
-            quilt: ''
-            game-tests: false
-          - name: 1.21.6-fabric
-            task: verifyFabric1216
-            artifact: platforms/mc1.21.6/fabric/build/libs/jammarr-1.1.0+mc1.21.6-fabric.jar
-            runtime: 1.21.6-fabric
-            quilt: 1.21.6-quilt
-            game-tests: false
-          - name: 1.21.6-forge
-            task: verifyForge1216
-            artifact: platforms/mc1.21.6/forge/build/libs/jammarr-1.1.0+mc1.21.6-forge.jar
-            runtime: 1.21.6-forge
-            quilt: ''
-            game-tests: false
-          - name: 1.21.6-neoforge
-            task: verifyNeoForge1216
-            artifact: platforms/mc1.21.6/neoforge/build/libs/jammarr-1.1.0+mc1.21.6-neoforge.jar
-            runtime: 1.21.6-neoforge
-            quilt: ''
-            game-tests: false
-          - name: 1.21.7-fabric
-            task: verifyFabric1217
-            artifact: platforms/mc1.21.7/fabric/build/libs/jammarr-1.1.0+mc1.21.7-fabric.jar
-            runtime: 1.21.7-fabric
-            quilt: 1.21.7-quilt
-            game-tests: false
-          - name: 1.21.7-forge
-            task: verifyForge1217
-            artifact: platforms/mc1.21.7/forge/build/libs/jammarr-1.1.0+mc1.21.7-forge.jar
-            runtime: 1.21.7-forge
-            quilt: ''
-            game-tests: false
-          - name: 1.21.7-neoforge
-            task: verifyNeoForge1217
-            artifact: platforms/mc1.21.7/neoforge/build/libs/jammarr-1.1.0+mc1.21.7-neoforge.jar
-            runtime: 1.21.7-neoforge
-            quilt: ''
-            game-tests: false
-          - name: 1.21.8-fabric
-            task: verifyFabric1218
-            artifact: platforms/mc1.21.8/fabric/build/libs/jammarr-1.1.0+mc1.21.8-fabric.jar
-            runtime: 1.21.8-fabric
-            quilt: 1.21.8-quilt
-            game-tests: false
-          - name: 1.21.8-forge
-            task: verifyForge1218
-            artifact: platforms/mc1.21.8/forge/build/libs/jammarr-1.1.0+mc1.21.8-forge.jar
-            runtime: 1.21.8-forge
-            quilt: ''
-            game-tests: false
-          - name: 1.21.8-neoforge
-            task: verifyNeoForge1218
-            artifact: platforms/mc1.21.8/neoforge/build/libs/jammarr-1.1.0+mc1.21.8-neoforge.jar
-            runtime: 1.21.8-neoforge
-            quilt: ''
-            game-tests: false
-          - name: 1.21.9-fabric
-            task: verifyFabric1219
-            artifact: platforms/mc1.21.9/fabric/build/libs/jammarr-1.1.0+mc1.21.9-fabric.jar
-            runtime: 1.21.9-fabric
-            quilt: 1.21.9-quilt
-            game-tests: false
-          - name: 1.21.9-forge
-            task: verifyForge1219
-            artifact: platforms/mc1.21.9/forge/build/libs/jammarr-1.1.0+mc1.21.9-forge.jar
-            runtime: 1.21.9-forge
-            quilt: ''
-            game-tests: false
-          - name: 1.21.9-neoforge
-            task: verifyNeoForge1219
-            artifact: platforms/mc1.21.9/neoforge/build/libs/jammarr-1.1.0+mc1.21.9-neoforge.jar
-            runtime: 1.21.9-neoforge
-            quilt: ''
-            game-tests: false
-          - name: 1.21.10-fabric
-            task: verifyFabric12110
-            artifact: platforms/mc1.21.10/fabric/build/libs/jammarr-1.1.0+mc1.21.10-fabric.jar
-            runtime: 1.21.10-fabric
-            quilt: 1.21.10-quilt
-            game-tests: false
-          - name: 1.21.10-forge
-            task: verifyForge12110
-            artifact: platforms/mc1.21.10/forge/build/libs/jammarr-1.1.0+mc1.21.10-forge.jar
-            runtime: 1.21.10-forge
-            quilt: ''
-            game-tests: false
-          - name: 1.21.10-neoforge
-            task: verifyNeoForge12110
-            artifact: platforms/mc1.21.10/neoforge/build/libs/jammarr-1.1.0+mc1.21.10-neoforge.jar
-            runtime: 1.21.10-neoforge
-            quilt: ''
-            game-tests: false
-          - name: 1.21.11-fabric
-            task: verifyFabric12111
-            artifact: platforms/mc1.21.11/fabric/build/libs/jammarr-1.1.0+mc1.21.11-fabric.jar
-            runtime: 1.21.11-fabric
-            quilt: 1.21.11-quilt
-            game-tests: false
-          - name: 1.21.11-forge
-            task: verifyForge12111
-            artifact: platforms/mc1.21.11/forge/build/libs/jammarr-1.1.0+mc1.21.11-forge.jar
-            runtime: 1.21.11-forge
-            quilt: ''
-            game-tests: false
-          - name: 1.21.11-neoforge
-            task: verifyNeoForge12111
-            artifact: platforms/mc1.21.11/neoforge/build/libs/jammarr-1.1.0+mc1.21.11-neoforge.jar
-            runtime: 1.21.11-neoforge
-            quilt: ''
-            game-tests: false
-          - name: 26.1.2-fabric
-            task: verifyFabric2612
-            artifact: platforms/mc26.1.2/fabric/build/libs/jammarr-1.1.0+mc26.1.2-fabric.jar
-            runtime: 26.1.2-fabric
-            quilt: 26.1.2-quilt
-            game-tests: false
-          - name: 26.1.2-forge
-            task: verifyForge2612
-            artifact: platforms/mc26.1.2/forge/build/libs/jammarr-1.1.0+mc26.1.2-forge.jar
-            runtime: 26.1.2-forge
-            quilt: ''
-            game-tests: false
-          - name: 26.1.2-neoforge
-            task: verifyNeoForge2612
-            artifact: platforms/mc26.1.2/neoforge/build/libs/jammarr-1.1.0+mc26.1.2-neoforge.jar
-            runtime: 26.1.2-neoforge
-            quilt: ''
-            game-tests: false
-          - name: 26.2-fabric
-            task: verifyFabric262
-            artifact: platforms/mc26.2/fabric/build/libs/jammarr-1.1.0+mc26.2-fabric.jar
-            runtime: 26.2-fabric
-            quilt: 26.2-quilt
-            game-tests: false
-          - name: 26.2-forge
-            task: verifyForge262
-            artifact: platforms/mc26.2/forge/build/libs/jammarr-1.1.0+mc26.2-forge.jar
-            runtime: 26.2-forge
-            quilt: ''
-            game-tests: false
-          - name: 26.2-neoforge
-            task: verifyNeoForge262
-            artifact: platforms/mc26.2/neoforge/build/libs/jammarr-1.1.0+mc26.2-neoforge.jar
-            runtime: 26.2-neoforge
-            quilt: ''
-            game-tests: false
-    name: ${{ matrix.name }}
+      matrix: ${{ fromJSON(needs.matrix.outputs.artifact) }}
     runs-on: ubuntu-latest
     timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
-      - name: Install headless audio acceptance dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg iproute2 libasound2-plugins libgl1-mesa-dri libopenal1 pulseaudio pulseaudio-utils x11-xserver-utils xvfb
-          pulseaudio --start --exit-idle-time=-1
-          xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' xrandr --query
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -483,8 +85,62 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Run GameTests
-        if: ${{ matrix.game-tests }}
+        if: ${{ matrix.game_tests }}
         run: bash scripts/run-gametest-gate.sh
+      - name: Upload GameTest diagnostics
+        if: ${{ always() && matrix.game_tests }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gametest-diagnostics-${{ matrix.name }}-${{ github.sha }}
+          if-no-files-found: ignore
+          retention-days: 7
+          path: build/gametest-gate.log
+
+  runtime:
+    name: Runtime ${{ matrix.name }}
+    needs: matrix
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix: ${{ fromJSON(needs.matrix.outputs.runtime) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install headless audio acceptance dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg iproute2 libasound2-plugins libgl1-mesa-dri libopenal1 pulseaudio pulseaudio-utils x11-xserver-utils xvfb
+          pulseaudio --start --exit-idle-time=-1
+          xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' xrandr --query
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '8'
+          cache: gradle
+      - name: Record Java 8 home
+        run: echo "JAMMARR_JAVA8_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Record Java 17 home
+        run: echo "JAMMARR_JAVA17_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '26'
+          cache: gradle
+      - name: Record Java 26 home
+        run: echo "JAMMARR_JAVA26_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Record Java 21 home
+        run: echo "JAMMARR_JAVA21_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
       - name: Validate ${{ matrix.runtime }} runtime
         env:
           JAMMARR_ALSA_PCM_TYPE: pulse
@@ -493,18 +149,8 @@ jobs:
           JAMMARR_AUDIO_CLIENT_GATE: 'true'
           JAMMARR_AUDIO_SCENARIO_GATE: 'true'
         run: bash scripts/run-dedicated-server-gate.sh ${{ matrix.runtime }}
-      - name: Validate ${{ matrix.quilt }} runtime
-        if: ${{ matrix.quilt != '' }}
-        env:
-          JAMMARR_ALSA_PCM_TYPE: pulse
-          JAMMARR_GATE_OUTPUT_ROOT: ${{ github.workspace }}/build/quilt-gate
-          JAMMARR_PROTOCOL_CLIENT_GATE: 'true'
-          JAMMARR_COMMAND_CLIENT_GATE: 'true'
-          JAMMARR_AUDIO_CLIENT_GATE: 'true'
-          JAMMARR_AUDIO_SCENARIO_GATE: 'true'
-        run: bash scripts/run-dedicated-server-gate.sh ${{ matrix.quilt }}
-      - name: Validate ${{ matrix.quilt }} with Mod Menu
-        if: ${{ matrix.quilt != '' }}
+      - name: Validate ${{ matrix.runtime }} with Mod Menu
+        if: ${{ matrix.quilt_mod_menu }}
         env:
           JAMMARR_ALSA_PCM_TYPE: pulse
           JAMMARR_GATE_OUTPUT_ROOT: ${{ github.workspace }}/build/quilt-modmenu-gate
@@ -513,9 +159,9 @@ jobs:
           JAMMARR_COMMAND_CLIENT_GATE: 'true'
           JAMMARR_AUDIO_CLIENT_GATE: 'true'
           JAMMARR_AUDIO_SCENARIO_GATE: 'true'
-        run: bash scripts/run-dedicated-server-gate.sh ${{ matrix.quilt }}
+        run: bash scripts/run-dedicated-server-gate.sh ${{ matrix.runtime }}
       - name: Validate minimum Fabric Loader
-        if: ${{ matrix.quilt != '' }}
+        if: ${{ matrix.minimum_fabric_loader }}
         env:
           JAMMARR_ALSA_PCM_TYPE: pulse
           JAMMARR_GATE_OUTPUT_ROOT: ${{ github.workspace }}/build/fabric-loader-0.19.2-gate
@@ -533,10 +179,6 @@ jobs:
             build/dedicated-server-gate/**/*.txt
             build/dedicated-server-gate/**/*.json
             build/dedicated-server-gate/**/*.tsv
-            build/quilt-gate/**/*.log
-            build/quilt-gate/**/*.txt
-            build/quilt-gate/**/*.json
-            build/quilt-gate/**/*.tsv
             build/quilt-modmenu-gate/**/*.log
             build/quilt-modmenu-gate/**/*.txt
             build/quilt-modmenu-gate/**/*.json
@@ -545,11 +187,10 @@ jobs:
             build/fabric-loader-0.19.2-gate/**/*.txt
             build/fabric-loader-0.19.2-gate/**/*.json
             build/fabric-loader-0.19.2-gate/**/*.tsv
-            build/gametest-gate.log
 
   release-gate:
     name: 1.1.0 release gate
-    needs: artifact
+    needs: [matrix, artifact, runtime]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -559,15 +200,17 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: gradle
-      - name: Download all 17 verified artifacts
+      - name: Download all verified artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: release-jar-*
           path: build/prebuilt-release
           merge-multiple: true
       - name: Assemble and inspect release bundle
+        env:
+          EXPECTED_ARTIFACTS: ${{ needs.matrix.outputs.expected_artifacts }}
         run: |
-          test "$(find build/prebuilt-release -maxdepth 1 -type f -name '*.jar' | wc -l)" -eq 17
+          test "$(find build/prebuilt-release -maxdepth 1 -type f -name '*.jar' | wc -l)" -eq "$EXPECTED_ARTIFACTS"
           ./gradlew indexReleaseArtifacts -PjammarrPrebuiltArtifactDir=build/prebuilt-release --no-daemon --max-workers=1
           python3 scripts/inspect-release-artifacts.py build/releases
           (cd build/releases && sha256sum -c SHA256SUMS)

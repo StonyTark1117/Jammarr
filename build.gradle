@@ -26,14 +26,26 @@ def plannedArtifacts = targetManifest.targets.collectMany { target ->
          status: loader.status as String,
          implemented: loader.implemented as Boolean,
          quiltCompatible: loader.quiltCompatible as Boolean,
+         verificationTask: loader.verificationTask as String,
+         artifactProfile: (loader.artifactProfile ?: 'modern') as String,
+         disableConfigurationCache: ((loader.runtimeCapabilities ?: [:]).containsKey('disableConfigurationCache')
+                 ? loader.runtimeCapabilities.disableConfigurationCache
+                 : targetManifest.runtimeGate.defaults[loader.id].disableConfigurationCache) as Boolean,
          projectPath: loader.path as String,
          filename: loader.artifact as String]
     }
 }
 def implementedArtifacts = plannedArtifacts.findAll { it.implemented }
-if (targetManifest.targets.size() != 26 || plannedArtifacts.size() != 68
-        || plannedArtifacts.count { it.quiltCompatible } != 24) {
-    throw new GradleException('Jammarr target manifest does not contain the expected 26/68/24 matrix')
+if (implementedArtifacts.isEmpty()) {
+    throw new GradleException('Jammarr target manifest contains no implemented artifacts')
+}
+def artifactIdentities = plannedArtifacts.collect { "${it.minecraft}:${it.loader}" }
+if (artifactIdentities.size() != artifactIdentities.toSet().size()) {
+    throw new GradleException('Jammarr target manifest contains duplicate Minecraft/loader identities')
+}
+def artifactFilenames = implementedArtifacts.collect { it.filename }
+if (artifactFilenames.size() != artifactFilenames.toSet().size()) {
+    throw new GradleException('Jammarr target manifest contains duplicate implemented artifact filenames')
 }
 implementedArtifacts.each { artifact ->
     File targetDirectory = layout.projectDirectory.dir(artifact.projectPath).asFile
@@ -55,12 +67,15 @@ def javaHomes = [
 
 def versionTaskKey = { String minecraft -> minecraft.replace('.', '') }
 def loaderTaskName = { String loader -> loader == 'neoforge' ? 'NeoForge' : loader.capitalize() }
+def runtimeCount = implementedArtifacts.size() + implementedArtifacts.count { it.quiltCompatible }
+def quiltRuntimeCount = implementedArtifacts.count { it.quiltCompatible }
+def fabricRuntimeCount = implementedArtifacts.count { it.loader == 'fabric' }
 Map<String, TaskProvider> verifyTargetTasks = [:]
 TaskProvider previousTargetTask = null
 implementedArtifacts.each { artifact ->
     String versionKey = versionTaskKey(artifact.minecraft)
-    String taskName = artifact.minecraft == '1.7.10' && artifact.loader == 'forge'
-            ? 'verifyLegacy1710' : "verify${loaderTaskName(artifact.loader)}${versionKey}"
+    String taskName = artifact.verificationTask
+            ?: "verify${loaderTaskName(artifact.loader)}${versionKey}"
     TaskProvider predecessor = previousTargetTask
     TaskProvider registered
     if (artifact.projectPath == '.') {
@@ -89,7 +104,7 @@ implementedArtifacts.each { artifact ->
                 arguments.add(':core:test')
             }
             arguments.addAll('--no-daemon', '--max-workers=1')
-            if (artifact.loader != 'fabric') arguments.add('--no-configuration-cache')
+            if (artifact.disableConfigurationCache) arguments.add('--no-configuration-cache')
             commandLine(arguments)
         }
     }
@@ -232,7 +247,7 @@ tasks.register('inspectReleaseArtifacts', Exec) {
 
 tasks.register('verifyDedicatedServers', Exec) {
     group = 'verification'
-    description = 'Runs all 21 loader/version real-server, incompatible-client, command, and observable two-client audio gates.'
+    description = "Runs all ${runtimeCount} loader/version real-server, incompatible-client, command, and observable two-client audio gates."
     mustRunAfter('inspectReleaseArtifacts')
     workingDir(layout.projectDirectory)
     environment('JAMMARR_PROTOCOL_CLIENT_GATE', 'true')
@@ -244,7 +259,7 @@ tasks.register('verifyDedicatedServers', Exec) {
 
 tasks.register('verifyQuiltRuntimes', Exec) {
     group = 'verification'
-    description = 'Runs the five supported Quilt real-server, incompatible-client, command, and observable two-client audio gates.'
+    description = "Runs the ${quiltRuntimeCount} supported Quilt real-server, incompatible-client, command, and observable two-client audio gates."
     workingDir(layout.projectDirectory)
     environment('JAMMARR_PROTOCOL_CLIENT_GATE', 'true')
     environment('JAMMARR_COMMAND_CLIENT_GATE', 'true')
@@ -255,7 +270,7 @@ tasks.register('verifyQuiltRuntimes', Exec) {
 
 tasks.register('verifyQuiltModMenuRuntimes', Exec) {
     group = 'verification'
-    description = 'Repeats the five complete Quilt client scenarios with Mod Menu installed.'
+    description = "Repeats the ${quiltRuntimeCount} complete Quilt client scenarios with Mod Menu installed."
     workingDir(layout.projectDirectory)
     environment('JAMMARR_GATE_OUTPUT_ROOT', layout.buildDirectory.dir('quilt-modmenu-gate').get().asFile.absolutePath)
     environment('JAMMARR_QUILT_MODMENU_GATE', 'true')
@@ -269,7 +284,7 @@ tasks.register('verifyQuiltModMenuRuntimes', Exec) {
 
 tasks.register('verifyFabricLoaderMinimumRuntimes', Exec) {
     group = 'verification'
-    description = 'Starts every modern Fabric target under the declared minimum Fabric Loader 0.19.2.'
+    description = "Starts all ${fabricRuntimeCount} Fabric targets under the declared minimum Fabric Loader 0.19.2."
     workingDir(layout.projectDirectory)
     environment('JAMMARR_GATE_OUTPUT_ROOT', layout.buildDirectory.dir('fabric-loader-0.19.2-gate').get().asFile.absolutePath)
     environment('JAMMARR_FABRIC_LOADER_VERSION', '0.19.2')

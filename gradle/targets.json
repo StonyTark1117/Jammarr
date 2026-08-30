@@ -3,6 +3,39 @@
   "product": "Jammarr",
   "productVersion": "1.1.0",
   "protocolVersion": 6,
+  "runtimeGate": {
+    "basePort": 26000,
+    "defaults": {
+      "fabric": {
+        "control": "rcon",
+        "commandMarkers": "modern",
+        "audioProfile": "modern",
+        "logProfile": "latest",
+        "disableConfigurationCache": false
+      },
+      "quilt": {
+        "control": "rcon",
+        "commandMarkers": "modern",
+        "audioProfile": "modern",
+        "logProfile": "latest",
+        "disableConfigurationCache": false
+      },
+      "forge": {
+        "control": "rcon",
+        "commandMarkers": "modern",
+        "audioProfile": "modern",
+        "logProfile": "latest",
+        "disableConfigurationCache": true
+      },
+      "neoforge": {
+        "control": "rcon",
+        "commandMarkers": "modern",
+        "audioProfile": "modern",
+        "logProfile": "latest",
+        "disableConfigurationCache": true
+      }
+    }
+  },
   "targets": [
     {
       "minecraft": "1.7.10",
@@ -17,6 +50,15 @@
           "status": "stable",
           "implemented": true,
           "quiltCompatible": false,
+          "verificationTask": "verifyLegacy1710",
+          "artifactProfile": "legacy-java8",
+          "runtimeCapabilities": {
+            "control": "console",
+            "commandMarkers": "legacy-1710",
+            "audioProfile": "legacy-openal",
+            "logProfile": "legacy-fml",
+            "disableConfigurationCache": false
+          },
           "path": "platforms/mc1.7.10/forge",
           "artifact": "jammarr-1.1.0+mc1.7.10-forge.jar"
         }
@@ -35,6 +77,10 @@
           "status": "stable",
           "implemented": true,
           "quiltCompatible": false,
+          "artifactProfile": "legacy-java8",
+          "runtimeCapabilities": {
+            "disableConfigurationCache": false
+          },
           "path": "platforms/mc1.12.2/forge",
           "artifact": "jammarr-1.1.0+mc1.12.2-forge.jar"
         }
@@ -403,6 +449,7 @@
           "id": "neoforge",
           "status": "stable",
           "implemented": true,
+          "gameTests": true,
           "quiltCompatible": false,
           "path": "platforms/mc1.21.1/neoforge",
           "artifact": "jammarr-1.1.0+mc1.21.1-neoforge.jar"

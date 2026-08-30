@@ -43,6 +43,7 @@ active_world_existed=0
 java21_home=${JAMMARR_JAVA21_HOME:-/usr/lib/jvm/java-21-openjdk}
 java26_home=${JAMMARR_JAVA26_HOME:-/usr/lib/jvm/java-26-openjdk}
 java8_home=${JAMMARR_JAVA8_HOME:-/usr/lib/jvm/java-8-openjdk}
+java17_home=${JAMMARR_JAVA17_HOME:-/usr/lib/jvm/java-17-openjdk}
 delayed_hello_gate=${JAMMARR_DELAYED_HELLO_GATE:-false}
 delayed_hello_ms=${JAMMARR_DELAYED_HELLO_MS:-12000}
 hello_timeout_ms=${JAMMARR_GATE_HELLO_TIMEOUT_MS:-5000}
@@ -64,100 +65,54 @@ if [[ "$delayed_hello_gate" == "true" ]] && (( delayed_hello_ms >= hello_timeout
   exit 2
 fi
 
-targets=(
-  "1.7.10-forge|platforms/mc1.7.10/forge|$java26_home|25695"
-  "1.12.2-forge|platforms/mc1.12.2/forge|$java26_home|25696"
-  "1.16.5-fabric|platforms/mc1.16.5/fabric|$java21_home|25697"
-  "1.16.5-quilt|platforms/mc1.16.5/fabric|$java21_home|25698"
-  "1.16.5-forge|platforms/mc1.16.5/forge|$java8_home|25699"
-  "1.18.2-fabric|platforms/mc1.18.2/fabric|$java21_home|25705"
-  "1.18.2-quilt|platforms/mc1.18.2/fabric|$java21_home|25706"
-  "1.18.2-forge|platforms/mc1.18.2/forge|$java21_home|25707"
-  "1.19.2-fabric|platforms/mc1.19.2/fabric|$java21_home|25702"
-  "1.19.2-quilt|platforms/mc1.19.2/fabric|$java21_home|25703"
-  "1.19.2-forge|platforms/mc1.19.2/forge|$java21_home|25704"
-  "1.20-fabric|platforms/mc1.20/fabric|$java21_home|25708"
-  "1.20-quilt|platforms/mc1.20/fabric|$java21_home|25709"
-  "1.20-forge|platforms/mc1.20/forge|$java21_home|25710"
-  "1.20.1-fabric|platforms/mc1.20.1/fabric|$java21_home|25571"
-  "1.20.1-quilt|platforms/mc1.20.1/fabric|$java21_home|25648"
-  "1.20.1-forge|platforms/mc1.20.1/forge|$java21_home|25572"
-  "1.20.1-neoforge|platforms/mc1.20.1/neoforge|$java21_home|25574"
-  "1.20.2-fabric|platforms/mc1.20.2/fabric|$java21_home|25576"
-  "1.20.2-quilt|platforms/mc1.20.2/fabric|$java21_home|25649"
-  "1.20.2-forge|platforms/mc1.20.2/forge|$java21_home|25578"
-  "1.20.2-neoforge|platforms/mc1.20.2/neoforge|$java21_home|25580"
-  "1.20.3-fabric|platforms/mc1.20.3/fabric|$java21_home|25711"
-  "1.20.3-quilt|platforms/mc1.20.3/fabric|$java21_home|25712"
-  "1.20.3-forge|platforms/mc1.20.3/forge|$java21_home|25713"
-  "1.20.3-neoforge|platforms/mc1.20.3/neoforge|$java21_home|25714"
-  "1.20.4-fabric|platforms/mc1.20.4/fabric|$java21_home|25715"
-  "1.20.4-quilt|platforms/mc1.20.4/fabric|$java21_home|25716"
-  "1.20.4-forge|platforms/mc1.20.4/forge|$java21_home|25717"
-  "1.20.4-neoforge|platforms/mc1.20.4/neoforge|$java21_home|25718"
-  "1.20.5-fabric|platforms/mc1.20.5/fabric|$java21_home|25719"
-  "1.20.5-quilt|platforms/mc1.20.5/fabric|$java21_home|25720"
-  "1.20.5-neoforge|platforms/mc1.20.5/neoforge|$java21_home|25721"
-  "1.20.6-fabric|platforms/mc1.20.6/fabric|$java21_home|25722"
-  "1.20.6-quilt|platforms/mc1.20.6/fabric|$java21_home|25723"
-  "1.20.6-forge|platforms/mc1.20.6/forge|$java21_home|25724"
-  "1.20.6-neoforge|platforms/mc1.20.6/neoforge|$java21_home|25725"
-  "1.21-fabric|platforms/mc1.21/fabric|$java21_home|25726"
-  "1.21-quilt|platforms/mc1.21/fabric|$java21_home|25727"
-  "1.21-forge|platforms/mc1.21/forge|$java21_home|25728"
-  "1.21-neoforge|platforms/mc1.21/neoforge|$java21_home|25729"
-  "1.21.1-fabric|platforms/mc1.21.1/fabric|$java21_home|25581"
-  "1.21.1-quilt|platforms/mc1.21.1/fabric|$java21_home|25650"
-  "1.21.1-forge|platforms/mc1.21.1/forge|$java21_home|25582"
-  "1.21.1-neoforge|platforms/mc1.21.1/neoforge|$java21_home|25566"
-  "1.21.2-fabric|platforms/mc1.21.2/fabric|$java21_home|25730"
-  "1.21.2-quilt|platforms/mc1.21.2/fabric|$java21_home|25731"
-  "1.21.2-neoforge|platforms/mc1.21.2/neoforge|$java21_home|25732"
-  "1.21.3-fabric|platforms/mc1.21.3/fabric|$java21_home|25745"
-  "1.21.3-quilt|platforms/mc1.21.3/fabric|$java21_home|25746"
-  "1.21.3-forge|platforms/mc1.21.3/forge|$java21_home|25747"
-  "1.21.3-neoforge|platforms/mc1.21.3/neoforge|$java21_home|25748"
-  "1.21.4-fabric|platforms/mc1.21.4/fabric|$java21_home|25749"
-  "1.21.4-quilt|platforms/mc1.21.4/fabric|$java21_home|25750"
-  "1.21.4-forge|platforms/mc1.21.4/forge|$java21_home|25751"
-  "1.21.4-neoforge|platforms/mc1.21.4/neoforge|$java21_home|25752"
-  "1.21.5-fabric|platforms/mc1.21.5/fabric|$java21_home|25753"
-  "1.21.5-quilt|platforms/mc1.21.5/fabric|$java21_home|25754"
-  "1.21.5-forge|platforms/mc1.21.5/forge|$java21_home|25755"
-  "1.21.5-neoforge|platforms/mc1.21.5/neoforge|$java21_home|25756"
-  "1.21.6-fabric|platforms/mc1.21.6/fabric|$java21_home|25733"
-  "1.21.6-quilt|platforms/mc1.21.6/fabric|$java21_home|25734"
-  "1.21.6-forge|platforms/mc1.21.6/forge|$java21_home|25735"
-  "1.21.6-neoforge|platforms/mc1.21.6/neoforge|$java21_home|25736"
-  "1.21.7-fabric|platforms/mc1.21.7/fabric|$java21_home|25757"
-  "1.21.7-quilt|platforms/mc1.21.7/fabric|$java21_home|25758"
-  "1.21.7-forge|platforms/mc1.21.7/forge|$java21_home|25759"
-  "1.21.7-neoforge|platforms/mc1.21.7/neoforge|$java21_home|25760"
-  "1.21.8-fabric|platforms/mc1.21.8/fabric|$java21_home|25761"
-  "1.21.8-quilt|platforms/mc1.21.8/fabric|$java21_home|25762"
-  "1.21.8-forge|platforms/mc1.21.8/forge|$java21_home|25763"
-  "1.21.8-neoforge|platforms/mc1.21.8/neoforge|$java21_home|25764"
-  "1.21.9-fabric|platforms/mc1.21.9/fabric|$java21_home|25737"
-  "1.21.9-quilt|platforms/mc1.21.9/fabric|$java21_home|25738"
-  "1.21.9-forge|platforms/mc1.21.9/forge|$java21_home|25739"
-  "1.21.9-neoforge|platforms/mc1.21.9/neoforge|$java21_home|25740"
-  "1.21.10-fabric|platforms/mc1.21.10/fabric|$java21_home|25765"
-  "1.21.10-quilt|platforms/mc1.21.10/fabric|$java21_home|25766"
-  "1.21.10-forge|platforms/mc1.21.10/forge|$java21_home|25767"
-  "1.21.10-neoforge|platforms/mc1.21.10/neoforge|$java21_home|25768"
-  "1.21.11-fabric|platforms/mc1.21.11/fabric|$java21_home|25741"
-  "1.21.11-quilt|platforms/mc1.21.11/fabric|$java21_home|25742"
-  "1.21.11-forge|platforms/mc1.21.11/forge|$java21_home|25743"
-  "1.21.11-neoforge|platforms/mc1.21.11/neoforge|$java21_home|25744"
-  "26.1.2-fabric|platforms/mc26.1.2/fabric|$java26_home|25642"
-  "26.1.2-quilt|platforms/mc26.1.2/fabric|$java26_home|25651"
-  "26.1.2-forge|platforms/mc26.1.2/forge|$java26_home|25643"
-  "26.1.2-neoforge|platforms/mc26.1.2/neoforge|$java26_home|25644"
-  "26.2-fabric|platforms/mc26.2/fabric|$java26_home|25645"
-  "26.2-quilt|platforms/mc26.2/fabric|$java26_home|25652"
-  "26.2-forge|platforms/mc26.2/forge|$java26_home|25646"
-  "26.2-neoforge|platforms/mc26.2/neoforge|$java26_home|25647"
-)
+declare -A target_control=()
+declare -A target_command_markers=()
+declare -A target_audio_profile=()
+declare -A target_log_profile=()
+declare -A target_disable_configuration_cache=()
+targets=()
+while IFS='|' read -r label target_dir build_java port control command_markers audio_profile log_profile disable_configuration_cache; do
+  case "$build_java" in
+    8) java_home=$java8_home ;;
+    17) java_home=$java17_home ;;
+    21) java_home=$java21_home ;;
+    26) java_home=$java26_home ;;
+    *)
+      echo "No runtime-gate JDK is configured for Java $build_java ($label)" >&2
+      exit 2
+      ;;
+  esac
+  targets+=("$label|$target_dir|$java_home|$port")
+  target_control["$label"]=$control
+  target_command_markers["$label"]=$command_markers
+  target_audio_profile["$label"]=$audio_profile
+  target_log_profile["$label"]=$log_profile
+  target_disable_configuration_cache["$label"]=$disable_configuration_cache
+done < <(python3 "$repo_root/scripts/target-matrix.py" gate-lines "$repo_root/gradle/targets.json")
+if (( ${#targets[@]} == 0 )); then
+  echo "Target manifest generated no dedicated-server runtimes" >&2
+  exit 2
+fi
+
+uses_console_control() {
+  [[ ${target_control[$1]} == "console" ]]
+}
+
+uses_legacy_command_markers() {
+  [[ ${target_command_markers[$1]} == "legacy-1710" ]]
+}
+
+uses_legacy_audio_profile() {
+  [[ ${target_audio_profile[$1]} == "legacy-openal" ]]
+}
+
+uses_legacy_fml_log() {
+  [[ ${target_log_profile[$1]} == "legacy-fml" ]]
+}
+
+disables_configuration_cache() {
+  [[ ${target_disable_configuration_cache[$1]} == "true" ]]
+}
 
 requested=${1:-all}
 protocol_client_gate=${JAMMARR_PROTOCOL_CLIENT_GATE:-false}
@@ -425,10 +380,11 @@ run_optional_client() {
   local client_console="$output_root/$label.$scenario.console.log"
   local evidence="$output_root/$label.$scenario.evidence.txt"
   local pid deadline result=0
-  local -a runtime_args=()
+  local -a runtime_args=() cache_args=()
   [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
   [[ "$label" == *-quilt && "$quilt_modmenu_gate" == true ]] && runtime_args+=(-PjammarrIncludeModMenu=true)
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
+  disables_configuration_cache "$label" && cache_args+=(--no-configuration-cache)
 
   mkdir -p "$client_dir"
   : > "$client_console"
@@ -442,7 +398,7 @@ run_optional_client() {
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS='-Djammarr.acceptance.enabled=true -Djammarr.acceptance.suppressClientHello=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
       LIBGL_ALWAYS_SOFTWARE=1 \
-      ./gradlew runClient --no-daemon --max-workers=2 --console=plain --no-configuration-cache \
+      ./gradlew runClient --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
       "${runtime_args[@]}" \
       -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="127.0.0.1:${port}" \
@@ -493,10 +449,11 @@ run_delayed_hello_client() {
   local client_console="$output_root/$label.$scenario.console.log"
   local evidence="$output_root/$label.$scenario.evidence.txt"
   local pid deadline result=0
-  local -a runtime_args=()
+  local -a runtime_args=() cache_args=()
   [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
   [[ "$label" == *-quilt && "$quilt_modmenu_gate" == true ]] && runtime_args+=(-PjammarrIncludeModMenu=true)
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
+  disables_configuration_cache "$label" && cache_args+=(--no-configuration-cache)
 
   mkdir -p "$client_dir"
   : > "$client_console"
@@ -513,7 +470,7 @@ run_delayed_hello_client() {
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS="-Djammarr.acceptance.enabled=true -Djammarr.acceptance.clientHelloDelayMs=${delayed_hello_ms} -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true" \
       LIBGL_ALWAYS_SOFTWARE=1 \
-      ./gradlew runClient --no-daemon --max-workers=2 --console=plain --no-configuration-cache \
+      ./gradlew runClient --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
       "${runtime_args[@]}" \
       -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="127.0.0.1:${port}" \
@@ -597,10 +554,11 @@ run_acceptance_client_once() {
   local client_console="$output_root/$label.$scenario.console.log"
   local evidence="$output_root/$label.$scenario.server.txt"
   local pid deadline exit_grace_deadline result=0
-  local -a runtime_args=()
+  local -a runtime_args=() cache_args=()
   [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
   [[ "$label" == *-quilt && "$quilt_modmenu_gate" == true ]] && runtime_args+=(-PjammarrIncludeModMenu=true)
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
+  disables_configuration_cache "$label" && cache_args+=(--no-configuration-cache)
 
   mkdir -p "$client_dir"
   : > "$client_console"
@@ -617,7 +575,7 @@ run_acceptance_client_once() {
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS="$java_tool_options" \
       LIBGL_ALWAYS_SOFTWARE=1 \
-      ./gradlew runClient --no-daemon --max-workers=2 --console=plain --no-configuration-cache \
+      ./gradlew runClient --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
       "${runtime_args[@]}" \
       -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="127.0.0.1:${port}" \
@@ -688,10 +646,11 @@ run_command_client() {
   local diagnostics="$output_root/$label.$scenario.diagnostics.txt"
   local evidence="$output_root/$label.$scenario.evidence.txt"
   local pid deadline result=0
-  local -a runtime_args=()
+  local -a runtime_args=() cache_args=()
   [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
   [[ "$label" == *-quilt && "$quilt_modmenu_gate" == true ]] && runtime_args+=(-PjammarrIncludeModMenu=true)
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
+  disables_configuration_cache "$label" && cache_args+=(--no-configuration-cache)
 
   mkdir -p "$client_dir"
   : > "$client_console"
@@ -702,7 +661,7 @@ run_command_client() {
     'joinedFirstServer:true' \
     'narrator:0' > "$client_dir/options.txt"
 
-  if [[ "$label" == "1.7.10-forge" ]]; then
+  if uses_console_control "$label"; then
     printf 'deop %s\n' "$username" >&"$fifo_fd"
   elif ! python3 "$repo_root/scripts/minecraft-rcon.py" 127.0.0.1 "$rcon_port" "$rcon_password" \
       "deop $username" > /dev/null 2>&1; then
@@ -719,7 +678,7 @@ run_command_client() {
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS='-Djammarr.acceptance.enabled=true -Djammarr.acceptance.commandProbe=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
       LIBGL_ALWAYS_SOFTWARE=1 \
-      ./gradlew runClient --no-daemon --max-workers=2 --console=plain --no-configuration-cache \
+      ./gradlew runClient --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
       "${runtime_args[@]}" \
       -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="127.0.0.1:${port}" \
@@ -730,7 +689,7 @@ run_command_client() {
   active_client_pid=$pid
 
   deadline=$((SECONDS + 600))
-  if [[ "$label" == "1.7.10-forge" ]]; then
+  if uses_legacy_command_markers "$label"; then
     while ! grep -Fq 'Acceptance command response: Queue is empty' "$client_console" 2>/dev/null \
         || ! grep -Fq 'Acceptance command response: Operator permission is required' "$client_console" 2>/dev/null; do
       if client_bootstrap_failed "$client_console"; then
@@ -763,7 +722,7 @@ run_command_client() {
   fi
 
   if (( result == 0 )); then
-    if [[ "$label" == "1.7.10-forge" ]]; then
+    if uses_console_control "$label"; then
       printf 'op %s\n' "$username" >&"$fifo_fd"
       sleep 1
       printf 'tell %s JAMMARR_ACCEPTANCE_OPERATOR_READY\n' "$username" >&"$fifo_fd"
@@ -880,11 +839,9 @@ start_audio_client() {
   [[ "$label" == *-quilt && "$quilt_modmenu_gate" == true ]] && runtime_args+=(-PjammarrIncludeModMenu=true)
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
   [[ "$role" == "leader" ]] && leader=true
-  case "$label" in
-    1.16.5-forge|1.18.2-forge|1.19.2-forge|1.20-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge|1.20.3-forge|1.20.3-neoforge|1.20.4-forge|1.20.4-neoforge|1.20.5-neoforge|1.20.6-forge|1.20.6-neoforge|1.21.3-forge|1.21.4-forge|1.21.5-forge|1.21.7-forge|1.21.7-neoforge|1.21.8-forge|1.21.8-neoforge|1.21.10-forge|1.21.10-neoforge|1.21.11-forge)
-      cache_args+=(--no-configuration-cache)
-      ;;
-  esac
+  if disables_configuration_cache "$label"; then
+    cache_args+=(--no-configuration-cache)
+  fi
 
   mkdir -p "$client_dir/config" "$client_dir/pcm-trace"
   # A target's acceptance game directory is intentionally reusable, but its
@@ -927,7 +884,7 @@ start_audio_client() {
       # Prefer OpenAL Soft's native Pulse backend. The ALSA Pulse plugin can
       # silently drop/resample frames while correcting its bridge clock,
       # which makes a healthy client look like it skipped an audio chunk.
-      if [[ "$label" == "1.7.10-forge" ]]; then
+      if uses_legacy_audio_profile "$label"; then
         alsoft_drivers=pulse
         pulse_sink=$sink
       fi
@@ -1195,7 +1152,7 @@ run_audio_control_scenarios() {
   local first result=0
 
   : > "$scenario_evidence"
-  if [[ "$label" == "1.7.10-forge" ]]; then
+  if uses_console_control "$label"; then
     printf 'op JammarrAudioA\n' >&"$fifo_fd"
   elif ! python3 "$repo_root/scripts/minecraft-rcon.py" 127.0.0.1 "$rcon_port" "$rcon_password" \
       'op JammarrAudioA' > /dev/null; then
@@ -1317,7 +1274,7 @@ run_audio_control_scenarios() {
   local transcodes_before transcodes_after
   first=$(wc -l < "$server_log")
   printf 'offline\n' > "$fake_plex_state"
-  if [[ "$label" == "1.7.10-forge" ]]; then
+  if uses_console_control "$label"; then
     printf 'jammarr reload\n' >&"$fifo_fd"
   else
     if ! python3 "$repo_root/scripts/minecraft-rcon.py" 127.0.0.1 "$rcon_port" "$rcon_password" \
@@ -1357,7 +1314,7 @@ run_audio_control_scenarios() {
 
   first=$(wc -l < "$server_log")
   printf 'online\n' > "$fake_plex_state"
-  if [[ "$label" == "1.7.10-forge" ]]; then
+  if uses_console_control "$label"; then
     printf 'jammarr reload\n' >&"$fifo_fd"
   else
     python3 "$repo_root/scripts/minecraft-rcon.py" 127.0.0.1 "$rcon_port" "$rcon_password" \
@@ -1500,7 +1457,7 @@ run_two_client_audio() {
   local proxy_event_log="$output_root/$label.audio-proxy.jsonl"
   local capture_seconds=11 minimum_duration_ms=10000
   local -a rendered_timing_args=()
-  if [[ "$label" == "1.7.10-forge" ]]; then
+  if uses_legacy_audio_profile "$label"; then
     # The legacy backend can carry several processed OpenAL buffers before a
     # raw-stream restart exposes stale-buffer replay. Cover sustained playback,
     # not only the first two compressed transfer windows.
@@ -1581,7 +1538,7 @@ run_two_client_audio() {
     echo "$label: deterministic audio timing thresholds failed" >&2
     result=1
   fi
-  if (( result == 0 )) && [[ "$label" == "1.7.10-forge" ]]; then
+  if (( result == 0 )) && uses_legacy_audio_profile "$label"; then
     local role trace
     for role in leader follower; do
       trace=$(find "$output_root/$label.audio-$role/pcm-trace" -type f -name '*.s16le' \
@@ -1608,7 +1565,7 @@ run_two_client_audio() {
       grep -E 'mean_volume:|max_volume:' "$metrics_follower" | tail -n 2
       sed -n '/"duration_ms"\|"marker_count"\|"max_marker_interval_error_ms"\|"marker_sequence_mismatches"\|"max_marker_overlap_ms"\|"max_silence_ms"\|"inter_client_skew_ms"/p' \
         "$output_root/$label.audio-timing.json"
-      if [[ "$label" == "1.7.10-forge" ]]; then
+      if uses_legacy_audio_profile "$label"; then
         printf 'Strict pre-backend OpenAL feed timing:\n'
         sed -n '/"duration_ms"\|"marker_count"\|"max_marker_interval_error_ms"\|"marker_sequence_mismatches"\|"max_marker_overlap_ms"\|"max_silence_ms"/p' \
           "$output_root/$label.audio-"{leader,follower}"-fed-timing.json"
@@ -1810,11 +1767,9 @@ run_invalid_config_check_once() {
   local -a runtime_args=(-PjammarrServerGameDir="$run_dir")
   [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
-  case "$label" in
-    1.16.5-forge|1.18.2-forge|1.19.2-forge|1.20-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge|1.20.3-forge|1.20.3-neoforge|1.20.4-forge|1.20.4-neoforge|1.20.5-neoforge|1.20.6-forge|1.20.6-neoforge|1.21.3-forge|1.21.4-forge|1.21.5-forge|1.21.7-forge|1.21.7-neoforge|1.21.8-forge|1.21.8-neoforge|1.21.10-forge|1.21.10-neoforge|1.21.11-forge)
-      cache_args+=(--no-configuration-cache)
-      ;;
-  esac
+  if disables_configuration_cache "$label"; then
+    cache_args+=(--no-configuration-cache)
+  fi
 
   install_invalid_config "$run_dir" "$label" "$level_name"
   (
@@ -1962,12 +1917,12 @@ run_target() {
   fi
   rcon_port=$((default_port + 1000))
   rcon_password="jammarr-gate-${default_port}"
-  if [[ "$label" != "1.7.10-forge" ]] && ss -ltnH "sport = :$rcon_port" | grep -q .; then
+  if ! uses_console_control "$label" && ss -ltnH "sport = :$rcon_port" | grep -q .; then
     echo "$label: RCON port $rcon_port is already in use" >&2
     return 1
   fi
   active_game_port=$port
-  if [[ "$label" != "1.7.10-forge" ]]; then active_rcon_port=$rcon_port; fi
+  if ! uses_console_control "$label"; then active_rcon_port=$rcon_port; fi
   backup_server_properties "$run_dir/server.properties" "$label"
   # Keep the gate isolated from developer worlds and from damage left by an
   # interrupted prior run. The run directories are ignored build state.
@@ -1977,7 +1932,7 @@ run_target() {
   set_property "$run_dir/server.properties" enforce-secure-profile false
   set_property "$run_dir/server.properties" sync-chunk-writes false
   isolate_gate_world "$run_dir" "$label" "$level_name"
-  if [[ "$label" == "1.7.10-forge" ]]; then
+  if uses_console_control "$label"; then
     # Vanilla 1.7.10 closes an RCON connection after its authentication packet,
     # so use its working console input instead of weakening clean-shutdown proof.
     set_property "$run_dir/server.properties" enable-rcon false
@@ -1986,11 +1941,9 @@ run_target() {
     set_property "$run_dir/server.properties" rcon.port "$rcon_port"
     set_property "$run_dir/server.properties" rcon.password "$rcon_password"
   fi
-  case "$label" in
-    1.16.5-forge|1.18.2-forge|1.19.2-forge|1.20-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge|1.20.3-forge|1.20.3-neoforge|1.20.4-forge|1.20.4-neoforge|1.20.5-neoforge|1.20.6-forge|1.20.6-neoforge|1.21.3-forge|1.21.4-forge|1.21.5-forge|1.21.7-forge|1.21.7-neoforge|1.21.8-forge|1.21.8-neoforge|1.21.10-forge|1.21.10-neoforge|1.21.11-forge)
-      cache_args+=(--no-configuration-cache)
-      ;;
-  esac
+  if disables_configuration_cache "$label"; then
+    cache_args+=(--no-configuration-cache)
+  fi
 
   if ! run_invalid_config_check "$label" "$target_dir" "$run_dir" "$java_home" "$port" "$level_name"; then
     restore_server_properties
@@ -2103,7 +2056,7 @@ run_target() {
     sleep 2
   fi
 
-  if [[ "$label" == "1.7.10-forge" ]]; then
+  if uses_console_control "$label"; then
     printf 'stop\n' >&"$fifo_fd"
   elif ! python3 "$repo_root/scripts/minecraft-rcon.py" 127.0.0.1 "$rcon_port" "$rcon_password" stop \
       >> "$console_log" 2>&1; then
@@ -2164,7 +2117,7 @@ run_target() {
     echo "$label: log does not prove a clean Minecraft shutdown" >&2
     result=1
   fi
-  if [[ "$label" == "1.7.10-forge" ]]; then
+  if uses_legacy_fml_log "$label"; then
     if ! grep -q 'Initializing Jammarr 1.1.0 for Forge 1.7.10 protocol 6' "$run_dir/logs/fml-server-latest.log"; then
       echo "$label: FML log does not prove Jammarr initialized" >&2
       result=1
@@ -2202,6 +2155,10 @@ run_target() {
 
 matched=0
 failed=0
+if [[ "$requested" == "list" ]]; then
+  printf '%s\n' "${targets[@]%%|*}"
+  exit 0
+fi
 start_fake_plex || exit 1
 for target in "${targets[@]}"; do
   IFS='|' read -r label relative_dir java_home port <<< "$target"
