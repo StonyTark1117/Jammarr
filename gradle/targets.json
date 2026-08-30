@@ -86,6 +86,25 @@
           },
           "path": "platforms/mc1.6.4/fabric",
           "artifact": "jammarr-1.1.0+mc1.6.4-fabric.jar"
+        },
+        {
+          "id": "ornithe",
+          "status": "preview",
+          "implemented": true,
+          "quiltCompatible": false,
+          "verificationTask": "verifyOrnithe164",
+          "artifactProfile": "legacy-ornithe-java8",
+          "buildJava": 21,
+          "bytecodeJava": 8,
+          "runtimeCapabilities": {
+            "control": "console",
+            "commandMarkers": "legacy-response",
+            "audioProfile": "legacy-openal",
+            "logProfile": "legacy-ornithe16",
+            "disableConfigurationCache": false
+          },
+          "path": "platforms/mc1.6.4/ornithe",
+          "artifact": "jammarr-1.1.0+mc1.6.4-ornithe.jar"
         }
       ]
     },

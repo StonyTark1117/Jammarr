@@ -118,6 +118,10 @@ uses_legacy_fabric16_log() {
   [[ ${target_log_profile[$1]} == "legacy-fabric16" ]]
 }
 
+uses_legacy_ornithe16_log() {
+  [[ ${target_log_profile[$1]} == "legacy-ornithe16" ]]
+}
+
 mod_log_path() {
   local label=$1
   local run_dir=$2
@@ -2210,6 +2214,17 @@ run_target() {
         || ! grep -Eq 'Stopping (the )?server' "$console_log" \
         || ! grep -q 'Saving players' "$console_log"; then
       echo "$label: console log does not prove Legacy Fabric initialization and clean lifecycle shutdown" >&2
+      result=1
+    fi
+  elif uses_legacy_ornithe16_log "$label"; then
+    # Minecraft 1.6.4 writes its vanilla lifecycle markers through JUL to the
+    # process console while Ornithe/Jammarr writes its own messages to Log4j.
+    # Require both streams so a build-only exit cannot masquerade as a clean
+    # server shutdown.
+    if ! grep -Eq 'Initializing Jammarr 1\.1\.0 for Ornithe 1\.6\.4 protocol 6' "$latest_log" \
+        || ! grep -Eq 'Stopping (the )?server' "$console_log" \
+        || ! grep -q 'Saving players' "$console_log"; then
+      echo "$label: logs do not prove Ornithe initialization and clean Minecraft shutdown" >&2
       result=1
     fi
   elif uses_legacy_fml_log "$label"; then

@@ -1,0 +1,219 @@
+plugins {
+    id 'net.fabricmc.fabric-loom-remap' version "${loom_version}"
+    id 'ploceus' version "${ploceus_version}"
+}
+
+group = 'stonytark'
+version = '1.1.0'
+def artifactVersion = version.toString()
+
+base {
+    archivesName = "jammarr-${artifactVersion}+mc1.6.4-ornithe"
+}
+
+ploceus {
+    setIntermediaryGeneration(2)
+}
+
+def acceptanceWithoutJammarr = (System.getenv('JAVA_TOOL_OPTIONS') ?: '')
+        .contains('jammarr.acceptance.suppressClientHello=true')
+
+sourceSets {
+    vanillaClient {
+        runtimeClasspath += configurations.runtimeClasspath
+    }
+    main.resources {
+        setSrcDirs([file('src/main/resources'), file('../../../src/main/resources')])
+        exclude 'mcmod.info', 'jammarr.mixins.json'
+    }
+    test.resources {
+        srcDir file('../../../test-fixtures')
+        exclude 'java/**'
+    }
+}
+
+loom {
+    runs {
+        server {
+            if (providers.gradleProperty('jammarrServerGameDir').isPresent()) {
+                runDir project.relativePath(file(providers.gradleProperty('jammarrServerGameDir').get()))
+            }
+        }
+        client {
+            if (providers.gradleProperty('jammarrAcceptanceServer').isPresent()) {
+                runDir project.relativePath(file(providers.gradleProperty('jammarrAcceptanceGameDir').get()))
+                def endpoint = providers.gradleProperty('jammarrAcceptanceServer').get()
+                if (acceptanceWithoutJammarr) {
+                    def separator = endpoint.lastIndexOf(':')
+                    if (separator <= 0 || separator == endpoint.length() - 1) {
+                        throw new GradleException('jammarrAcceptanceServer must use host:port syntax')
+                    }
+                    source sourceSets.vanillaClient
+                    programArgs '--server', endpoint.substring(0, separator),
+                            '--port', endpoint.substring(separator + 1)
+                } else {
+                    property 'jammarr.acceptance.server', endpoint
+                }
+                programArgs '--username', providers.gradleProperty('jammarrAcceptanceUsername').get()
+            }
+        }
+    }
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(8)
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.fabricmc.net/' }
+    maven { url = 'https://maven.ornithemc.net/releases' }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${minecraft_version}"
+    mappings ploceus.featherMappings(feather_build)
+    modImplementation "net.fabricmc:fabric-loader:${loader_version}"
+    // The 1.6.4 aggregate also pulls unrelated blocks/items modules whose
+    // version-range Mixins target later snapshots. Jammarr only ships the OSL
+    // surfaces it actually uses, which keeps dedicated-server startup bounded
+    // to modules verified against this exact Minecraft version.
+    ['core', 'entrypoints', 'executors', 'keybinds', 'lifecycle-events', 'networking',
+     'networking-impl', 'resource-loader', 'text-components'].each {
+        ploceus.dependOslModule(osl_version, it)
+    }
+
+    implementation project(':core')
+    include project(':core')
+    implementation 'javazoom:jlayer:1.0.1'
+    include 'javazoom:jlayer:1.0.1'
+    implementation 'de.sciss:jump3r:1.0.5'
+    include 'de.sciss:jump3r:1.0.5'
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+configurations.configureEach {
+    // Ploceus copies the mod configurations while configuring Loom runs. The
+    // copy numbering and selected transitive metadata are invocation-order
+    // dependent, so locking the source mod configuration leaks unstable lock
+    // state into those copies. Stable compile/runtime configurations remain
+    // locked, while all dependency versions are also pinned above.
+    if (canBeResolved) {
+        if (name.startsWith('mod')) {
+            resolutionStrategy.deactivateDependencyLocking()
+        } else {
+            resolutionStrategy.activateDependencyLocking()
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+tasks.withType(Test).configureEach { useJUnitPlatform() }
+
+tasks.named('processResources') {
+    inputs.property 'version', artifactVersion
+    filesMatching('fabric.mod.json') { expand version: artifactVersion }
+}
+
+tasks.named('jar', Jar) {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from('../../../THIRD_PARTY_NOTICES.md') { into('META-INF') }
+    from('../../../LICENSE') {
+        into('META-INF')
+        rename { 'LICENSE-Jammarr-CC0-1.0.txt' }
+    }
+    from('../../../LICENSE-LGPL-2.1-or-later.txt') { into('META-INF') }
+}
+
+tasks.named('remapJar') {
+    archiveFileName = "jammarr-${artifactVersion}+mc1.6.4-ornithe.jar"
+}
+
+def sha256 = { File file ->
+    def digest = java.security.MessageDigest.getInstance('SHA-256')
+    file.withInputStream { stream ->
+        byte[] buffer = new byte[64 * 1024]
+        int count
+        while ((count = stream.read(buffer)) >= 0) if (count > 0) digest.update(buffer, 0, count)
+    }
+    digest.digest().collect { String.format('%02x', it & 0xff) }.join()
+}
+
+tasks.register('verifyToolchainLock') {
+    doLast {
+        def wrapper = file('gradle/wrapper/gradle-wrapper.jar')
+        if (sha256(wrapper) != '497c8c2a7e5031f6aa847f88104aa80a93532ec32ee17bdb8d1d2f67a194a9c7') {
+            throw new GradleException('Ornithe Gradle wrapper checksum does not match the pinned wrapper')
+        }
+        def loomJar = buildscript.configurations.classpath.files.find { it.name == 'fabric-loom-1.17.20.jar' }
+        if (loomJar == null || sha256(loomJar) != '3aa6f0f7107f8f63762b0a014214e9341b7e4a33c05769f3e8783e750d5eb167') {
+            throw new GradleException('Fabric Loom does not match pinned 1.17.20 bytes')
+        }
+        def ploceusJar = buildscript.configurations.classpath.files.find { it.name == 'ploceus-1.17.7.jar' }
+        if (ploceusJar == null || sha256(ploceusJar) != 'ed9ee60368c95d81bc8a56e98b0870c4d178d3ee2a3f11984fba075b3d83f1e4') {
+            throw new GradleException('Ploceus does not match pinned 1.17.7 bytes')
+        }
+    }
+}
+
+def releaseArchive = tasks.named('remapJar').flatMap { it.archiveFile }
+tasks.register('verifyRelease') {
+    group = 'verification'
+    dependsOn tasks.named('build'), tasks.named('verifyToolchainLock')
+    inputs.file releaseArchive
+    doLast {
+        def archive = releaseArchive.get().asFile
+        if (archive.name != "jammarr-${artifactVersion}+mc1.6.4-ornithe.jar") {
+            throw new GradleException("Unexpected release filename: ${archive.name}")
+        }
+        new java.util.zip.ZipFile(archive).withCloseable { zip ->
+            def found = zip.entries().collect { it.name } as Set
+            ['fabric.mod.json', 'jammarr.png', 'assets/jammarr/lang/en_us.json',
+             'assets/jammarr/lang/en_US.lang', 'META-INF/LICENSE-Jammarr-CC0-1.0.txt',
+             'META-INF/LICENSE-LGPL-2.1-or-later.txt', 'META-INF/THIRD_PARTY_NOTICES.md',
+             'META-INF/jars/core-1.1.0.jar', 'META-INF/jars/jlayer-1.0.1.jar',
+             'META-INF/jars/jump3r-1.0.5.jar', 'stonytark/jammarr/Jammarr.class',
+             'stonytark/jammarr/client/LegacyClient.class',
+             'stonytark/jammarr/network/LegacyNetwork.class'].each { entry ->
+                if (!found.contains(entry)) throw new GradleException("Ornithe archive is missing ${entry}")
+            }
+            def metadata = new groovy.json.JsonSlurper().parseText(
+                    zip.getInputStream(zip.getEntry('fabric.mod.json')).getText('UTF-8'))
+            def requiredOsl = [
+                    'osl-core': '>=0.10.0-alpha.5',
+                    'osl-entrypoints': '>=0.6.1',
+                    'osl-executors': '>=0.1.0',
+                    'osl-keybinds': '>=0.3.0',
+                    'osl-lifecycle-events': '>=0.6.1',
+                    'osl-networking': '>=0.10.0-alpha.3',
+                    'osl-networking-impl': '>=0.2.0-alpha.5',
+                    'osl-resource-loader': '>=0.8.0-alpha.5',
+                    'osl-text-components': '>=0.1.0-alpha.5'
+            ]
+            if (metadata.id != 'jammarr' || metadata.version != artifactVersion
+                    || metadata.depends.minecraft != '1.6.4' || metadata.depends.java != '>=8'
+                    || metadata.depends.fabricloader != '>=0.19.5'
+                    || requiredOsl.any { dependency, constraint ->
+                        metadata.depends[dependency] != constraint
+                    }
+                    || metadata.entrypoints.init != ['stonytark.jammarr.Jammarr']
+                    || metadata.entrypoints['client-init'] != ['stonytark.jammarr.client.LegacyClient']) {
+                throw new GradleException('Ornithe metadata does not identify the pinned target')
+            }
+            found.findAll { it.startsWith('stonytark/jammarr/') && it.endsWith('.class') }.each { entry ->
+                def stream = zip.getInputStream(zip.getEntry(entry))
+                byte[] header = new byte[8]
+                if (stream.read(header) != 8) throw new GradleException("Unable to inspect ${entry}")
+                stream.close()
+                int major = ((header[6] & 0xff) << 8) | (header[7] & 0xff)
+                if (major != 52) throw new GradleException("Ornithe archive contains non-Java-8 bytecode: ${entry}")
+            }
+        }
+    }
+}

@@ -377,12 +377,15 @@ def verify_metadata(archive: zipfile.ZipFile, names: set[str], minecraft: str, l
                     or entrypoints.get("client-init") != ["stonytark.jammarr.client.LegacyClient"]:
                 fail(f"{filename} has incorrect Ornithe entrypoints")
             required_osl = {
+                "osl-core": ">=0.10.0-alpha.5",
                 "osl-entrypoints": ">=0.6.1",
+                "osl-executors": ">=0.1.0",
                 "osl-keybinds": ">=0.3.0",
                 "osl-lifecycle-events": ">=0.6.1",
                 "osl-networking": ">=0.10.0-alpha.3",
                 "osl-networking-impl": ">=0.2.0-alpha.5",
                 "osl-resource-loader": ">=0.8.0-alpha.5",
+                "osl-text-components": ">=0.1.0-alpha.5",
             }
             for dependency, constraint in required_osl.items():
                 if metadata.get("depends", {}).get(dependency) != constraint:
