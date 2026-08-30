@@ -22,7 +22,7 @@ import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
-/** Forge 1.7.10 SimpleNetworkWrapper adapter for the canonical protocol-5 codecs. */
+/** Forge 1.7.10 SimpleNetworkWrapper adapter for the canonical protocol-6 codecs. */
 public final class LegacyNetwork {
     public interface ServerListener {
         void accept(EntityPlayerMP player, LegacyPacketTypes.Type<?> type, Object message);
@@ -41,6 +41,7 @@ public final class LegacyNetwork {
             ProtocolLimits.serverHelloTimeoutMs());
     private volatile ServerListener serverListener;
     private volatile ClientListener clientListener;
+    private volatile boolean serverAvailable;
     private boolean registered;
 
     public static synchronized void register() {
@@ -61,8 +62,9 @@ public final class LegacyNetwork {
     }
 
     public static <T> void sendToServer(LegacyPacketTypes.Type<T> type, T message) {
-        CHANNEL.sendToServer(LegacyServerboundEnvelope.of(type, message));
+        if (INSTANCE.serverAvailable) CHANNEL.sendToServer(LegacyServerboundEnvelope.of(type, message));
     }
+    public static boolean serverAvailable() { return INSTANCE.serverAvailable; }
 
     public static synchronized void shutdown() {
         SERVER_INBOX.clear();
@@ -93,6 +95,14 @@ public final class LegacyNetwork {
     @SubscribeEvent
     public void clientDisconnected(FMLNetworkEvent.ClientDisconnectionFromServerEvent event) {
         CLIENT_INBOX.clear();
+        serverAvailable = false;
+    }
+
+    @SubscribeEvent
+    public void customPacketRegistration(FMLNetworkEvent.CustomPacketRegistrationEvent<?> event) {
+        if (event.side != Side.CLIENT) return;
+        if ("REGISTER".equals(event.operation) && event.registrations.contains(Jammarr.MOD_ID)) serverAvailable = true;
+        if ("UNREGISTER".equals(event.operation) && event.registrations.contains(Jammarr.MOD_ID)) serverAvailable = false;
     }
 
     @SubscribeEvent

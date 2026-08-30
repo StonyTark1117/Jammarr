@@ -1,5 +1,7 @@
 package stonytark.jammarr.network;
 
+import net.minecraft.network.Connection;
+import net.minecraft.network.ConnectionProtocol;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.common.ClientboundDisconnectPacket;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
@@ -8,6 +10,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.client.network.ClientPacketDistributor;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
+import net.neoforged.neoforge.network.registration.NetworkRegistry;
 import stonytark.jammarr.Jammarr;
 import stonytark.jammarr.server.JammarrServer;
 import stonytark.jammarr.core.protocol.ProtocolLimits;
@@ -17,10 +20,18 @@ public final class JammarrNetwork {
     /** Bumped for source-aware queues, stations, and Sonic Adventure payloads. */
     public static final int PROTOCOL = ProtocolLimits.VERSION;
     public static final String VERSION = Integer.toString(PROTOCOL);
+    private static volatile boolean serverAvailable;
 
     public static boolean protocolMatches(int offered) { return offered == PROTOCOL; }
+    public static void serverConnected(Connection connection) {
+        serverAvailable = NetworkRegistry.hasChannel(connection, ConnectionProtocol.PLAY, JammarrPayloads.ClientHello.TYPE.id());
+    }
+    public static void serverDisconnected() { serverAvailable = false; }
+    public static boolean serverAvailable() { return serverAvailable; }
 
-    public static void sendToServer(JammarrMessage payload) { ClientPacketDistributor.sendToServer((CustomPacketPayload)payload); }
+    public static void sendToServer(JammarrMessage payload) {
+        if (serverAvailable) ClientPacketDistributor.sendToServer((CustomPacketPayload)payload);
+    }
     public static void sendToPlayer(ServerPlayer player, JammarrMessage payload) {
         if (JammarrServer.instance().accepted(player)) PacketDistributor.sendToPlayer(player, (CustomPacketPayload)payload);
     }

@@ -1,5 +1,6 @@
 package stonytark.jammarr.network;
 
+import net.minecraft.network.Connection;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.common.ClientboundDisconnectPacket;
@@ -22,8 +23,12 @@ public final class JammarrNetwork {
     public static final int PROTOCOL = ProtocolLimits.VERSION;
     public static final String VERSION = Integer.toString(PROTOCOL);
     private static SimpleChannel channel;
+    private static volatile boolean serverAvailable;
 
     public static boolean protocolMatches(int offered) { return offered == PROTOCOL; }
+    public static void serverConnected(Connection connection) { serverAvailable = required().isRemotePresent(connection); }
+    public static void serverDisconnected() { serverAvailable = false; }
+    public static boolean serverAvailable() { return serverAvailable; }
 
     public static void register() {
         channel = ChannelBuilder
@@ -76,6 +81,7 @@ public final class JammarrNetwork {
     }
 
     public static void sendToServer(JammarrMessage payload) {
+        if (!serverAvailable) return;
         required().send(payload, PacketDistributor.SERVER.noArg());
     }
     public static void sendToPlayer(ServerPlayer player, JammarrMessage payload) {

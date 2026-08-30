@@ -51,6 +51,7 @@ public final class JammarrClientState {
                 minecraft.getConnection().getConnection().disconnect(net.minecraft.network.chat.Component.literal(
                         "Jammarr protocol mismatch: server requires version " + value.protocolVersion()));
             } else {
+                notice = "";
                 requestTimeSync();
                 queueAcceptanceAudio();
             }
@@ -138,6 +139,10 @@ public final class JammarrClientState {
         audio.tick();
     }
     public void hello() {
+        if (!JammarrNetwork.serverAvailable()) {
+            notice = "This server does not support Jammarr";
+            return;
+        }
         if (ProtocolLimits.clientHelloSuppressed()) return;
         long delayMs = ProtocolLimits.clientHelloDelayMs();
         if (delayMs > 0L) {

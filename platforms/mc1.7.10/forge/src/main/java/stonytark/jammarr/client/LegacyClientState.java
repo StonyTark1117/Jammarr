@@ -124,6 +124,10 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
     }
 
     private void hello() {
+        if (!LegacyNetwork.serverAvailable()) {
+            notice = "This server does not support Jammarr";
+            return;
+        }
         if (ProtocolLimits.clientHelloSuppressed()) return;
         long now = System.currentTimeMillis();
         long delayMs = ProtocolLimits.clientHelloDelayMs();

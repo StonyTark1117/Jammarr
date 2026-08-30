@@ -48,8 +48,14 @@ public final class JammarrClient {
         }
         JammarrClientState.INSTANCE.tick();
     }
-    @SubscribeEvent public void login(ClientPlayerNetworkEvent.LoggingIn event) { JammarrClientState.INSTANCE.hello(); }
-    @SubscribeEvent public void logout(ClientPlayerNetworkEvent.LoggingOut event) { JammarrClientState.INSTANCE.stop(); }
+    @SubscribeEvent public void login(ClientPlayerNetworkEvent.LoggingIn event) {
+        JammarrNetwork.serverConnected(event.getConnection());
+        JammarrClientState.INSTANCE.hello();
+    }
+    @SubscribeEvent public void logout(ClientPlayerNetworkEvent.LoggingOut event) {
+        JammarrNetwork.serverDisconnected();
+        JammarrClientState.INSTANCE.stop();
+    }
 
     private JammarrClient() {}
 }

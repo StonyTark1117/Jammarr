@@ -18,12 +18,17 @@ public final class JammarrNetwork {
     public static final String VERSION = Integer.toString(PROTOCOL);
     private static volatile Consumer<CustomPacketPayload> clientSender;
     private static volatile MinecraftServer server;
+    private static volatile boolean serverAvailable;
 
     public static boolean protocolMatches(int offered) { return offered == PROTOCOL; }
     public static void installClientSender(Consumer<CustomPacketPayload> sender) { clientSender = sender; }
     public static void activeServer(MinecraftServer value) { server = value; }
+    public static void serverConnected(boolean available) { serverAvailable = available; }
+    public static void serverDisconnected() { serverAvailable = false; }
+    public static boolean serverAvailable() { return serverAvailable; }
 
     public static void sendToServer(JammarrMessage payload) {
+        if (!serverAvailable) return;
         Consumer<CustomPacketPayload> sender = clientSender;
         if (sender == null) throw new IllegalStateException("Jammarr client networking is not initialized");
         sender.accept((CustomPacketPayload)payload);

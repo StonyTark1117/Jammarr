@@ -41,10 +41,14 @@ public final class JammarrClient implements ClientModInitializer {
             ClientPlayNetworking.send(JammarrPayloads.idOf(payload), buffer);
         });
         registerReceivers();
-        ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> JammarrClientState.INSTANCE.hello());
+        ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
+            JammarrNetwork.serverConnected(ClientPlayNetworking.canSend(JammarrPayloads.ClientHello.ID));
+            JammarrClientState.INSTANCE.hello();
+        });
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             net.minecraft.network.chat.Component reason = handler.getConnection().getDisconnectedReason();
             if (reason != null) Jammarr.LOGGER.info("Client disconnected with reason: {}", reason.getString());
+            JammarrNetwork.serverDisconnected();
             JammarrClientState.INSTANCE.stop();
         });
         ClientTickEvents.END_CLIENT_TICK.register(this::tick);

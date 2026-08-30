@@ -61,8 +61,12 @@ public final class JammarrClient {
         net.minecraft.network.DisconnectionDetails details = connection == null ? null : connection.getDisconnectionDetails();
         net.minecraft.network.chat.Component reason = details == null ? null : details.reason();
         if (reason != null) stonytark.jammarr.Jammarr.LOGGER.info("Client disconnected with reason: {}", reason.getString());
+        JammarrNetwork.serverDisconnected();
         JammarrClientState.INSTANCE.stop();
     }
-    @SubscribeEvent public void login(ClientPlayerNetworkEvent.LoggingIn event) { JammarrClientState.INSTANCE.hello(); }
+    @SubscribeEvent public void login(ClientPlayerNetworkEvent.LoggingIn event) {
+        JammarrNetwork.serverConnected(event.getConnection());
+        JammarrClientState.INSTANCE.hello();
+    }
     private void soundEngineLoaded(SoundEngineLoadEvent event) { JammarrClientState.INSTANCE.audioEngineReloaded(); }
 }

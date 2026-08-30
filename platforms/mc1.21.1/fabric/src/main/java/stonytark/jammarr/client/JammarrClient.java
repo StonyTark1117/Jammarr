@@ -37,8 +37,14 @@ public final class JammarrClient implements ClientModInitializer {
         ClientPayloadBridge.install(JammarrClientState.INSTANCE::accept);
         JammarrNetwork.installClientSender(ClientPlayNetworking::send);
         registerReceivers();
-        ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> JammarrClientState.INSTANCE.hello());
-        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> JammarrClientState.INSTANCE.stop());
+        ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
+            JammarrNetwork.serverConnected(ClientPlayNetworking.canSend(JammarrPayloads.ClientHello.TYPE));
+            JammarrClientState.INSTANCE.hello();
+        });
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+            JammarrNetwork.serverDisconnected();
+            JammarrClientState.INSTANCE.stop();
+        });
         ClientTickEvents.END_CLIENT_TICK.register(this::tick);
         ResourceManagerHelper.get(PackType.CLIENT_RESOURCES).registerReloadListener(new SimpleSynchronousResourceReloadListener() {
             @Override public ResourceLocation getFabricId() {

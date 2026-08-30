@@ -25,8 +25,12 @@ public final class JammarrNetwork {
     public static final int PROTOCOL = ProtocolLimits.VERSION;
     public static final String VERSION = Integer.toString(PROTOCOL);
     private static Channel<CustomPacketPayload> channel;
+    private static volatile boolean serverAvailable;
 
     public static boolean protocolMatches(int offered) { return offered == PROTOCOL; }
+    public static void serverConnected(Connection connection) { serverAvailable = required().isRemotePresent(connection); }
+    public static void serverDisconnected() { serverAvailable = false; }
+    public static boolean serverAvailable() { return serverAvailable; }
 
     public static void register() {
         if (channel != null) return;
@@ -77,7 +81,9 @@ public final class JammarrNetwork {
         channel = clientbound.build();
     }
 
-    public static void sendToServer(JammarrMessage payload) { required().send((CustomPacketPayload)payload, PacketDistributor.SERVER.noArg()); }
+    public static void sendToServer(JammarrMessage payload) {
+        if (serverAvailable) required().send((CustomPacketPayload)payload, PacketDistributor.SERVER.noArg());
+    }
     public static void sendToPlayer(ServerPlayer player, JammarrMessage payload) {
         if (JammarrServer.instance().accepted(player)) required().send((CustomPacketPayload)payload, PacketDistributor.PLAYER.with(player));
     }
