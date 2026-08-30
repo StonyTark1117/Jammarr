@@ -420,7 +420,7 @@
         {
           "id": "fabric",
           "status": "stable",
-          "implemented": false,
+          "implemented": true,
           "quiltCompatible": true,
           "path": "platforms/mc1.21.2/fabric",
           "artifact": "jammarr-1.1.0+mc1.21.2-fabric.jar"
@@ -428,7 +428,7 @@
         {
           "id": "neoforge",
           "status": "preview",
-          "implemented": false,
+          "implemented": true,
           "quiltCompatible": false,
           "path": "platforms/mc1.21.2/neoforge",
           "artifact": "jammarr-1.1.0+mc1.21.2-neoforge.jar"
