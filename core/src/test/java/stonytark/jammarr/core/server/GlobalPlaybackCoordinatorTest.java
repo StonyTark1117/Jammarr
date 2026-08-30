@@ -41,6 +41,7 @@ class GlobalPlaybackCoordinatorTest {
                 new GlobalPlaybackCoordinator<TestPlayer>(runtime, store, new FakePlex());
         try {
             await(() -> coordinator.diagnostics().contains("Plex=ONLINE"));
+            assertTrue(coordinator.diagnostics().contains("capableListeners=2, vanillaListeners=0"));
 
             coordinator.playerJoined(runtime.listener);
             assertNotNull(runtime.last(runtime.listener, StatePackets.PlaybackState.class));
@@ -143,6 +144,30 @@ class GlobalPlaybackCoordinatorTest {
                     runtime.count(TransportPackets.AudioManifest.class));
         } finally {
             plex.releaseFirst.countDown();
+            coordinator.close();
+        }
+    }
+
+    @Test void identicalInFlightBrowseRequestsShareOnePlexOperation() throws Exception {
+        JammarrSettings.installServer(new TestSettings());
+        TestRuntime runtime = new TestRuntime(temporary);
+        BlockingBrowsePlex plex = new BlockingBrowsePlex();
+        GlobalPlaybackCoordinator<TestPlayer> coordinator =
+                new GlobalPlaybackCoordinator<TestPlayer>(runtime, new MemoryStore(), plex);
+        try {
+            await(() -> coordinator.diagnostics().contains("Plex=ONLINE"));
+            ControlPackets.BrowseRequest request =
+                    new ControlPackets.BrowseRequest(ControlPackets.BrowseKind.SEARCH, "song", 0);
+            coordinator.browse(runtime.listener, request);
+            assertTrue(plex.browseStarted.await(3L, TimeUnit.SECONDS));
+            coordinator.browse(runtime.listener, request);
+            assertEquals(1, plex.browseCalls.get());
+
+            plex.releaseBrowse.countDown();
+            await(() -> runtime.count(ControlPackets.BrowseResults.class) == 2);
+            assertEquals(1, plex.browseCalls.get());
+        } finally {
+            plex.releaseBrowse.countDown();
             coordinator.close();
         }
     }
@@ -300,6 +325,24 @@ class GlobalPlaybackCoordinatorTest {
             }
             try { super.transcode(track, output, bitrate); }
             finally { firstFinished.countDown(); }
+        }
+    }
+
+    private static final class BlockingBrowsePlex extends FakePlex {
+        private final AtomicInteger browseCalls = new AtomicInteger();
+        private final CountDownLatch browseStarted = new CountDownLatch(1);
+        private final CountDownLatch releaseBrowse = new CountDownLatch(1);
+
+        @Override public PlexService.Page browse(ControlPackets.BrowseKind kind, String query,
+                                                  int page, int pageSize) {
+            browseCalls.incrementAndGet();
+            browseStarted.countDown();
+            boolean released = false;
+            while (!released) {
+                try { released = releaseBrowse.await(3L, TimeUnit.SECONDS); }
+                catch (InterruptedException ignored) { Thread.interrupted(); }
+            }
+            return super.browse(kind, query, page, pageSize);
         }
     }
 

@@ -6,6 +6,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -62,6 +64,25 @@ class FairEgressSchedulerTest {
         scheduler.clear();
         assertEquals(0, scheduler.backlogItems());
         assertEquals(0L, scheduler.backlogBytes());
+    }
+
+    @Test void thirtyTwoListenerBurstStaysBoundedAndFair() {
+        FairEgressScheduler<String, String, String> scheduler = scheduler(8, 256, 4_096L);
+        for (int listener = 0; listener < 32; listener++) {
+            String key = "listener-" + listener;
+            assertTrue(scheduler.enqueueBatch(key, key, items(
+                    key + "-0", key + "-1", key + "-2", key + "-3",
+                    key + "-4", key + "-5", key + "-6", key + "-7")));
+        }
+        assertEquals(256, scheduler.backlogItems());
+        final Map<String, Integer> firstTick = new HashMap<String, Integer>();
+
+        assertEquals(32, scheduler.drain(32, 4_096L, (player, message) ->
+                firstTick.put(player, firstTick.containsKey(player) ? firstTick.get(player) + 1 : 1)));
+
+        assertEquals(32, firstTick.size());
+        for (Integer count : firstTick.values()) assertEquals(1, count.intValue());
+        assertEquals(224, scheduler.backlogItems());
     }
 
     private static FairEgressScheduler<String, String, String> scheduler(

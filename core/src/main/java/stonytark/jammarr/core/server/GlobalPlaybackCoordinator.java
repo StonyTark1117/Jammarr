@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
@@ -64,6 +65,8 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
     private final SlidingWindowRateLimiter manifestLimits = new SlidingWindowRateLimiter();
     private final Map<UUID, ChunkTransferPolicy.State> transfers = new HashMap<UUID, ChunkTransferPolicy.State>();
     private final Map<UUID, ListenerStats> listenerStats = new HashMap<UUID, ListenerStats>();
+    private final Map<BrowseWorkKey, CompletableFuture<PlexService.Page>> pendingBrowses =
+            new HashMap<BrowseWorkKey, CompletableFuture<PlexService.Page>>();
     private final FairEgressScheduler<UUID, P, JammarrMessage> egress =
             new FairEgressScheduler<UUID, P, JammarrMessage>(MAX_EGRESS_CHUNKS_PER_LISTENER,
                     MAX_EGRESS_CHUNKS, MAX_EGRESS_BACKLOG_BYTES);
@@ -217,13 +220,21 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
                     request.kind(), query, page, false, Collections.<StationModels.MediaItem>emptyList()));
             return;
         }
-        io.supply(new Supplier<PlexService.Page>() {
-            @Override public PlexService.Page get() {
-                try { return plex.browse(request.kind(), query, page, PAGE_SIZE); }
-                catch (Exception error) { throw new RuntimeException(error); }
-            }
-        }).whenComplete((result, error) -> completeOnServer(new Runnable() {
+        final BrowseWorkKey workKey = new BrowseWorkKey(runtime.playerId(player), request.kind(), query, page);
+        CompletableFuture<PlexService.Page> existing = pendingBrowses.get(workKey);
+        final CompletableFuture<PlexService.Page> work;
+        if (existing == null) {
+            work = io.supply(new Supplier<PlexService.Page>() {
+                @Override public PlexService.Page get() {
+                    try { return plex.browse(request.kind(), query, page, PAGE_SIZE); }
+                    catch (Exception error) { throw new RuntimeException(error); }
+                }
+            });
+            pendingBrowses.put(workKey, work);
+        } else work = existing;
+        work.whenComplete((result, error) -> completeOnServer(new Runnable() {
             @Override public void run() {
+                if (pendingBrowses.get(workKey) == work) pendingBrowses.remove(workKey);
                 if (error != null) {
                     if (workQueueFull(error)) {
                         sendError(player, StatePackets.ErrorCode.RATE_LIMITED,
@@ -506,6 +517,8 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
 
     public void playerLeft(P player) {
         UUID id = runtime.playerId(player);
+        Iterator<BrowseWorkKey> browseIterator = pendingBrowses.keySet().iterator();
+        while (browseIterator.hasNext()) if (browseIterator.next().playerId.equals(id)) browseIterator.remove();
         egress.remove(id); transfers.remove(id); listenerStats.remove(id); browseLimits.remove(id); queueLimits.remove(id);
         stationLimits.remove(id); chunkLimits.remove(id); acknowledgementLimits.remove(id); manifestLimits.remove(id);
     }
@@ -534,18 +547,23 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
 
     public String diagnostics() {
         AudioCache.CacheStats stats = cache.stats();
+        int capableListeners = runtime.playerCount();
+        int vanillaListeners = Math.max(0, runtime.totalPlayerCount() - capableListeners);
         return "Plex=" + plexHealth + ", sonic=" + sonicCapability + ", lastCheck="
                 + (lastPlexValidation == 0L ? "never" : String.valueOf(lastPlexValidation))
                 + ", position=" + positionMs() + "/" + durationMs() + "ms, cache="
                 + cache.size() / 1024L / 1024L + " MiB, cacheHits=" + stats.loads()
                 + ", cacheMisses=" + stats.misses() + ", cacheInvalid=" + stats.invalidEntries()
-                + ", cacheInstalls=" + stats.installs() + ", listeners=" + listenerStats.size()
+                + ", cacheInstalls=" + stats.installs() + ", capableListeners=" + capableListeners
+                + ", vanillaListeners=" + vanillaListeners + ", listenerStats=" + listenerStats.size()
+                + ", activeIndexChunks=" + (asset == null ? 0 : asset.chunks().size())
+                + ", prefetchedIndexChunks=" + (prefetched == null ? 0 : prefetched.asset.chunks().size())
                 + ", chunkRequests=" + chunkRequests + ", chunkAcks=" + chunkAcknowledgements
                 + ", chunkRejected=" + rejectedChunkRequests + ", preparing=" + preparing.get()
                 + ", egressItems=" + egress.backlogItems() + ", egressBytes=" + egress.backlogBytes()
                 + ", egressRejected=" + egress.rejectedBatches()
                 + ", workActive=" + io.activeTasks() + ", workQueued=" + io.queuedTasks()
-                + ", workRejected=" + io.rejectedTasks()
+                + ", workRejected=" + io.rejectedTasks() + ", browsePending=" + pendingBrowses.size()
                 + ", prefetching=" + prefetching.get() + ", generating=" + generating.get()
                 + ", current=" + cacheState(saved.current()) + ", next=" + cacheState(nextTrack())
                 + ", station=" + stationStatus() + ", listenerHealth=" + listenerHealth()
@@ -1057,9 +1075,36 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
         private long bufferedMs;
     }
 
+    private static final class BrowseWorkKey {
+        private final UUID playerId;
+        private final ControlPackets.BrowseKind kind;
+        private final String query;
+        private final int page;
+
+        private BrowseWorkKey(UUID playerId, ControlPackets.BrowseKind kind, String query, int page) {
+            this.playerId = playerId; this.kind = kind; this.query = query; this.page = page;
+        }
+
+        @Override public boolean equals(Object other) {
+            if (this == other) return true;
+            if (!(other instanceof BrowseWorkKey)) return false;
+            BrowseWorkKey value = (BrowseWorkKey) other;
+            return page == value.page && playerId.equals(value.playerId)
+                    && kind == value.kind && query.equals(value.query);
+        }
+
+        @Override public int hashCode() {
+            int result = playerId.hashCode();
+            result = 31 * result + kind.hashCode();
+            result = 31 * result + query.hashCode();
+            return 31 * result + page;
+        }
+    }
+
     @Override public void close() {
         if (!closed.compareAndSet(false, true)) return;
         mutationGeneration.incrementAndGet();
+        pendingBrowses.clear();
         saved.update(positionMs(), timeline.paused());
         stopAudio();
         io.close();

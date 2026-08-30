@@ -52,6 +52,7 @@ public final class GlobalPlayer implements AutoCloseable {
                 }
                 return listeners;
             }
+            @Override public int totalPlayerCount() { return server.getPlayerList().getPlayerCount(); }
             @Override public java.nio.file.Path cacheDirectory() {
                 return Paths.get(server.getServerDirectory().toString()).resolve("jammarr-cache");
             }

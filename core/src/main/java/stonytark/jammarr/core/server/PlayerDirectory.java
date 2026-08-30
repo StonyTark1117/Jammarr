@@ -9,5 +9,6 @@ public interface PlayerDirectory<P> {
     boolean isOperator(P player, int permissionLevel);
     List<P> players();
     int playerCount();
+    default int totalPlayerCount() { return playerCount(); }
     void chat(P player, String message);
 }
