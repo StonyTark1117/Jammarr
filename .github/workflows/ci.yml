@@ -351,6 +351,24 @@ jobs:
             runtime: 1.21.9-neoforge
             quilt: ''
             game-tests: false
+          - name: 1.21.10-fabric
+            task: verifyFabric12110
+            artifact: platforms/mc1.21.10/fabric/build/libs/jammarr-1.1.0+mc1.21.10-fabric.jar
+            runtime: 1.21.10-fabric
+            quilt: 1.21.10-quilt
+            game-tests: false
+          - name: 1.21.10-forge
+            task: verifyForge12110
+            artifact: platforms/mc1.21.10/forge/build/libs/jammarr-1.1.0+mc1.21.10-forge.jar
+            runtime: 1.21.10-forge
+            quilt: ''
+            game-tests: false
+          - name: 1.21.10-neoforge
+            task: verifyNeoForge12110
+            artifact: platforms/mc1.21.10/neoforge/build/libs/jammarr-1.1.0+mc1.21.10-neoforge.jar
+            runtime: 1.21.10-neoforge
+            quilt: ''
+            game-tests: false
           - name: 1.21.11-fabric
             task: verifyFabric12111
             artifact: platforms/mc1.21.11/fabric/build/libs/jammarr-1.1.0+mc1.21.11-fabric.jar
