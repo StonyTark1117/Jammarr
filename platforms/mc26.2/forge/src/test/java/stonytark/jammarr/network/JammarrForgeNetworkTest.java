@@ -15,14 +15,14 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class JammarrForgeNetworkTest {
-    @Test void acceptsOnlyProtocolFive() {
-        assertEquals(5, JammarrNetwork.PROTOCOL);
-        assertTrue(JammarrNetwork.protocolMatches(5));
+    @Test void acceptsOnlyProtocolSix() {
+        assertEquals(6, JammarrNetwork.PROTOCOL);
+        assertTrue(JammarrNetwork.protocolMatches(6));
         assertFalse(JammarrNetwork.protocolMatches(4));
-        assertFalse(JammarrNetwork.protocolMatches(6));
+        assertFalse(JammarrNetwork.protocolMatches(7));
     }
 
-    @Test void nativeCodecsConsumeTheSharedProtocolFiveVectors() {
+    @Test void nativeCodecsConsumeTheSharedProtocolSixVectors() {
         assertEquals(ProtocolGoldenVectors.BROWSE_REQUEST, encode(JammarrPayloads.BrowseRequest.CODEC,
                 new JammarrPayloads.BrowseRequest(JammarrPayloads.BrowseKind.SEARCH, "A&B", 2)));
         assertEquals(ProtocolGoldenVectors.STATION_REQUEST, encode(JammarrPayloads.StationRequest.CODEC,

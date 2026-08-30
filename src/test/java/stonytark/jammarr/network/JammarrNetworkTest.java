@@ -31,7 +31,7 @@ class JammarrNetworkTest {
         assertEquals(5, decoded.seeds().size());
     }
 
-    @Test void neoForgeChunkAdapterMatchesTheSharedProtocolFiveGoldenVector() {
+    @Test void neoForgeChunkAdapterMatchesTheSharedProtocolSixGoldenVector() {
         RegistryFriendlyByteBuf buffer = buffer();
         JammarrPayloads.ChunkRequest.CODEC.encode(buffer, new JammarrPayloads.ChunkRequest(
                 UUID.fromString("00112233-4455-6677-8899-aabbccddeeff"), 300, 17, 8));
@@ -39,7 +39,7 @@ class JammarrNetworkTest {
         assertEquals(ProtocolGoldenVectors.CHUNK_REQUEST, hex(encoded));
     }
 
-    @Test void neoForgeStationAdapterMatchesTheSharedProtocolFiveGoldenVector() {
+    @Test void neoForgeStationAdapterMatchesTheSharedProtocolSixGoldenVector() {
         RegistryFriendlyByteBuf buffer = buffer();
         JammarrPayloads.StationRequest.CODEC.encode(buffer, new JammarrPayloads.StationRequest(
                 JammarrPayloads.StationAction.START_NOW, JammarrPayloads.StationType.SONIC_ADVENTURE,
@@ -50,7 +50,7 @@ class JammarrNetworkTest {
         assertEquals(ProtocolGoldenVectors.STATION_REQUEST, hex(encoded));
     }
 
-    @Test void neoForgeBrowseAdapterMatchesTheSharedProtocolFiveGoldenVector() {
+    @Test void neoForgeBrowseAdapterMatchesTheSharedProtocolSixGoldenVector() {
         RegistryFriendlyByteBuf buffer = buffer();
         JammarrPayloads.BrowseRequest.CODEC.encode(buffer,
                 new JammarrPayloads.BrowseRequest(JammarrPayloads.BrowseKind.SEARCH, "A&B", 2));
@@ -59,7 +59,7 @@ class JammarrNetworkTest {
         assertEquals(ProtocolGoldenVectors.BROWSE_REQUEST, hex(encoded));
     }
 
-    @Test void neoForgeStateAdapterMatchesTheSharedProtocolFiveGoldenVector() {
+    @Test void neoForgeStateAdapterMatchesTheSharedProtocolSixGoldenVector() {
         RegistryFriendlyByteBuf buffer = buffer();
         JammarrPayloads.QueueEntry entry = new JammarrPayloads.QueueEntry("1", "T", "A", 1_000,
                 JammarrPayloads.PlaybackOrigin.ADVENTURE, false);

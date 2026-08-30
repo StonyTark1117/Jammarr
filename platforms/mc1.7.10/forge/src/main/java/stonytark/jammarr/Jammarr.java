@@ -32,8 +32,8 @@ import java.util.Map;
 public final class Jammarr {
     public static final String MOD_ID = "jammarr";
     public static final String MOD_NAME = "Jammarr";
-    public static final String VERSION = "1.0.2";
-    public static final int PROTOCOL = 5;
+    public static final String VERSION = "1.1.0";
+    public static final int PROTOCOL = 6;
 
     public static Logger LOGGER;
     private static LegacyGlobalPlayer coordinator;
@@ -92,12 +92,9 @@ public final class Jammarr {
     }
 
     @NetworkCheckHandler
-    public boolean requireMatchingClient(Map<String, String> remoteVersions, Side remoteSide) {
-        if (remoteSide == Side.CLIENT) {
-            // Let an absent/older client reach LegacyNetwork's explicit protocol-5 hello gate so
-            // it receives Jammarr's clear timeout/mismatch text instead of FML's generic timeout.
-            return true;
-        }
-        return remoteVersions != null && VERSION.equals(remoteVersions.get(MOD_ID));
+    public boolean acceptOptionalPeer(Map<String, String> remoteVersions, Side remoteSide) {
+        // Capability and protocol negotiation happens after login. This permits both a vanilla
+        // client on a Jammarr server and a Jammarr client on an unmodded server.
+        return true;
     }
 }

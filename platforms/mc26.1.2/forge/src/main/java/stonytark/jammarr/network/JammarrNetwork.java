@@ -32,7 +32,7 @@ public final class JammarrNetwork {
         if (channel != null) return;
         PayloadConnection<CustomPacketPayload> connection = ChannelBuilder
                 .named(Identifier.fromNamespaceAndPath(Jammarr.MODID, "main"))
-                .networkProtocolVersion(PROTOCOL).payloadChannel();
+                .networkProtocolVersion(PROTOCOL).optional().payloadChannel();
         PayloadFlow<RegistryFriendlyByteBuf, CustomPacketPayload> clientbound = connection.play().flow(PacketFlow.CLIENTBOUND);
         client(clientbound, JammarrPayloads.OpenScreen.TYPE, JammarrPayloads.OpenScreen.CODEC);
         client(clientbound, JammarrPayloads.ServerHello.TYPE, JammarrPayloads.ServerHello.CODEC);
@@ -78,8 +78,9 @@ public final class JammarrNetwork {
     }
 
     public static void sendToServer(JammarrMessage payload) { required().send((CustomPacketPayload)payload, PacketDistributor.SERVER.noArg()); }
-    public static void sendToPlayer(ServerPlayer player, JammarrMessage payload) { required().send((CustomPacketPayload)payload, PacketDistributor.PLAYER.with(player)); }
-    public static void sendToAllPlayers(JammarrMessage payload) { required().send((CustomPacketPayload)payload, PacketDistributor.ALL.noArg()); }
+    public static void sendToPlayer(ServerPlayer player, JammarrMessage payload) {
+        if (JammarrServer.instance().accepted(player)) required().send((CustomPacketPayload)payload, PacketDistributor.PLAYER.with(player));
+    }
 
     private static <T extends CustomPacketPayload & JammarrMessage> void client(PayloadFlow<RegistryFriendlyByteBuf, CustomPacketPayload> flow,
                                                                CustomPacketPayload.Type<T> type,

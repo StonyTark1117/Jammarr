@@ -18,11 +18,12 @@ public final class JammarrNetwork {
     public static boolean protocolMatches(int offered) { return offered == PROTOCOL; }
 
     public static void sendToServer(JammarrMessage payload) { PacketDistributor.sendToServer((CustomPacketPayload)payload); }
-    public static void sendToPlayer(ServerPlayer player, JammarrMessage payload) { PacketDistributor.sendToPlayer(player, (CustomPacketPayload)payload); }
-    public static void sendToAllPlayers(JammarrMessage payload) { PacketDistributor.sendToAllPlayers((CustomPacketPayload)payload); }
+    public static void sendToPlayer(ServerPlayer player, JammarrMessage payload) {
+        if (JammarrServer.instance().accepted(player)) PacketDistributor.sendToPlayer(player, (CustomPacketPayload)payload);
+    }
 
     public static void register(RegisterPayloadHandlersEvent event) {
-        PayloadRegistrar registrar = event.registrar(VERSION);
+        PayloadRegistrar registrar = event.registrar(VERSION).optional();
         registrar.playToClient(JammarrPayloads.OpenScreen.TYPE, JammarrPayloads.OpenScreen.CODEC, JammarrNetwork::client);
         registrar.playToClient(JammarrPayloads.ServerHello.TYPE, JammarrPayloads.ServerHello.CODEC, JammarrNetwork::client);
         registrar.playToClient(JammarrPayloads.TimeSyncResponse.TYPE, JammarrPayloads.TimeSyncResponse.CODEC, JammarrNetwork::client);

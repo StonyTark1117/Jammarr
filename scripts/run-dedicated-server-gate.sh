@@ -2070,7 +2070,7 @@ run_target() {
     result=1
   fi
   if [[ "$label" == "1.7.10-forge" ]]; then
-    if ! grep -q 'Initializing Jammarr 1.0.2 for Forge 1.7.10 protocol 5' "$run_dir/logs/fml-server-latest.log"; then
+    if ! grep -q 'Initializing Jammarr 1.1.0 for Forge 1.7.10 protocol 6' "$run_dir/logs/fml-server-latest.log"; then
       echo "$label: FML log does not prove Jammarr initialized" >&2
       result=1
     fi

@@ -5,7 +5,7 @@ plugins {
 }
 
 group = 'stonytark'
-version = '1.0.2'
+version = '1.1.0'
 def artifactVersion = version.toString()
 def expectedReleaseName = "jammarr-${artifactVersion}+mc26.2-forge.jar"
 
@@ -111,7 +111,7 @@ tasks.named('jarJar') { archiveFileName = expectedReleaseName }
 tasks.named('build') { dependsOn(tasks.named('jarJar')) }
 
 def releaseArchive = tasks.named('jarJar').flatMap { it.archiveFile }
-def releaseEntries = ['META-INF/jarjar/core-1.0.2.jar', 'META-INF/jarjar/jlayer-1.0.1.jar',
+def releaseEntries = ['META-INF/jarjar/core-1.1.0.jar', 'META-INF/jarjar/jlayer-1.0.1.jar',
                       'META-INF/jarjar/jump3r-1.0.5.jar', 'META-INF/jarjar/metadata.json',
                       'META-INF/LICENSE-Jammarr-CC0-1.0.txt', 'META-INF/LICENSE-LGPL-2.1-or-later.txt',
                       'META-INF/THIRD_PARTY_NOTICES.md', 'META-INF/mods.toml', 'jammarr.mixins.json',
@@ -129,7 +129,7 @@ tasks.register('verifyRelease') {
             releaseEntries.each { entry -> if (!found.contains(entry)) throw new GradleException("Release archive is missing ${entry}") }
             def metadata = zip.getInputStream(zip.getEntry('META-INF/mods.toml')).getText('UTF-8')
             if (!metadata.contains('modId="jammarr"') || !metadata.contains('versionRange="[26.2,26.3)"')
-                    || !metadata.contains('versionRange="[65,66)"') || !metadata.contains('displayTest="MATCH_VERSION"')) {
+                    || !metadata.contains('versionRange="[65,66)"') || !metadata.contains('displayTest="IGNORE_SERVER_VERSION"')) {
                 throw new GradleException('Forge metadata does not enforce the expected mod, Minecraft, and loader versions')
             }
             if (!zip.getInputStream(zip.getEntry('jammarr.mixins.json')).getText('UTF-8').contains('"JAVA_21"')) {
@@ -140,7 +140,7 @@ tasks.register('verifyRelease') {
             if (platformMajor != 69) throw new GradleException("Forge platform classes are not Java 25 bytecode: class major ${platformMajor}")
             def manifest = new java.util.jar.Manifest(zip.getInputStream(zip.getEntry('META-INF/MANIFEST.MF')))
             if (manifest.mainAttributes.getValue('MixinConfigs') != 'jammarr.mixins.json') throw new GradleException('Forge artifact does not declare its Mixin config')
-            new java.util.zip.ZipInputStream(zip.getInputStream(zip.getEntry('META-INF/jarjar/core-1.0.2.jar'))).withCloseable { nested ->
+            new java.util.zip.ZipInputStream(zip.getInputStream(zip.getEntry('META-INF/jarjar/core-1.1.0.jar'))).withCloseable { nested ->
                 boolean foundCoreClass = false
                 for (def entry = nested.nextEntry; entry != null; entry = nested.nextEntry) {
                     if (entry.name == 'stonytark/jammarr/core/server/ChunkTransferPolicy.class') {

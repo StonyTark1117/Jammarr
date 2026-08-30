@@ -37,6 +37,7 @@ public final class LegacyCommands extends CommandBase {
 
     @Override
     public void processCommand(ICommandSender sender, String[] arguments) throws CommandException {
+        requireCapable(sender);
         if (arguments.length == 0) {
             EntityPlayerMP player = getCommandSenderAsPlayer(sender);
             LegacyNetwork.sendToPlayer(player, LegacyPacketTypes.OPEN_SCREEN, LegacyPacketTypes.OpenScreen.INSTANCE);
@@ -102,6 +103,12 @@ public final class LegacyCommands extends CommandBase {
     private static void requireOperator(ICommandSender sender) throws CommandException {
         if (!sender.canCommandSenderUseCommand(JammarrSettings.operatorPermissionLevel(), "jammarr")) {
             throw new CommandException("Operator permission is required");
+        }
+    }
+
+    private static void requireCapable(ICommandSender sender) throws CommandException {
+        if (sender instanceof EntityPlayerMP && !LegacyNetwork.accepted((EntityPlayerMP) sender)) {
+            throw new CommandException("Jammarr requires the client mod for player commands");
         }
     }
 

@@ -29,6 +29,7 @@ public final class JammarrNetwork {
         sender.accept((CustomPacketPayload)payload);
     }
     public static void sendToPlayer(ServerPlayer player, JammarrMessage payload) {
+        if (!JammarrServer.instance().accepted(player)) return;
         ServerPlayNetworking.send(player, (CustomPacketPayload)payload);
     }
     public static void sendToAllPlayers(JammarrMessage payload) {

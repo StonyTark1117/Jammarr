@@ -23,12 +23,15 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Predicate;
 
 /** Mojang-mapped server adapter over the shared Java 8 playback coordinator. */
 public final class GlobalPlayer implements AutoCloseable {
+    private final MinecraftServer server;
     private final GlobalPlaybackCoordinator<ServerPlayer> delegate;
 
-    public GlobalPlayer(final MinecraftServer server) throws IOException {
+    public GlobalPlayer(final MinecraftServer server, final Predicate<ServerPlayer> capable) throws IOException {
+        this.server = server;
         final JammarrSavedData saved = JammarrSavedData.get(server);
         delegate = new GlobalPlaybackCoordinator<>(new CoordinatorRuntime<>() {
             @Override public UUID playerId(ServerPlayer player) { return player.getUUID(); }
@@ -36,15 +39,25 @@ public final class GlobalPlayer implements AutoCloseable {
                 return JammarrPermissions.has(player, permissionLevel);
             }
             @Override public List<ServerPlayer> players() {
-                return new ArrayList<>(server.getPlayerList().getPlayers());
+                List<ServerPlayer> listeners = new ArrayList<>();
+                for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+                    if (capable.test(player)) listeners.add(player);
+                }
+                return listeners;
             }
-            @Override public int playerCount() { return server.getPlayerList().getPlayerCount(); }
+            @Override public int playerCount() {
+                int listeners = 0;
+                for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+                    if (capable.test(player)) listeners++;
+                }
+                return listeners;
+            }
             @Override public java.nio.file.Path cacheDirectory() {
                 return Paths.get(server.getServerDirectory().toString()).resolve("jammarr-cache");
             }
             @Override public void execute(Runnable action) { server.execute(action); }
             @Override public void send(ServerPlayer player, JammarrMessage message) {
-                JammarrNetwork.sendToPlayer(player, toPayload(message));
+                if (capable.test(player)) JammarrNetwork.sendToPlayer(player, toPayload(message));
             }
             @Override public void chat(ServerPlayer player, String message) {
                 player.sendSystemMessage(Component.literal(message));
@@ -62,6 +75,7 @@ public final class GlobalPlayer implements AutoCloseable {
         JammarrNetwork.sendToPlayer(player,
                 new JammarrPayloads.ServerHello(JammarrNetwork.PROTOCOL, System.currentTimeMillis()));
         delegate.playerJoined(player);
+        server.getCommands().sendCommands(player);
     }
 
     public void validatePlex() { delegate.validatePlex(); }

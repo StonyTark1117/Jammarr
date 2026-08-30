@@ -6,7 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class StatePacketCodecTest {
-    @Test void queueEntryMatchesProtocolFiveGoldenVector() {
+    @Test void queueEntryMatchesProtocolSixGoldenVector() {
         StatePackets.QueueEntry entry = new StatePackets.QueueEntry("1", "T", "A", 1_000,
                 StatePackets.PlaybackOrigin.ADVENTURE, false);
         byte[] bytes = encode(StatePackets.QUEUE_ENTRY, entry);
@@ -16,7 +16,7 @@ class StatePacketCodecTest {
         assertEquals(1_000, decoded.durationMs());
     }
 
-    @Test void errorMessageMatchesProtocolFiveGoldenVector() {
+    @Test void errorMessageMatchesProtocolSixGoldenVector() {
         assertEquals("0204736c6f77", hex(encode(StatePackets.ERROR_MESSAGE,
                 new StatePackets.ErrorMessage(StatePackets.ErrorCode.RATE_LIMITED, "slow"))));
     }

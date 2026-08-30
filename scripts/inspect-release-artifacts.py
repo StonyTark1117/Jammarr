@@ -14,8 +14,8 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 
-PRODUCT_VERSION = "1.0.2"
-PROTOCOL_VERSION = 5
+PRODUCT_VERSION = "1.1.0"
+PROTOCOL_VERSION = 6
 TARGETS = (
     ("1.7.10", "forge", 8, 52),
     ("1.20.1", "fabric", 17, 61),
@@ -350,7 +350,7 @@ def verify_metadata(archive: zipfile.ZipFile, names: set[str], minecraft: str, l
             if not required_quilt_hooks.issubset(names):
                 fail(f"{filename} is missing its guarded Quilt 26.x compatibility hooks")
         expected_jars = {
-            "META-INF/jars/core-1.0.2.jar",
+            "META-INF/jars/core-1.1.0.jar",
             "META-INF/jars/jlayer-1.0.1.jar",
             "META-INF/jars/jump3r-1.0.5.jar",
         }
@@ -369,7 +369,7 @@ def verify_metadata(archive: zipfile.ZipFile, names: set[str], minecraft: str, l
             fail(f"{filename} must not advertise unsupported modern Mixins on Forge 1.7.10")
         legacy_class = archive.read("stonytark/jammarr/Jammarr.class")
         if b"NetworkCheckHandler" not in legacy_class or b"acceptableRemoteVersions" not in legacy_class:
-            fail(f"{filename} does not contain required-client FML negotiation")
+            fail(f"{filename} does not contain optional-client FML negotiation")
         return
 
     metadata_name = "META-INF/neoforge.mods.toml" if loader == "neoforge" and minecraft in ("1.21.1", "26.1.2", "26.2") else "META-INF/mods.toml"
@@ -382,8 +382,8 @@ def verify_metadata(archive: zipfile.ZipFile, names: set[str], minecraft: str, l
     if loader == "neoforge" and minecraft in ("1.21.1", "26.1.2", "26.2"):
         if 'type="required"' not in compact:
             fail(f"{filename} does not declare required NeoForge dependencies")
-    elif 'displayTest="MATCH_VERSION"' not in compact:
-        fail(f"{filename} does not require a matching remote mod version")
+    elif 'displayTest="IGNORE_SERVER_VERSION"' not in compact:
+        fail(f"{filename} does not permit an optional remote mod")
 
 
 def verify_jar(path: Path, minecraft: str, loader: str, java: int, expected_major: int) -> None:
@@ -463,7 +463,7 @@ def verify_jar(path: Path, minecraft: str, loader: str, java: int, expected_majo
                 fail(f"{filename} has incorrect Mixin Java compatibility")
             nested_prefix = "META-INF/jars" if loader == "fabric" else "META-INF/jarjar"
             core_candidates = sorted(name for name in names if name.startswith(f"{nested_prefix}/")
-                                     and name.endswith("core-1.0.2.jar"))
+                                     and name.endswith("core-1.1.0.jar"))
             if len(core_candidates) != 1:
                 fail(f"{filename} must bundle exactly one shared core JAR, found {core_candidates}")
             for core_entry in (

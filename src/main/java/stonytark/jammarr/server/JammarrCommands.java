@@ -13,7 +13,7 @@ import java.util.List;
 
 public final class JammarrCommands {
     @SubscribeEvent public void register(RegisterCommandsEvent event) {
-        LiteralArgumentBuilder<CommandSourceStack> root = Commands.literal("jammarr")
+        LiteralArgumentBuilder<CommandSourceStack> root = Commands.literal("jammarr").requires(source -> { try { return JammarrServer.instance().accepted(source.getPlayerOrException()); } catch (com.mojang.brigadier.exceptions.CommandSyntaxException ignored) { return true; } })
                 .executes(c -> { JammarrNetwork.sendToPlayer(c.getSource().getPlayerOrException(), new JammarrPayloads.OpenScreen()); return 1; })
                 .then(Commands.literal("status").executes(c -> { GlobalPlayer p = JammarrServer.instance().player(); c.getSource().sendSuccess(() -> Component.literal(p == null ? "Jammarr is unavailable" : p.status()), false); return 1; }));
         root.then(operator("pause", JammarrPayloads.ControlAction.PAUSE));

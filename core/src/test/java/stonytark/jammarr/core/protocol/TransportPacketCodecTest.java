@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class TransportPacketCodecTest {
     private static final UUID SESSION = UUID.fromString("00112233-4455-6677-8899-aabbccddeeff");
 
-    @Test void chunkRequestMatchesTheProtocolFiveGoldenVector() {
+    @Test void chunkRequestMatchesTheProtocolSixGoldenVector() {
         TransportPackets.ChunkRequest value = new TransportPackets.ChunkRequest(SESSION, 300, 17, 8);
         byte[] encoded = encode(TransportPackets.CHUNK_REQUEST, value);
         assertEquals(ProtocolGoldenVectors.CHUNK_REQUEST, hex(encoded));
@@ -20,7 +20,7 @@ class TransportPacketCodecTest {
         assertEquals(17, decoded.startIndex()); assertEquals(8, decoded.count());
     }
 
-    @Test void acknowledgementMatchesTheProtocolFiveGoldenVector() {
+    @Test void acknowledgementMatchesTheProtocolSixGoldenVector() {
         TransportPackets.ChunkAcknowledgement value = new TransportPackets.ChunkAcknowledgement(SESSION, 300, 24, 12_000);
         byte[] encoded = encode(TransportPackets.CHUNK_ACKNOWLEDGEMENT, value);
         assertEquals("00112233445566778899aabbccddeeffac0218e05d", hex(encoded));

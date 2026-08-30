@@ -1,7 +1,7 @@
 package stonytark.jammarr.core.protocol;
 
 public final class ProtocolLimits {
-    public static final int VERSION = 5;
+    public static final int VERSION = 6;
     public static final String ACCEPTANCE_ENABLED_PROPERTY = "jammarr.acceptance.enabled";
     public static final String ACCEPTANCE_CLIENT_PROTOCOL_PROPERTY = "jammarr.acceptance.clientProtocol";
     public static final String ACCEPTANCE_SUPPRESS_HELLO_PROPERTY = "jammarr.acceptance.suppressClientHello";
@@ -21,7 +21,7 @@ public final class ProtocolLimits {
 
     /**
      * Returns the protocol advertised by a real client during release acceptance.
-     * Production behavior remains fixed at protocol 5 unless the acceptance gate
+     * Production behavior remains fixed at protocol 6 unless the acceptance gate
      * is explicitly enabled and supplies a non-negative integer override.
      */
     public static int clientHelloVersion() {

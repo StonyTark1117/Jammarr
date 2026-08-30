@@ -34,12 +34,25 @@ public final class LegacyGlobalPlayer implements AutoCloseable, LegacyNetwork.Se
             }
             @SuppressWarnings("unchecked")
             @Override public List<EntityPlayerMP> players() {
-                return new ArrayList<EntityPlayerMP>((List<EntityPlayerMP>) server.getConfigurationManager().playerEntityList);
+                List<EntityPlayerMP> listeners = new ArrayList<EntityPlayerMP>();
+                for (EntityPlayerMP player : (List<EntityPlayerMP>) server.getConfigurationManager().playerEntityList) {
+                    if (LegacyNetwork.accepted(player)) listeners.add(player);
+                }
+                return listeners;
             }
-            @Override public int playerCount() { return server.getConfigurationManager().getCurrentPlayerCount(); }
+            @SuppressWarnings("unchecked")
+            @Override public int playerCount() {
+                int listeners = 0;
+                for (EntityPlayerMP player : (List<EntityPlayerMP>) server.getConfigurationManager().playerEntityList) {
+                    if (LegacyNetwork.accepted(player)) listeners++;
+                }
+                return listeners;
+            }
             @Override public java.nio.file.Path cacheDirectory() { return server.getFile("jammarr-cache").toPath(); }
             @Override public void execute(Runnable action) { mainThreadActions.add(action); }
-            @Override public void send(EntityPlayerMP player, JammarrMessage message) { sendCore(player, message); }
+            @Override public void send(EntityPlayerMP player, JammarrMessage message) {
+                if (LegacyNetwork.accepted(player)) sendCore(player, message);
+            }
             @Override public void chat(EntityPlayerMP player, String message) {
                 player.addChatMessage(new ChatComponentText(message));
             }

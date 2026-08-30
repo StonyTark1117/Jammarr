@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import stonytark.jammarr.core.protocol.ControlPackets;
 import stonytark.jammarr.core.protocol.ProtocolException;
 import stonytark.jammarr.core.protocol.ProtocolGoldenVectors;
+import stonytark.jammarr.core.protocol.ProtocolLimits;
 import stonytark.jammarr.core.protocol.TransportPackets;
 
 import java.util.UUID;
@@ -17,7 +18,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class LegacyEnvelopeTest {
     @Test
     void carriesCanonicalClientHelloBytes() {
-        LegacyEnvelope outgoing = LegacyEnvelope.encode(LegacyPacketTypes.CLIENT_HELLO, new ControlPackets.ClientHello(5));
+        LegacyEnvelope outgoing = LegacyEnvelope.encode(LegacyPacketTypes.CLIENT_HELLO,
+                new ControlPackets.ClientHello(ProtocolLimits.VERSION));
         ByteBuf buffer = Unpooled.buffer();
         outgoing.toBytes(buffer);
 
@@ -27,7 +29,7 @@ class LegacyEnvelopeTest {
 
         assertEquals(LegacyPacketTypes.CLIENT_HELLO.id(), incoming.messageId());
         assertEquals(ProtocolGoldenVectors.CLIENT_HELLO, hex(incoming.payload()));
-        assertEquals(5, decoded.protocolVersion());
+        assertEquals(ProtocolLimits.VERSION, decoded.protocolVersion());
         assertEquals(0, buffer.readableBytes());
     }
 
@@ -66,7 +68,8 @@ class LegacyEnvelopeTest {
 
     @Test
     void rejectsWrongDirectionUnknownIdsAndTrailingBytes() {
-        LegacyEnvelope hello = LegacyEnvelope.encode(LegacyPacketTypes.CLIENT_HELLO, new ControlPackets.ClientHello(5));
+        LegacyEnvelope hello = LegacyEnvelope.encode(LegacyPacketTypes.CLIENT_HELLO,
+                new ControlPackets.ClientHello(ProtocolLimits.VERSION));
         assertThrows(ProtocolException.class, () -> hello.decode(LegacyPacketTypes.Direction.CLIENTBOUND));
 
         ByteBuf unknown = Unpooled.buffer();

@@ -33,6 +33,7 @@ public final class JammarrNetwork {
     }
 
     public static void sendToPlayer(ServerPlayer player, JammarrMessage payload) {
+        if (!JammarrServer.instance().accepted(player)) return;
         FriendlyByteBuf buffer = PacketByteBufs.create();
         JammarrPayloads.write(payload, buffer);
         ServerPlayNetworking.send(player, JammarrPayloads.idOf(payload), buffer);

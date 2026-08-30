@@ -8,7 +8,7 @@ version="${version}"
 displayName="Jammarr"
 logoFile="jammarr.png"
 authors="stonytark_mkii"
-displayTest="MATCH_VERSION"
+displayTest="IGNORE_SERVER_VERSION"
 description='''Streams a shared, synchronized Plex music queue to every player.'''
 
 [[dependencies.jammarr]]

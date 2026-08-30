@@ -29,8 +29,8 @@ public final class JammarrNetwork {
         channel = NetworkRegistry.ChannelBuilder
                 .named(new ResourceLocation(Jammarr.MODID, "main"))
                 .networkProtocolVersion(() -> VERSION)
-                .clientAcceptedVersions(VERSION::equals)
-                .serverAcceptedVersions(VERSION::equals)
+                .clientAcceptedVersions(JammarrNetwork::acceptsRemote)
+                .serverAcceptedVersions(JammarrNetwork::acceptsRemote)
                 .simpleChannel();
         int id = 0;
         client(id++, JammarrPayloads.OpenScreen.class, (value, buffer) -> {}, buffer -> new JammarrPayloads.OpenScreen());
@@ -75,10 +75,13 @@ public final class JammarrNetwork {
 
     public static void sendToServer(JammarrMessage payload) { required().sendToServer(payload); }
     public static void sendToPlayer(ServerPlayer player, JammarrMessage payload) {
+        if (!JammarrServer.instance().accepted(player)) return;
         required().send(PacketDistributor.PLAYER.with(() -> player), payload);
     }
-    public static void sendToAllPlayers(JammarrMessage payload) {
-        required().send(PacketDistributor.ALL.noArg(), payload);
+
+    private static boolean acceptsRemote(String version) {
+        return VERSION.equals(version) || NetworkRegistry.ABSENT.equals(version)
+                || NetworkRegistry.ACCEPTVANILLA.equals(version);
     }
 
     private static <T extends JammarrMessage> void client(int id, Class<T> type,

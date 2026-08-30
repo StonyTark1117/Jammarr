@@ -29,6 +29,7 @@ public final class JammarrNetwork {
         channel = ChannelBuilder
                 .named(new ResourceLocation(Jammarr.MODID, "main"))
                 .networkProtocolVersion(PROTOCOL)
+                .optional()
                 .simpleChannel();
         int id = 0;
         client(id++, JammarrPayloads.OpenScreen.class, (value, buffer) -> {}, buffer -> new JammarrPayloads.OpenScreen());
@@ -78,10 +79,8 @@ public final class JammarrNetwork {
         required().send(payload, PacketDistributor.SERVER.noArg());
     }
     public static void sendToPlayer(ServerPlayer player, JammarrMessage payload) {
+        if (!JammarrServer.instance().accepted(player)) return;
         required().send(payload, PacketDistributor.PLAYER.with(player));
-    }
-    public static void sendToAllPlayers(JammarrMessage payload) {
-        required().send(payload, PacketDistributor.ALL.noArg());
     }
 
     private static <T extends JammarrMessage> void client(int id, Class<T> type,

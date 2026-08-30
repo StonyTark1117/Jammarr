@@ -13,13 +13,11 @@ import cpw.mods.fml.common.network.simpleimpl.SimpleNetworkWrapper;
 import cpw.mods.fml.relauncher.Side;
 import net.minecraft.entity.player.EntityPlayerMP;
 import stonytark.jammarr.Jammarr;
-import stonytark.jammarr.core.network.HelloGate;
+import stonytark.jammarr.core.network.ClientCapabilityRegistry;
 import stonytark.jammarr.core.protocol.ControlPackets;
 import stonytark.jammarr.core.protocol.ProtocolException;
 import stonytark.jammarr.core.protocol.ProtocolLimits;
 
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -39,8 +37,8 @@ public final class LegacyNetwork {
     private static final Queue<ServerIncoming> SERVER_INBOX = new ConcurrentLinkedQueue<ServerIncoming>();
     private static final Queue<ClientIncoming> CLIENT_INBOX = new ConcurrentLinkedQueue<ClientIncoming>();
 
-    private final Map<UUID, EntityPlayerMP> pendingPlayers = new HashMap<UUID, EntityPlayerMP>();
-    private final HelloGate<UUID> helloGate = new HelloGate<UUID>(ProtocolLimits.serverHelloTimeoutMs());
+    private final ClientCapabilityRegistry<UUID> capabilities = new ClientCapabilityRegistry<UUID>(
+            ProtocolLimits.serverHelloTimeoutMs());
     private volatile ServerListener serverListener;
     private volatile ClientListener clientListener;
     private boolean registered;
@@ -57,11 +55,9 @@ public final class LegacyNetwork {
     public static void setClientListener(ClientListener listener) { INSTANCE.clientListener = listener; }
 
     public static <T> void sendToPlayer(EntityPlayerMP player, LegacyPacketTypes.Type<T> type, T message) {
-        CHANNEL.sendTo(LegacyClientboundEnvelope.of(type, message), player);
-    }
-
-    public static <T> void sendToAll(LegacyPacketTypes.Type<T> type, T message) {
-        CHANNEL.sendToAll(LegacyClientboundEnvelope.of(type, message));
+        if (INSTANCE.capabilities.capable(player.getUniqueID())) {
+            CHANNEL.sendTo(LegacyClientboundEnvelope.of(type, message), player);
+        }
     }
 
     public static <T> void sendToServer(LegacyPacketTypes.Type<T> type, T message) {
@@ -71,8 +67,7 @@ public final class LegacyNetwork {
     public static synchronized void shutdown() {
         SERVER_INBOX.clear();
         CLIENT_INBOX.clear();
-        INSTANCE.pendingPlayers.clear();
-        INSTANCE.helloGate.clear();
+        INSTANCE.capabilities.clear();
         INSTANCE.serverListener = null;
         INSTANCE.clientListener = null;
     }
@@ -81,16 +76,13 @@ public final class LegacyNetwork {
     public void playerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
         if (!(event.player instanceof EntityPlayerMP)) return;
         EntityPlayerMP player = (EntityPlayerMP) event.player;
-        UUID playerId = player.getUniqueID();
-        helloGate.require(playerId, System.currentTimeMillis());
-        pendingPlayers.put(playerId, player);
+        capabilities.connected(player.getUniqueID(), System.currentTimeMillis(), true);
     }
 
     @SubscribeEvent
     public void playerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
         UUID playerId = event.player.getUniqueID();
-        pendingPlayers.remove(playerId);
-        helloGate.remove(playerId);
+        capabilities.remove(playerId);
     }
 
     @SubscribeEvent
@@ -108,13 +100,7 @@ public final class LegacyNetwork {
         if (event.phase != TickEvent.Phase.END) return;
         ServerIncoming incoming;
         while ((incoming = SERVER_INBOX.poll()) != null) handleServer(incoming);
-        for (UUID playerId : helloGate.expire(System.currentTimeMillis())) {
-            // Remove all mutable handshake state before kicking. Hybrid Forge
-            // servers may synchronously fire PlayerLoggedOutEvent from the kick.
-            EntityPlayerMP player = pendingPlayers.remove(playerId);
-            if (player != null) player.playerNetServerHandler.kickPlayerFromServer(
-                    "Jammarr protocol handshake timed out; install the matching Forge 1.7.10 Jammarr client");
-        }
+        capabilities.expire(System.currentTimeMillis());
     }
 
     @SubscribeEvent
@@ -132,26 +118,20 @@ public final class LegacyNetwork {
         if (incoming.type == LegacyPacketTypes.CLIENT_HELLO) {
             ControlPackets.ClientHello hello = (ControlPackets.ClientHello) incoming.message;
             if (hello.protocolVersion() != Jammarr.PROTOCOL) {
-                UUID playerId = player.getUniqueID();
-                pendingPlayers.remove(playerId);
-                helloGate.remove(playerId);
+                capabilities.accept(player.getUniqueID(), hello.protocolVersion(), Jammarr.PROTOCOL);
                 player.playerNetServerHandler.kickPlayerFromServer(
                         "Jammarr protocol mismatch: server requires protocol " + Jammarr.PROTOCOL);
                 return;
             }
             UUID playerId = player.getUniqueID();
-            if (!helloGate.accept(playerId) && !helloGate.accepted(playerId)) return;
-            pendingPlayers.remove(playerId);
+            if (!capabilities.accept(playerId, hello.protocolVersion(), Jammarr.PROTOCOL)) return;
             sendToPlayer(player, LegacyPacketTypes.SERVER_HELLO,
                     new ControlPackets.ServerHello(Jammarr.PROTOCOL, System.currentTimeMillis()));
             ServerListener listener = serverListener;
             if (listener != null) listener.accept(player, incoming.type, incoming.message);
             return;
         }
-        if (!helloGate.accepted(player.getUniqueID())) {
-            UUID playerId = player.getUniqueID();
-            pendingPlayers.remove(playerId);
-            helloGate.remove(playerId);
+        if (!capabilities.capable(player.getUniqueID())) {
             player.playerNetServerHandler.kickPlayerFromServer("Jammarr protocol hello is required before play packets");
             return;
         }
@@ -163,6 +143,10 @@ public final class LegacyNetwork {
         }
         ServerListener listener = serverListener;
         if (listener != null) listener.accept(player, incoming.type, incoming.message);
+    }
+
+    public static boolean accepted(EntityPlayerMP player) {
+        return player != null && INSTANCE.capabilities.capable(player.getUniqueID());
     }
 
     public static final class ServerboundHandler implements IMessageHandler<LegacyServerboundEnvelope, IMessage> {
