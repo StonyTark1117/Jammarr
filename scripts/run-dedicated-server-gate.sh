@@ -98,6 +98,10 @@ targets=(
   "1.20.5-fabric|platforms/mc1.20.5/fabric|$java21_home|25719"
   "1.20.5-quilt|platforms/mc1.20.5/fabric|$java21_home|25720"
   "1.20.5-neoforge|platforms/mc1.20.5/neoforge|$java21_home|25721"
+  "1.20.6-fabric|platforms/mc1.20.6/fabric|$java21_home|25722"
+  "1.20.6-quilt|platforms/mc1.20.6/fabric|$java21_home|25723"
+  "1.20.6-forge|platforms/mc1.20.6/forge|$java21_home|25724"
+  "1.20.6-neoforge|platforms/mc1.20.6/neoforge|$java21_home|25725"
   "1.21.1-fabric|platforms/mc1.21.1/fabric|$java21_home|25581"
   "1.21.1-quilt|platforms/mc1.21.1/fabric|$java21_home|25650"
   "1.21.1-forge|platforms/mc1.21.1/forge|$java21_home|25582"
@@ -395,7 +399,7 @@ run_optional_client() {
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS='-Djammarr.acceptance.enabled=true -Djammarr.acceptance.suppressClientHello=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
       LIBGL_ALWAYS_SOFTWARE=1 \
-      ./gradlew runClient --no-daemon --max-workers=2 --console=plain \
+      ./gradlew runClient --no-daemon --max-workers=2 --console=plain --no-configuration-cache \
       "${runtime_args[@]}" \
       -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="127.0.0.1:${port}" \
@@ -466,7 +470,7 @@ run_delayed_hello_client() {
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS="-Djammarr.acceptance.enabled=true -Djammarr.acceptance.clientHelloDelayMs=${delayed_hello_ms} -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true" \
       LIBGL_ALWAYS_SOFTWARE=1 \
-      ./gradlew runClient --no-daemon --max-workers=2 --console=plain \
+      ./gradlew runClient --no-daemon --max-workers=2 --console=plain --no-configuration-cache \
       "${runtime_args[@]}" \
       -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="127.0.0.1:${port}" \
@@ -570,7 +574,7 @@ run_acceptance_client_once() {
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS="$java_tool_options" \
       LIBGL_ALWAYS_SOFTWARE=1 \
-      ./gradlew runClient --no-daemon --max-workers=2 --console=plain \
+      ./gradlew runClient --no-daemon --max-workers=2 --console=plain --no-configuration-cache \
       "${runtime_args[@]}" \
       -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="127.0.0.1:${port}" \
@@ -672,7 +676,7 @@ run_command_client() {
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS='-Djammarr.acceptance.enabled=true -Djammarr.acceptance.commandProbe=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
       LIBGL_ALWAYS_SOFTWARE=1 \
-      ./gradlew runClient --no-daemon --max-workers=2 --console=plain \
+      ./gradlew runClient --no-daemon --max-workers=2 --console=plain --no-configuration-cache \
       "${runtime_args[@]}" \
       -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="127.0.0.1:${port}" \
@@ -834,7 +838,7 @@ start_audio_client() {
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
   [[ "$role" == "leader" ]] && leader=true
   case "$label" in
-    1.16.5-forge|1.18.2-forge|1.19.2-forge|1.20-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge|1.20.3-forge|1.20.3-neoforge|1.20.4-forge|1.20.4-neoforge|1.20.5-neoforge)
+    1.16.5-forge|1.18.2-forge|1.19.2-forge|1.20-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge|1.20.3-forge|1.20.3-neoforge|1.20.4-forge|1.20.4-neoforge|1.20.5-neoforge|1.20.6-forge|1.20.6-neoforge)
       cache_args+=(--no-configuration-cache)
       ;;
   esac
@@ -1764,7 +1768,7 @@ run_invalid_config_check_once() {
   [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
   case "$label" in
-    1.16.5-forge|1.18.2-forge|1.19.2-forge|1.20-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge|1.20.3-forge|1.20.3-neoforge|1.20.4-forge|1.20.4-neoforge|1.20.5-neoforge)
+    1.16.5-forge|1.18.2-forge|1.19.2-forge|1.20-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge|1.20.3-forge|1.20.3-neoforge|1.20.4-forge|1.20.4-neoforge|1.20.5-neoforge|1.20.6-forge|1.20.6-neoforge)
       cache_args+=(--no-configuration-cache)
       ;;
   esac
@@ -1940,7 +1944,7 @@ run_target() {
     set_property "$run_dir/server.properties" rcon.password "$rcon_password"
   fi
   case "$label" in
-    1.16.5-forge|1.18.2-forge|1.19.2-forge|1.20-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge|1.20.3-forge|1.20.3-neoforge|1.20.4-forge|1.20.4-neoforge|1.20.5-neoforge)
+    1.16.5-forge|1.18.2-forge|1.19.2-forge|1.20-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge|1.20.3-forge|1.20.3-neoforge|1.20.4-forge|1.20.4-neoforge|1.20.5-neoforge|1.20.6-forge|1.20.6-neoforge)
       cache_args+=(--no-configuration-cache)
       ;;
   esac

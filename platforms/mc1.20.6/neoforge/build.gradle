@@ -1,0 +1,196 @@
+plugins {
+    id 'java'
+    alias(libs.plugins.neogradle.userdev)
+}
+
+group = 'stonytark'
+version = '1.1.0'
+def artifactVersion = version.toString()
+def expectedReleaseName = "jammarr-${artifactVersion}+mc1.20.6-neoforge.jar"
+evaluationDependsOn(':core')
+
+base { archivesName = "jammarr-${artifactVersion}+mc1.20.6-neoforge" }
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(libs.versions.java.get().toInteger())
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+    withSourcesJar()
+}
+
+runs {
+    configureEach {
+        workingDirectory project.file('run')
+        modSource sourceSets.main
+        dependencies {
+            runtime libs.jlayer
+            runtime libs.jump3r
+        }
+    }
+    client {
+        arguments '--mixin.config', 'jammarr.mixins.json'
+        if (providers.gradleProperty('jammarrAcceptanceServer').isPresent()) {
+            workingDirectory file(providers.gradleProperty('jammarrAcceptanceGameDir').get())
+            arguments '--username', providers.gradleProperty('jammarrAcceptanceUsername').get(),
+                    '--quickPlayMultiplayer', providers.gradleProperty('jammarrAcceptanceServer').get()
+        }
+    }
+    server { arguments '--nogui' }
+}
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.neoforged.net/releases/' }
+}
+
+jarJar.enable()
+def sharedCoreDependency = dependencies.project(path: ':core')
+
+dependencies {
+    implementation "net.neoforged:neoforge:${libs.versions.neoforge.loader.get()}"
+    implementation sharedCoreDependency
+    jarJar(sharedCoreDependency)
+    jarJar.pin(sharedCoreDependency, '1.1.0')
+    jarJar.ranged(sharedCoreDependency, '[1.1.0,1.1.1)')
+    implementation libs.jlayer
+    jarJar('javazoom:jlayer:[1.0.1,1.0.2)') { version { prefer '1.0.1' } }
+    implementation libs.jump3r
+    jarJar('de.sciss:jump3r:[1.0.5,1.0.6)') { version { prefer '1.0.5' } }
+    testImplementation platform(libs.junit.bom)
+    testImplementation libs.junit.jupiter
+    testRuntimeOnly libs.junit.launcher
+}
+
+dependencyLocking { lockAllConfigurations() }
+
+sourceSets {
+    main {
+        java {
+            setSrcDirs([file('../../../src/main/java'), file('../common/src/main'), file('src/main')])
+            exclude 'stonytark/jammarr/Jammarr.java'
+            exclude 'stonytark/jammarr/client/JammarrClient.java'
+            exclude 'stonytark/jammarr/client/JammarrClientConfigScreen.java'
+            exclude 'stonytark/jammarr/client/JammarrScreen.java'
+            exclude 'stonytark/jammarr/config/JammarrConfig.java'
+            exclude 'stonytark/jammarr/gametest/**'
+            exclude 'stonytark/jammarr/network/JammarrNetwork.java'
+            exclude 'stonytark/jammarr/network/JammarrPayloads.java'
+            exclude 'stonytark/jammarr/network/MinecraftWireInput.java'
+            exclude 'stonytark/jammarr/network/MinecraftWireOutput.java'
+            exclude 'stonytark/jammarr/server/JammarrCommands.java'
+            exclude 'stonytark/jammarr/server/JammarrServer.java'
+            exclude 'stonytark/jammarr/server/JammarrSavedData.java'
+        }
+        resources {
+            srcDir file('../../../src/main/resources')
+            exclude 'META-INF/mods.toml'
+            exclude 'fabric.mod.json'
+        }
+    }
+}
+
+// FML 3 treats split development outputs as separate mod files and may select
+// only the resources directory, leaving the @Mod class undiscovered.
+sourceSets.main.output.resourcesDir = sourceSets.main.java.classesDirectory.get().asFile
+
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
+sourceSets.test.java {
+    setSrcDirs([file('../../../src/test/java'), file('../../../test-fixtures/java/mc1.21'), file('src/test')])
+    exclude 'stonytark/jammarr/network/JammarrNetworkTest.java'
+}
+sourceSets.test.resources { srcDir file('../../../test-fixtures'); exclude 'java/**' }
+tasks.withType(Test).configureEach { useJUnitPlatform() }
+
+// NeoGradle 7 schedules remote size checks for the full client asset index on
+// every development launch. Dedicated servers never read those assets, and
+// acceptance clients reuse the gate's shared Minecraft asset cache.
+def skipLaunchAssetDownload = gradle.startParameter.taskNames.any {
+    def parts = it.tokenize(':')
+    !parts.isEmpty() && parts.last() in ['runServer', 'verifyRelease', 'test']
+} || providers.gradleProperty('jammarrAcceptanceServer').isPresent()
+tasks.configureEach {
+    if (name.endsWith('DownloadAssets')) {
+        onlyIf { !skipLaunchAssetDownload }
+    }
+}
+
+tasks.named('processResources') {
+    inputs.property 'version', artifactVersion
+    filesMatching('META-INF/neoforge.mods.toml') { expand version: artifactVersion }
+    filesMatching('jammarr.mixins.json') { filter { it.replace('"JAVA_21"', '"JAVA_21"') } }
+}
+
+tasks.named('jar', Jar) {
+    archiveClassifier = 'slim'
+    manifest.attributes('MixinConfigs': 'jammarr.mixins.json')
+    from('../../../THIRD_PARTY_NOTICES.md') { into('META-INF') }
+    from('../../../LICENSE') {
+        into('META-INF')
+        rename { 'LICENSE-Jammarr-CC0-1.0.txt' }
+    }
+    from('../../../LICENSE-LGPL-2.1-or-later.txt') { into('META-INF') }
+}
+
+tasks.named('jarJar', Jar) {
+    archiveFileName = expectedReleaseName
+    manifest.attributes('MixinConfigs': 'jammarr.mixins.json')
+    from('../../../THIRD_PARTY_NOTICES.md') { into('META-INF') }
+    from('../../../LICENSE') {
+        into('META-INF')
+        rename { 'LICENSE-Jammarr-CC0-1.0.txt' }
+    }
+    from('../../../LICENSE-LGPL-2.1-or-later.txt') { into('META-INF') }
+}
+
+tasks.named('build') { dependsOn(tasks.named('jarJar')) }
+
+def releaseArchive = tasks.named('jarJar').flatMap { it.archiveFile }
+def releaseEntries = ['META-INF/LICENSE-Jammarr-CC0-1.0.txt', 'META-INF/LICENSE-LGPL-2.1-or-later.txt',
+                      'META-INF/THIRD_PARTY_NOTICES.md', 'META-INF/neoforge.mods.toml', 'jammarr.mixins.json',
+                      'jammarr.png', 'pack.mcmeta', 'assets/jammarr/lang/en_us.json',
+                      'stonytark/jammarr/Jammarr.class', 'stonytark/jammarr/client/JammarrClient.class',
+                      'stonytark/jammarr/network/JammarrNetwork.class', 'stonytark/jammarr/network/JammarrPayloads.class']
+
+tasks.register('verifyRelease') {
+    group = 'verification'
+    dependsOn(tasks.named('build'))
+    doLast {
+        def archive = releaseArchive.get().asFile
+        if (archive.name != expectedReleaseName) throw new GradleException("Unexpected release filename: ${archive.name}")
+        new java.util.zip.ZipFile(archive).withCloseable { zip ->
+            def found = zip.entries().collect { it.name } as Set
+            releaseEntries.each { entry ->
+                if (!found.contains(entry)) throw new GradleException("Release archive is missing ${entry}")
+            }
+            def nested = found.findAll { it.startsWith('META-INF/jarjar/') && it.endsWith('.jar') }
+            ['core', 'jlayer', 'jump3r'].each { dependency ->
+                if (!nested.any { it.toLowerCase(java.util.Locale.ROOT).contains(dependency) }) {
+                    throw new GradleException("Release archive does not bundle ${dependency}")
+                }
+            }
+            def metadata = zip.getInputStream(zip.getEntry('META-INF/neoforge.mods.toml')).getText('UTF-8')
+            if (!metadata.contains('modId="jammarr"') || !metadata.contains('modId="neoforge"')
+                    || !metadata.contains('versionRange="[1.20.6,1.20.7)"')
+                    || !metadata.contains('versionRange="[20.6.139,20.7)"') || !metadata.contains('displayTest="IGNORE_SERVER_VERSION"')
+                    || metadata.count('type="required"') != 2 || metadata.contains('mandatory=')) {
+                throw new GradleException('NeoForge metadata does not enforce the expected mod, Minecraft, and loader versions')
+            }
+            if (!zip.getInputStream(zip.getEntry('jammarr.mixins.json')).getText('UTF-8').contains('"JAVA_21"')) {
+                throw new GradleException('NeoForge 1.20.6 mixin metadata does not target Java 17')
+            }
+            def coreEntry = nested.find { it.toLowerCase(java.util.Locale.ROOT).contains('core') }
+            new java.util.zip.ZipInputStream(zip.getInputStream(zip.getEntry(coreEntry))).withCloseable { coreZip ->
+                boolean foundCoreClass = false
+                for (def entry = coreZip.nextEntry; entry != null; entry = coreZip.nextEntry) {
+                    if (entry.name == 'stonytark/jammarr/core/server/ChunkTransferPolicy.class') {
+                        byte[] header = coreZip.readNBytes(8)
+                        int major = ((header[6] & 0xff) << 8) | (header[7] & 0xff)
+                        if (major != 52) throw new GradleException("Shared core is not Java 8 bytecode: class major ${major}")
+                        foundCoreClass = true
+                    }
+                }
+                if (!foundCoreClass) throw new GradleException('Release archive does not contain the shared transport core')
+            }
+        }
+    }
+}
