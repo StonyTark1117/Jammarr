@@ -90,6 +90,15 @@ class AudioCacheTest {
         assertThrows(java.io.IOException.class, () -> asset.readChunks(0, 1));
     }
 
+    @Test void rejectsAnOversizedSparseFileBeforeScanningOrAllocatingItsContents() throws Exception {
+        Path file = directory.resolve("oversized-v" + AudioCache.CACHE_FORMAT_VERSION + ".mp3");
+        try (java.io.RandomAccessFile sparse = new java.io.RandomAccessFile(file.toFile(), "rw")) {
+            sparse.setLength(Mp3FrameIndex.MAX_INDEXED_BYTES + 1L);
+        }
+        AudioCache cache = new AudioCache(directory, Mp3FrameIndex.MAX_INDEXED_BYTES * 2L);
+        assertThrows(java.io.IOException.class, () -> cache.load(file));
+    }
+
     private Path temp(String name) throws Exception { Path path = directory.resolve(name + ".part"); Files.write(path, stream()); return path; }
     private static byte[] stream() {
         byte[] frame = new byte[417]; frame[0] = (byte)0xff; frame[1] = (byte)0xfb; frame[2] = (byte)0x90; frame[3] = 0;

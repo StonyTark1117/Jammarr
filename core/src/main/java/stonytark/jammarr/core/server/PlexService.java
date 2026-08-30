@@ -15,6 +15,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import stonytark.jammarr.core.platform.JammarrSettings;
+import stonytark.jammarr.core.protocol.ProtocolLimits;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
@@ -44,8 +45,8 @@ public final class PlexService implements PlexGateway {
     private static final String CLIENT_ID = "f0b09ec2674d42f4a802c5cc9a57d774";
     public static final int MAX_EXPANDED_TRACKS = 500;
     public static final int MAX_JSON_BYTES = 4 * 1024 * 1024;
-    public static final long MAX_TRANSCODE_BYTES = 256L * 1024 * 1024;
-    public static final long MAX_TRACK_DURATION_MS = 3L * 60 * 60 * 1_000;
+    public static final long MAX_TRANSCODE_BYTES = Mp3FrameIndex.MAX_INDEXED_BYTES;
+    public static final long MAX_TRACK_DURATION_MS = ProtocolLimits.MAX_AUDIO_DURATION_MS;
     private static final Duration TRANSCODE_READ_TIMEOUT = Duration.ofMinutes(3);
     public static final class Page {
         private final List<MediaItem> items;

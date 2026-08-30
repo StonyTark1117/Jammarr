@@ -36,6 +36,15 @@ class TransportPacketCodecTest {
         assertThrows(ProtocolException.class, () -> TransportPackets.AUDIO_CHUNK.decode(new ByteArrayWireInput(output.toByteArray())));
     }
 
+    @Test void audioManifestRejectsResourceCountsAndDurationsBeyondClientBounds() {
+        assertThrows(IllegalArgumentException.class, () -> new TransportPackets.AudioManifest(
+                SESSION, "Track", "Artist", ProtocolLimits.MAX_AUDIO_CHUNKS + 1, 0,
+                1_000L, 0L, false, 0L, ""));
+        assertThrows(IllegalArgumentException.class, () -> new TransportPackets.AudioManifest(
+                SESSION, "Track", "Artist", 1, 0,
+                ProtocolLimits.MAX_AUDIO_DURATION_MS + 1L, 0L, false, 0L, ""));
+    }
+
     @Test void malformedVarIntIsRejected() {
         assertThrows(ProtocolException.class, () -> new ByteArrayWireInput(new byte[]{-128, -128, -128, -128, -128, 0}).readVarInt());
     }

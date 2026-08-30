@@ -77,6 +77,13 @@ public final class TransportPackets {
         private final boolean paused; private final long pausedPositionMs; private final String sha256;
         public AudioManifest(UUID sessionId, String title, String artist, int totalChunks, int firstChunk, long durationMs,
                              long startedAtEpochMs, boolean paused, long pausedPositionMs, String sha256) {
+            if (totalChunks < 0 || totalChunks > ProtocolLimits.MAX_AUDIO_CHUNKS
+                    || firstChunk < 0 || firstChunk > totalChunks
+                    || totalChunks > 0 && firstChunk == totalChunks
+                    || durationMs < 0L || durationMs > ProtocolLimits.MAX_AUDIO_DURATION_MS
+                    || pausedPositionMs < 0L || pausedPositionMs > durationMs) {
+                throw new IllegalArgumentException("audio manifest limits");
+            }
             this.sessionId = sessionId; this.title = title; this.artist = artist; this.totalChunks = totalChunks;
             this.firstChunk = firstChunk; this.durationMs = durationMs; this.startedAtEpochMs = startedAtEpochMs;
             this.paused = paused; this.pausedPositionMs = pausedPositionMs; this.sha256 = sha256;

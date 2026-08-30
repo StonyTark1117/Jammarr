@@ -1,6 +1,7 @@
 package stonytark.jammarr.core.server;
 
 import stonytark.jammarr.core.network.Hashing;
+import stonytark.jammarr.core.protocol.ProtocolLimits;
 
 import java.io.IOException;
 import java.io.RandomAccessFile;
@@ -12,6 +13,8 @@ import java.util.List;
 
 public final class Mp3FrameIndex {
     public static final int MAX_CHUNK_BYTES = 16_000;
+    public static final long MAX_INDEXED_BYTES = 256L * 1024L * 1024L;
+    public static final int MAX_FRAME_COUNT = 1_000_000;
     private static final int[][] BITRATES = {
             {0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0},
             {0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0}
@@ -119,15 +122,19 @@ public final class Mp3FrameIndex {
             }
             byte[] data = Arrays.copyOfRange(bytes, start.offset, endOffset);
             chunks.add(new Chunk(chunks.size(), start.startMs, Hashing.sha256(data), data));
+            if (chunks.size() > ProtocolLimits.MAX_AUDIO_CHUNKS) {
+                throw new IllegalArgumentException("MP3 stream contains too many transport chunks");
+            }
             first = cursor;
         }
         return Collections.unmodifiableList(new ArrayList<Chunk>(chunks));
     }
 
     public static FileIndex index(Path path) throws IOException {
+        long size = java.nio.file.Files.size(path);
+        if (size > MAX_INDEXED_BYTES) throw new IllegalArgumentException("MP3 stream exceeds the indexing safety limit");
         List<Frame> frames = scan(path);
         if (frames.isEmpty()) throw new IllegalArgumentException("Plex response is not a supported Layer III MP3 stream");
-        long size = java.nio.file.Files.size(path);
         validateTrailing(path, frames, size);
         Info info = describe(frames);
         List<Chunk> chunks = new ArrayList<Chunk>();
@@ -148,6 +155,9 @@ public final class Mp3FrameIndex {
                 file.seek(start.offset);
                 file.readFully(data);
                 chunks.add(new Chunk(chunks.size(), start.startMs, Hashing.sha256(data), start.offset, length));
+                if (chunks.size() > ProtocolLimits.MAX_AUDIO_CHUNKS) {
+                    throw new IllegalArgumentException("MP3 stream contains too many transport chunks");
+                }
                 first = cursor;
             }
         }
@@ -193,6 +203,7 @@ public final class Mp3FrameIndex {
             long startMs = samples * 1000L / sampleRate;
             int frameSamples = mpeg1 ? 1152 : 576;
             frames.add(new Frame(offset, length, startMs, frameSamples * 1000L / sampleRate, bitrate / 1000, sampleRate, ((h >>> 6) & 3) == 3 ? 1 : 2));
+            if (frames.size() > MAX_FRAME_COUNT) throw new IllegalArgumentException("MP3 stream contains too many frames");
             samples += frameSamples;
             offset += length;
         }
@@ -222,6 +233,7 @@ public final class Mp3FrameIndex {
                 long startMs = samples * 1000L / header.sampleRate;
                 frames.add(new Frame(offset, header.length, startMs, header.durationMs,
                         header.bitrateKbps, header.sampleRate, header.channels));
+                if (frames.size() > MAX_FRAME_COUNT) throw new IllegalArgumentException("MP3 stream contains too many frames");
                 samples += header.frameSamples;
                 offset += header.length;
             }
@@ -242,8 +254,12 @@ public final class Mp3FrameIndex {
                 throw new IllegalArgumentException("MP3 stream changes sample format mid-track");
             }
         }
+        long durationMs = last.startMs + last.durationMs;
+        if (durationMs > ProtocolLimits.MAX_AUDIO_DURATION_MS) {
+            throw new IllegalArgumentException("MP3 stream exceeds the duration safety limit");
+        }
         return new Info(frames.size(), first.sampleRate, first.channels, first.bitrateKbps,
-                minimumBitrate, maximumBitrate, constant, last.startMs + last.durationMs);
+                minimumBitrate, maximumBitrate, constant, durationMs);
     }
 
     private static void validateTrailing(Path path, List<Frame> frames, long size) throws IOException {

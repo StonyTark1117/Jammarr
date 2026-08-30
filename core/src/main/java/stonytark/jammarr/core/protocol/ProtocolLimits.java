@@ -18,6 +18,8 @@ public final class ProtocolLimits {
     public static final int MAX_STATION_PREVIEW = 3;
     public static final int MAX_ADVENTURE_PATH = 100;
     public static final int MAX_AUDIO_CHUNK_BYTES = 16_384;
+    public static final int MAX_AUDIO_CHUNKS = 65_536;
+    public static final long MAX_AUDIO_DURATION_MS = 3L * 60L * 60L * 1_000L;
 
     /**
      * Returns the protocol advertised by a real client during release acceptance.
