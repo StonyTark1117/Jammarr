@@ -1,0 +1,191 @@
+plugins {
+    id 'net.fabricmc.fabric-loom-remap' version "${loom_version}"
+    id 'legacy-looming' version "${loom_version}"
+}
+
+group = 'stonytark'
+version = '1.1.0'
+def artifactVersion = version.toString()
+
+base {
+    archivesName = "jammarr-${artifactVersion}+mc1.8.9-fabric"
+}
+
+def acceptanceWithoutJammarr = (System.getenv('JAVA_TOOL_OPTIONS') ?: '')
+        .contains('jammarr.acceptance.suppressClientHello=true')
+
+sourceSets {
+    // An empty mod source set lets the acceptance gate launch Legacy Fabric
+    // without Jammarr and prove that an actually unmodified peer may join.
+    vanillaClient {
+        runtimeClasspath += configurations.runtimeClasspath
+    }
+}
+
+loom {
+    runs {
+        server {
+            if (providers.gradleProperty('jammarrServerGameDir').isPresent()) {
+                runDir project.relativePath(file(providers.gradleProperty('jammarrServerGameDir').get()))
+            }
+        }
+        client {
+            if (providers.gradleProperty('jammarrAcceptanceServer').isPresent()) {
+                runDir project.relativePath(file(providers.gradleProperty('jammarrAcceptanceGameDir').get()))
+                def endpoint = providers.gradleProperty('jammarrAcceptanceServer').get()
+                if (acceptanceWithoutJammarr) {
+                    def separator = endpoint.lastIndexOf(':')
+                    if (separator <= 0 || separator == endpoint.length() - 1) {
+                        throw new GradleException('jammarrAcceptanceServer must use host:port syntax')
+                    }
+                    source sourceSets.vanillaClient
+                    programArgs '--server', endpoint.substring(0, separator),
+                            '--port', endpoint.substring(separator + 1)
+                } else {
+                    property 'jammarr.acceptance.server', endpoint
+                }
+                programArgs '--username', providers.gradleProperty('jammarrAcceptanceUsername').get()
+            }
+        }
+    }
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(8)
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.fabricmc.net/' }
+    maven { url = 'https://maven.legacyfabric.net/' }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${minecraft_version}"
+    mappings(legacy.yarn(minecraft_version, yarn_build))
+    modImplementation "net.fabricmc:fabric-loader:${loader_version}"
+    modImplementation "net.legacyfabric.legacy-fabric-api:legacy-fabric-api:${legacy_fabric_api_version}"
+
+    implementation project(':core')
+    include project(':core')
+    implementation 'javazoom:jlayer:1.0.1'
+    include 'javazoom:jlayer:1.0.1'
+    implementation 'de.sciss:jump3r:1.0.5'
+    include 'de.sciss:jump3r:1.0.5'
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+dependencyLocking { lockAllConfigurations() }
+
+sourceSets {
+    main.resources {
+        setSrcDirs([file('src/main/resources'), file('../../../src/main/resources')])
+        exclude 'mcmod.info', 'jammarr.mixins.json'
+    }
+    test.resources {
+        srcDir file('../../../test-fixtures')
+        exclude 'java/**'
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+tasks.withType(Test).configureEach { useJUnitPlatform() }
+
+tasks.named('generateLog4jConfig') {
+    doLast {
+        copy {
+            from file('log4j-legacy.xml')
+            into file('.gradle/loom-cache')
+            rename { 'log4j.xml' }
+        }
+    }
+}
+
+tasks.named('processResources') {
+    inputs.property 'version', artifactVersion
+    filesMatching('fabric.mod.json') { expand version: artifactVersion }
+}
+
+tasks.named('jar', Jar) {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from('../../../THIRD_PARTY_NOTICES.md') { into('META-INF') }
+    from('../../../LICENSE') {
+        into('META-INF')
+        rename { 'LICENSE-Jammarr-CC0-1.0.txt' }
+    }
+    from('../../../LICENSE-LGPL-2.1-or-later.txt') { into('META-INF') }
+}
+
+tasks.named('remapJar') {
+    archiveFileName = "jammarr-${artifactVersion}+mc1.8.9-fabric.jar"
+}
+
+def sha256 = { File file ->
+    def digest = java.security.MessageDigest.getInstance('SHA-256')
+    file.withInputStream { stream ->
+        byte[] buffer = new byte[64 * 1024]
+        int count
+        while ((count = stream.read(buffer)) >= 0) if (count > 0) digest.update(buffer, 0, count)
+    }
+    digest.digest().collect { String.format('%02x', it & 0xff) }.join()
+}
+
+tasks.register('verifyToolchainLock') {
+    doLast {
+        def wrapper = file('gradle/wrapper/gradle-wrapper.jar')
+        if (sha256(wrapper) != '423cb469ccc0ecc31f0e4e1c309976198ccb734cdcbb7029d4bda0f18f57e8d9') {
+            throw new GradleException('Legacy Fabric Gradle wrapper checksum does not match the pinned wrapper')
+        }
+        def pluginJar = buildscript.configurations.classpath.files.find { it.name == 'legacy-looming-1.16-SNAPSHOT.jar' }
+        if (pluginJar == null || sha256(pluginJar) != '90cc87fd7d5e3b90c833de7f8f6dcceecfa7a3e8eb30404484f4c8402ae013c6') {
+            throw new GradleException('Legacy Looming snapshot does not match 1.16-20260528.153600-1')
+        }
+    }
+}
+
+def releaseArchive = tasks.named('remapJar').flatMap { it.archiveFile }
+tasks.register('verifyRelease') {
+    group = 'verification'
+    dependsOn tasks.named('build'), tasks.named('verifyToolchainLock')
+    inputs.file releaseArchive
+    doLast {
+        def archive = releaseArchive.get().asFile
+        if (archive.name != "jammarr-${artifactVersion}+mc1.8.9-fabric.jar") {
+            throw new GradleException("Unexpected release filename: ${archive.name}")
+        }
+        new java.util.zip.ZipFile(archive).withCloseable { zip ->
+            def found = zip.entries().collect { it.name } as Set
+            ['fabric.mod.json', 'jammarr.png', 'assets/jammarr/lang/en_us.json',
+             'assets/jammarr/lang/en_US.lang', 'META-INF/LICENSE-Jammarr-CC0-1.0.txt',
+             'META-INF/LICENSE-LGPL-2.1-or-later.txt', 'META-INF/THIRD_PARTY_NOTICES.md',
+             'META-INF/jars/core-1.1.0.jar', 'META-INF/jars/jlayer-1.0.1.jar',
+             'META-INF/jars/jump3r-1.0.5.jar', 'stonytark/jammarr/Jammarr.class',
+             'stonytark/jammarr/client/LegacyClient.class',
+             'stonytark/jammarr/network/LegacyNetwork.class'].each { entry ->
+                if (!found.contains(entry)) throw new GradleException("Legacy Fabric archive is missing ${entry}")
+            }
+            def metadata = new groovy.json.JsonSlurper().parseText(
+                    zip.getInputStream(zip.getEntry('fabric.mod.json')).getText('UTF-8'))
+            if (metadata.id != 'jammarr' || metadata.version != artifactVersion
+                    || metadata.depends.minecraft != '1.8.9' || metadata.depends.java != '>=8'
+                    || metadata.depends.fabricloader != '>=0.18.3'
+                    || metadata.depends['legacy-fabric-api'] != '>=1.13.2') {
+                throw new GradleException('Legacy Fabric metadata does not identify the pinned target')
+            }
+            found.findAll { it.startsWith('stonytark/jammarr/') && it.endsWith('.class') }.each { entry ->
+                def stream = zip.getInputStream(zip.getEntry(entry))
+                byte[] header = new byte[8]
+                if (stream.read(header) != 8) throw new GradleException("Unable to inspect ${entry}")
+                stream.close()
+                int major = ((header[6] & 0xff) << 8) | (header[7] & 0xff)
+                if (major != 52) throw new GradleException("Legacy Fabric archive contains non-Java-8 bytecode: ${entry}")
+            }
+        }
+    }
+}

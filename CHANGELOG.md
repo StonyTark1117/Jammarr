@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.0 - Unreleased
+
+- Add a separately pinned Minecraft 1.8.9 Legacy Fabric preview with Java 8 bytecode, protocol-6 optional-client negotiation, commands, player/config screens, direct legacy OpenAL playback, and canonical server configuration/state behavior.
+- Certify the Legacy Fabric target with invalid-config rejection, a real incompatible-protocol client, an actual client without Jammarr, two-client audible timing, the full recovery/station scenario matrix, and clean process/port teardown; live-Plex acceptance remains pending for the final release matrix.
+- Expand the candidate matrix to 71 artifacts and 95 loader/version runtimes while keeping the Legacy Fabric artifact explicitly separate from Quilt compatibility.
+
 ## 1.0.2 - 2026-08-28
 
 - Give Forge 1.7.10 PCM a single direct OpenAL queue owner instead of routing it through Paulscode's competing stream-maintenance and raw-feed paths, prevent stopped queues from replaying stale PCM, keep a larger backend reserve across ordinary client hitches, and extend rendered legacy audio verification beyond the former ten-second window.

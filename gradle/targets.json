@@ -112,6 +112,24 @@
           },
           "path": "platforms/mc1.8.9/forge",
           "artifact": "jammarr-1.1.0+mc1.8.9-forge.jar"
+        },
+        {
+          "id": "fabric",
+          "status": "preview",
+          "implemented": true,
+          "quiltCompatible": false,
+          "verificationTask": "verifyLegacyFabric189",
+          "artifactProfile": "legacy-fabric-java8",
+          "buildJava": 21,
+          "runtimeCapabilities": {
+            "control": "console",
+            "commandMarkers": "legacy-response",
+            "audioProfile": "legacy-openal",
+            "logProfile": "latest",
+            "disableConfigurationCache": false
+          },
+          "path": "platforms/mc1.8.9/fabric",
+          "artifact": "jammarr-1.1.0+mc1.8.9-fabric.jar"
         }
       ]
     },

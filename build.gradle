@@ -143,6 +143,7 @@ tasks.register('verifyAllTargets') {
 def canonicalArtifacts = implementedArtifacts.collect { artifact ->
     String base = artifact.projectPath == '.' ? '' : "${artifact.projectPath}/"
     [minecraft: artifact.minecraft, java: artifact.java, loader: artifact.loader,
+     quiltCompatible: artifact.quiltCompatible,
      path: "${base}build/libs/${artifact.filename}"]
 }
 
@@ -205,7 +206,7 @@ def indexRelease = tasks.register('indexReleaseArtifacts') {
             Map<String, String> dependencies = new TreeMap<String, String>(versions)
             dependencies.remove('minecraft')
             dependencies.remove('java')
-            List<String> compatibleLoaders = artifact.loader == 'fabric'
+            List<String> compatibleLoaders = artifact.loader == 'fabric' && artifact.quiltCompatible
                     ? ['fabric', 'quilt'] : [artifact.loader as String]
             manifestArtifacts << [productVersion: mod_version, minecraftVersion: artifact.minecraft,
                                   loader: artifact.loader, javaVersion: artifact.java,

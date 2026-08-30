@@ -1,0 +1,14 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "stonytark.jammarr.mixin",
+  "compatibilityLevel": "JAVA_8",
+  "client": [
+    "client.ClientPlayNetworkHandlerMixin",
+    "client.MusicTrackerAccessor",
+    "client.SoundManagerAccessor"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

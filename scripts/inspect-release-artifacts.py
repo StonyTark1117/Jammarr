@@ -21,7 +21,8 @@ PROTOCOL_VERSION = TARGET_MANIFEST["protocolVersion"]
 CLASS_MAJOR = {7: 51, 8: 52, 17: 61, 21: 65, 25: 69}
 TARGETS = tuple(
     (target["minecraft"], loader["id"], target["java"]["runtime"],
-     CLASS_MAJOR[target["java"]["bytecode"]], loader.get("artifactProfile", "modern"))
+     CLASS_MAJOR[target["java"]["bytecode"]], loader.get("artifactProfile", "modern"),
+     bool(loader.get("quiltCompatible", False)))
     for target in TARGET_MANIFEST["targets"]
     for loader in target["loaders"]
     if loader["implemented"]
@@ -259,7 +260,8 @@ def verify_remappable_keybinding(archive: zipfile.ZipFile, minecraft: str,
             fail(f"{filename} is missing the Controls translation {key}")
 
     legacy = artifact_profile.startswith("legacy-")
-    class_name = ("stonytark/jammarr/client/LegacyClient.class" if legacy
+    legacy_fabric = artifact_profile == "legacy-fabric-java8"
+    class_name = ("stonytark/jammarr/client/LegacyClient.class" if legacy or minecraft == "1.16.5"
                   else "stonytark/jammarr/client/JammarrClient.class")
     try:
         client = archive.read(class_name)
@@ -269,6 +271,17 @@ def verify_remappable_keybinding(archive: zipfile.ZipFile, minecraft: str,
         fail(f"{filename} does not construct the translated Jammarr menu binding")
     if minecraft.startswith("26.") and b"controls" not in client:
         fail(f"{filename} does not register the namespaced Jammarr Controls category")
+
+    if legacy_fabric:
+        required = (b"net/legacyfabric/fabric/api/client/keybinding/v1/KeyBindingHelper",
+                    b"registerKeyBinding", b"net/minecraft/class_327")
+        consumes_binding = b"method_841" in client or b"wasPressed" in client
+        if any(marker not in client for marker in required) or not consumes_binding:
+            fail(f"{filename} does not register and consume a Legacy Fabric KeyBinding")
+        legacy_lang = archive.read("assets/jammarr/lang/en_US.lang")
+        if b"key.jammarr.open=" not in legacy_lang or b"key.categories.jammarr=" not in legacy_lang:
+            fail(f"{filename} is missing legacy Controls translations")
+        return
 
     if legacy:
         if artifact_profile == "legacy-java8-asm4":
@@ -288,7 +301,8 @@ def verify_remappable_keybinding(archive: zipfile.ZipFile, minecraft: str,
 
     # Fabric remaps released pre-26.x classes to stable intermediary names;
     # class_304 and method_1436 are KeyMapping and consumeClick respectively.
-    if b"net/minecraft/client/KeyMapping" not in client and b"net/minecraft/class_304" not in client:
+    if minecraft != "1.16.5" and b"net/minecraft/client/KeyMapping" not in client \
+            and b"net/minecraft/class_304" not in client:
         fail(f"{filename} does not construct a remappable KeyMapping")
     if loader == "fabric":
         if not ((b"KeyBindingHelper" in client and b"registerKeyBinding" in client)
@@ -296,6 +310,14 @@ def verify_remappable_keybinding(archive: zipfile.ZipFile, minecraft: str,
             fail(f"{filename} does not register the menu binding with Fabric")
         if b"consumeClick" not in client and b"method_1436" not in client:
             fail(f"{filename} does not consume the configured Fabric menu binding")
+    elif minecraft == "1.16.5":
+        if b"net/minecraft/client/settings/KeyBinding" not in client \
+                or b"InputEvent$KeyInputEvent" not in client \
+                or b"registerKeyBinding" not in client:
+            fail(f"{filename} does not register the Forge 1.16.5 menu binding")
+    elif minecraft == "1.18.2":
+        if b"ClientRegistry" not in client or b"registerKeyBinding" not in client:
+            fail(f"{filename} does not register the Forge 1.18.2 menu binding")
     elif b"RegisterKeyMappingsEvent" not in client:
         fail(f"{filename} does not register the menu binding with its loader Controls event")
     elif b"consumeClick" not in client and b"getKey" not in client and b"m_90859_" not in client:
@@ -304,7 +326,7 @@ def verify_remappable_keybinding(archive: zipfile.ZipFile, minecraft: str,
 
 def verify_config_translations(archive: zipfile.ZipFile, minecraft: str,
                                loader: str, artifact_profile: str, filename: str) -> None:
-    if artifact_profile.startswith("legacy-") or loader == "fabric":
+    if artifact_profile.startswith("legacy-") or loader == "fabric" or minecraft == "1.16.5":
         return
     config = archive.read("stonytark/jammarr/config/JammarrConfig.class")
     keys = (
@@ -326,18 +348,29 @@ def verify_metadata(archive: zipfile.ZipFile, names: set[str], minecraft: str, l
             fail(f"{filename} has incorrect Fabric identity/version")
         if metadata.get("environment") != "*" or not metadata.get("entrypoints", {}).get("client"):
             fail(f"{filename} is not declared for both client and server")
-        if metadata.get("depends", {}).get("minecraft") != f"~{minecraft}":
+        expected_minecraft = (minecraft if artifact_profile == "legacy-fabric-java8"
+                              else f"={minecraft}" if minecraft == "1.20" else f"~{minecraft}")
+        if metadata.get("depends", {}).get("minecraft") != expected_minecraft:
             fail(f"{filename} has incorrect Minecraft dependency")
         if metadata.get("depends", {}).get("java") != f">={java}":
             fail(f"{filename} has incorrect Java dependency")
-        expected_fabric_loader = ">=0.19.2"
-        if metadata.get("depends", {}).get("fabricloader") != expected_fabric_loader:
-            fail(f"{filename} has incorrect Fabric Loader compatibility metadata")
+        if minecraft == "1.16.5":
+            if metadata.get("depends", {}).get("fabric") != ">=0.42.0+1.16":
+                fail(f"{filename} has incorrect Fabric API compatibility metadata")
+        else:
+            expected_fabric_loader = ">=0.18.3" if artifact_profile == "legacy-fabric-java8" else ">=0.19.2"
+            if metadata.get("depends", {}).get("fabricloader") != expected_fabric_loader:
+                fail(f"{filename} has incorrect Fabric Loader compatibility metadata")
         if "quilt.mod.json" in names or any("qsl" in name.lower() or "quilted_fabric_api" in name.lower()
                                             for name in names):
             fail(f"{filename} must not embed Quilt metadata, QSL, or Quilted Fabric API")
-        if metadata.get("mixins") != ["jammarr.mixins.json"]:
+        expected_mixin = ("jammarr.legacy-fabric.mixins.json"
+                          if artifact_profile == "legacy-fabric-java8" else "jammarr.mixins.json")
+        if minecraft != "1.16.5" and metadata.get("mixins") != [expected_mixin]:
             fail(f"{filename} does not declare the Jammarr Mixin config")
+        if artifact_profile == "legacy-fabric-java8" \
+                and metadata.get("depends", {}).get("legacy-fabric-api") != ">=1.13.2":
+            fail(f"{filename} has incorrect Legacy Fabric API compatibility metadata")
         if minecraft in ("26.1.2", "26.2"):
             required_quilt_hooks = {
                 "stonytark/jammarr/mixin/QuiltServerBootstrapMixin.class",
@@ -373,14 +406,16 @@ def verify_metadata(archive: zipfile.ZipFile, names: set[str], minecraft: str, l
             fail(f"{filename} does not contain optional-client FML negotiation")
         return
 
-    metadata_name = "META-INF/neoforge.mods.toml" if loader == "neoforge" and minecraft in ("1.21.1", "26.1.2", "26.2") else "META-INF/mods.toml"
+    metadata_name = ("META-INF/neoforge.mods.toml"
+                     if loader == "neoforge" and "META-INF/neoforge.mods.toml" in names
+                     else "META-INF/mods.toml")
     text = archive.read(metadata_name).decode("utf-8")
     compact = re.sub(r"\s+", "", text)
     if 'modId="jammarr"' not in compact or f'version="{PRODUCT_VERSION}"' not in compact:
         fail(f"{filename} has incorrect loader metadata identity/version")
     if minecraft not in text or 'side="BOTH"' not in compact:
         fail(f"{filename} is not constrained to Minecraft {minecraft} on both sides")
-    if loader == "neoforge" and minecraft in ("1.21.1", "26.1.2", "26.2"):
+    if metadata_name == "META-INF/neoforge.mods.toml":
         if 'type="required"' not in compact:
             fail(f"{filename} does not declare required NeoForge dependencies")
     elif 'displayTest="IGNORE_SERVER_VERSION"' not in compact:
@@ -397,7 +432,8 @@ def verify_jar(path: Path, minecraft: str, loader: str, java: int,
             fail(f"{filename} is missing required entries: {sorted(missing)}")
         if loader == "fabric" and "fabric.mod.json" not in names:
             fail(f"{filename} is missing Fabric metadata")
-        if artifact_profile.startswith("legacy-") and "mcmod.info" not in names:
+        legacy_forge = artifact_profile.startswith("legacy-") and loader != "fabric"
+        if legacy_forge and "mcmod.info" not in names:
             fail(f"{filename} is missing legacy Forge metadata")
 
         verify_metadata(archive, names, minecraft, loader, java, artifact_profile, filename)
@@ -414,7 +450,8 @@ def verify_jar(path: Path, minecraft: str, loader: str, java: int,
         if main_major != expected_major:
             fail(f"{filename} targets class major {main_major}, expected {expected_major} for Java {java}")
 
-        if artifact_profile.startswith("legacy-"):
+        legacy_flattened = legacy_forge or (minecraft == "1.16.5" and loader == "forge")
+        if legacy_flattened:
             required_legacy = {
                 "assets/jammarr/lang/en_US.lang",
                 "stonytark/jammarr/core/server/ChunkTransferPolicy.class",
@@ -454,13 +491,18 @@ def verify_jar(path: Path, minecraft: str, loader: str, java: int,
             ):
                 verify_direct_interface(archive, interface_name, implementation_name, filename)
         else:
-            if "jammarr.mixins.json" not in names:
+            expected_mixin_name = ("jammarr.legacy-fabric.mixins.json"
+                                   if artifact_profile == "legacy-fabric-java8" else "jammarr.mixins.json")
+            if minecraft != "1.16.5" and expected_mixin_name not in names:
                 fail(f"{filename} is missing Mixin metadata")
-            mixin = json.loads(archive.read("jammarr.mixins.json"))
+            mixin = ({"compatibilityLevel": "JAVA_8"} if minecraft == "1.16.5"
+                     else json.loads(archive.read(expected_mixin_name)))
             # Forge 26.1.2 still embeds Mixin 0.8.7, whose highest declared
             # compatibility constant is JAVA_21. The classes themselves are
             # independently required to be Java 25 bytecode above.
-            mixin_java = 21 if minecraft in ("26.1.2", "26.2") and loader == "forge" else java
+            mixin_java = (17 if minecraft == "1.20.6" and loader == "forge"
+                          else 21 if minecraft in ("26.1.2", "26.2") and loader == "forge"
+                          else java)
             if mixin.get("compatibilityLevel") != f"JAVA_{mixin_java}":
                 fail(f"{filename} has incorrect Mixin Java compatibility")
             nested_prefix = "META-INF/jars" if loader == "fabric" else "META-INF/jarjar"
@@ -498,7 +540,7 @@ def main() -> int:
     if manifest.get("productVersion") != PRODUCT_VERSION or manifest.get("protocolVersion") != PROTOCOL_VERSION:
         fail("release manifest has incorrect product or protocol version")
 
-    expected_names = {f"jammarr-{PRODUCT_VERSION}+mc{mc}-{loader}.jar" for mc, loader, _, _, _ in TARGETS}
+    expected_names = {f"jammarr-{PRODUCT_VERSION}+mc{mc}-{loader}.jar" for mc, loader, _, _, _, _ in TARGETS}
     actual_names = {path.name for path in release_dir.glob("*.jar")}
     if actual_names != expected_names:
         fail(f"release JAR set mismatch; missing={sorted(expected_names - actual_names)}, extra={sorted(actual_names - expected_names)}")
@@ -517,7 +559,7 @@ def main() -> int:
     if set(sums) != expected_names:
         fail(f"SHA256SUMS does not cover exactly the {len(TARGETS)} canonical artifacts")
 
-    for minecraft, loader, java, major, artifact_profile in TARGETS:
+    for minecraft, loader, java, major, artifact_profile, quilt_compatible in TARGETS:
         filename = f"jammarr-{PRODUCT_VERSION}+mc{minecraft}-{loader}.jar"
         path = release_dir / filename
         digest = sha256(path)
@@ -526,15 +568,14 @@ def main() -> int:
         actual_identity = (entry.get("minecraftVersion"), entry.get("loader"), entry.get("javaVersion"))
         if actual_identity != expected_identity:
             fail(f"{filename} manifest identity is {actual_identity}, expected {expected_identity}")
-        expected_loaders = ["fabric", "quilt"] if loader == "fabric" else [loader]
+        expected_loaders = ["fabric", "quilt"] if quilt_compatible else [loader]
         if entry.get("compatibleLoaders") != expected_loaders:
             fail(f"{filename} has incorrect compatible loader declaration")
         if entry.get("productVersion") != PRODUCT_VERSION or entry.get("sha256") != digest or sums[filename] != digest:
             fail(f"{filename} manifest/checksum does not match artifact bytes")
         if not isinstance(entry.get("dependencies"), dict) or not entry["dependencies"]:
             fail(f"{filename} has no locked dependency versions in the manifest")
-        if loader == "fabric" \
-                and entry["dependencies"].get("quilt-loader") != "0.30.0":
+        if quilt_compatible and not isinstance(entry["dependencies"].get("quilt-loader"), str):
             fail(f"{filename} does not record the certified Quilt Loader version")
         verify_jar(path, minecraft, loader, java, major, artifact_profile)
 
