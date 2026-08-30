@@ -42,6 +42,7 @@ final class LegacyScreen extends GuiScreen {
     private final List<StationModels.StationSeed> waypoints = new ArrayList<StationModels.StationSeed>();
     private View view = View.NOW;
     private GuiTextField search;
+    private LegacyTextFieldState searchEditState;
     private String searchQuery = "";
     private String notice = "";
     private boolean requestPending;
@@ -57,6 +58,10 @@ final class LegacyScreen extends GuiScreen {
     }
 
     @Override public void initGui() {
+        if (search != null) {
+            searchEditState = LegacyTextFieldState.capture(search);
+            searchQuery = searchEditState.text();
+        }
         Keyboard.enableRepeatEvents(true);
         buttonList.clear();
         int left = Math.max(8, (width - 760) / 2);
@@ -72,6 +77,7 @@ final class LegacyScreen extends GuiScreen {
         if (view == View.SEARCH || view == View.ADVENTURE) {
             search = new GuiTextField(fontRendererObj, left, top, panel - 66, 20);
             search.setMaxStringLength(128); search.setText(searchQuery);
+            if (searchEditState != null) searchEditState.restore(search);
             button(GO, left + panel - 62, top, 62, 20, "Search");
             top += 26;
         } else search = null;
