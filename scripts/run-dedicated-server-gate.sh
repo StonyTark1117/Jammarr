@@ -121,6 +121,10 @@ targets=(
   "1.21.4-quilt|platforms/mc1.21.4/fabric|$java21_home|25750"
   "1.21.4-forge|platforms/mc1.21.4/forge|$java21_home|25751"
   "1.21.4-neoforge|platforms/mc1.21.4/neoforge|$java21_home|25752"
+  "1.21.5-fabric|platforms/mc1.21.5/fabric|$java21_home|25753"
+  "1.21.5-quilt|platforms/mc1.21.5/fabric|$java21_home|25754"
+  "1.21.5-forge|platforms/mc1.21.5/forge|$java21_home|25755"
+  "1.21.5-neoforge|platforms/mc1.21.5/neoforge|$java21_home|25756"
   "1.21.6-fabric|platforms/mc1.21.6/fabric|$java21_home|25733"
   "1.21.6-quilt|platforms/mc1.21.6/fabric|$java21_home|25734"
   "1.21.6-forge|platforms/mc1.21.6/forge|$java21_home|25735"
@@ -865,7 +869,7 @@ start_audio_client() {
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
   [[ "$role" == "leader" ]] && leader=true
   case "$label" in
-    1.16.5-forge|1.18.2-forge|1.19.2-forge|1.20-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge|1.20.3-forge|1.20.3-neoforge|1.20.4-forge|1.20.4-neoforge|1.20.5-neoforge|1.20.6-forge|1.20.6-neoforge|1.21.3-forge|1.21.4-forge|1.21.11-forge)
+    1.16.5-forge|1.18.2-forge|1.19.2-forge|1.20-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge|1.20.3-forge|1.20.3-neoforge|1.20.4-forge|1.20.4-neoforge|1.20.5-neoforge|1.20.6-forge|1.20.6-neoforge|1.21.3-forge|1.21.4-forge|1.21.5-forge|1.21.11-forge)
       cache_args+=(--no-configuration-cache)
       ;;
   esac
@@ -1795,7 +1799,7 @@ run_invalid_config_check_once() {
   [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
   case "$label" in
-    1.16.5-forge|1.18.2-forge|1.19.2-forge|1.20-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge|1.20.3-forge|1.20.3-neoforge|1.20.4-forge|1.20.4-neoforge|1.20.5-neoforge|1.20.6-forge|1.20.6-neoforge|1.21.3-forge|1.21.4-forge|1.21.11-forge)
+    1.16.5-forge|1.18.2-forge|1.19.2-forge|1.20-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge|1.20.3-forge|1.20.3-neoforge|1.20.4-forge|1.20.4-neoforge|1.20.5-neoforge|1.20.6-forge|1.20.6-neoforge|1.21.3-forge|1.21.4-forge|1.21.5-forge|1.21.11-forge)
       cache_args+=(--no-configuration-cache)
       ;;
   esac
@@ -1971,7 +1975,7 @@ run_target() {
     set_property "$run_dir/server.properties" rcon.password "$rcon_password"
   fi
   case "$label" in
-    1.16.5-forge|1.18.2-forge|1.19.2-forge|1.20-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge|1.20.3-forge|1.20.3-neoforge|1.20.4-forge|1.20.4-neoforge|1.20.5-neoforge|1.20.6-forge|1.20.6-neoforge|1.21.3-forge|1.21.4-forge|1.21.11-forge)
+    1.16.5-forge|1.18.2-forge|1.19.2-forge|1.20-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge|1.20.3-forge|1.20.3-neoforge|1.20.4-forge|1.20.4-neoforge|1.20.5-neoforge|1.20.6-forge|1.20.6-neoforge|1.21.3-forge|1.21.4-forge|1.21.5-forge|1.21.11-forge)
       cache_args+=(--no-configuration-cache)
       ;;
   esac
