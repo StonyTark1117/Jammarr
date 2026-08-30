@@ -37,6 +37,11 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
     private static final int GENERATED_PREVIEW_SIZE = 3;
     private static final long TRACK_START_DELAY_MS = 5_000L;
     private static final long PLEX_REVALIDATE_MS = 30_000L;
+    private static final int MAX_EGRESS_CHUNKS_PER_TICK = 32;
+    private static final long MAX_EGRESS_BYTES_PER_TICK = 512L * 1024L;
+    private static final int MAX_EGRESS_CHUNKS_PER_LISTENER = 32;
+    private static final int MAX_EGRESS_CHUNKS = 1_024;
+    private static final long MAX_EGRESS_BACKLOG_BYTES = 16L * 1024L * 1024L;
 
     private enum PlexHealth { VALIDATING, ONLINE, OFFLINE }
 
@@ -59,6 +64,9 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
     private final SlidingWindowRateLimiter manifestLimits = new SlidingWindowRateLimiter();
     private final Map<UUID, ChunkTransferPolicy.State> transfers = new HashMap<UUID, ChunkTransferPolicy.State>();
     private final Map<UUID, ListenerStats> listenerStats = new HashMap<UUID, ListenerStats>();
+    private final FairEgressScheduler<UUID, P, JammarrMessage> egress =
+            new FairEgressScheduler<UUID, P, JammarrMessage>(MAX_EGRESS_CHUNKS_PER_LISTENER,
+                    MAX_EGRESS_CHUNKS, MAX_EGRESS_BACKLOG_BYTES);
     private final RetryGate preparationRetry = new RetryGate();
     private final Deque<QueueTrack> generated = new ArrayDeque<QueueTrack>();
 
@@ -146,6 +154,12 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
     }
 
     public void tick() {
+        egress.drain(MAX_EGRESS_CHUNKS_PER_TICK, MAX_EGRESS_BYTES_PER_TICK,
+                new FairEgressScheduler.Sender<P, JammarrMessage>() {
+                    @Override public void send(P player, JammarrMessage message) {
+                        runtime.send(player, message);
+                    }
+                });
         long now = System.currentTimeMillis();
         boolean empty = runtime.playerCount() == 0;
         if (EmptyServerPausePolicy.shouldPause(JammarrSettings.pauseWhenEmpty(), empty,
@@ -393,18 +407,27 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
                 TRACK_START_DELAY_MS + ChunkTransferPolicy.MAX_PLAYBACK_LEAD_MS)) {
             rejectedChunkRequests++; stats.rejected++; return;
         }
-        stats.accepted++;
         int end = start + request.count();
-        transfers.put(runtime.playerId(player), ChunkTransferPolicy.begin(
-                sessionId, request.requestId(), start, request.count(), now));
-        if (request.requestId() == 1L) runtime.logger().info("Jammarr sent the initial audio chunk window to " + runtime.playerId(player));
+        List<FairEgressScheduler.Item<JammarrMessage>> outgoing =
+                new ArrayList<FairEgressScheduler.Item<JammarrMessage>>(request.count());
         for (int index = start; index < end; index++) {
             Mp3FrameIndex.Chunk chunk = asset.chunks().get(index);
-            send(player, new TransportPackets.AudioChunk(sessionId,
-                    request.requestId(), chunk.index(), chunk.startMs(), chunk.sha256(), chunk.data()));
-            if (index == start) AudioTimingTrace.record("chunk_window_sent", "request", request.requestId(),
-                    "start", start, "count", request.count());
+            outgoing.add(new FairEgressScheduler.Item<JammarrMessage>(
+                    new TransportPackets.AudioChunk(sessionId, request.requestId(), chunk.index(),
+                            chunk.startMs(), chunk.sha256(), chunk.data()), chunk.data().length));
         }
+        if (!egress.enqueueBatch(runtime.playerId(player), player, outgoing)) {
+            rejectedChunkRequests++; stats.rejected++;
+            AudioTimingTrace.record("chunk_window_rejected", "request", request.requestId(),
+                    "start", start, "count", request.count());
+            return;
+        }
+        stats.accepted++;
+        transfers.put(runtime.playerId(player), ChunkTransferPolicy.begin(
+                sessionId, request.requestId(), start, request.count(), now));
+        if (request.requestId() == 1L) runtime.logger().info("Jammarr queued the initial audio chunk window for " + runtime.playerId(player));
+        AudioTimingTrace.record("chunk_window_queued", "request", request.requestId(),
+                "start", start, "count", request.count());
     }
 
     public void acknowledge(P player, TransportPackets.ChunkAcknowledgement acknowledgement) {
@@ -443,7 +466,7 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
 
     public void playerLeft(P player) {
         UUID id = runtime.playerId(player);
-        transfers.remove(id); listenerStats.remove(id); browseLimits.remove(id); queueLimits.remove(id);
+        egress.remove(id); transfers.remove(id); listenerStats.remove(id); browseLimits.remove(id); queueLimits.remove(id);
         stationLimits.remove(id); chunkLimits.remove(id); acknowledgementLimits.remove(id); manifestLimits.remove(id);
     }
 
@@ -479,6 +502,8 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
                 + ", cacheInstalls=" + stats.installs() + ", listeners=" + listenerStats.size()
                 + ", chunkRequests=" + chunkRequests + ", chunkAcks=" + chunkAcknowledgements
                 + ", chunkRejected=" + rejectedChunkRequests + ", preparing=" + preparing.get()
+                + ", egressItems=" + egress.backlogItems() + ", egressBytes=" + egress.backlogBytes()
+                + ", egressRejected=" + egress.rejectedBatches()
                 + ", prefetching=" + prefetching.get() + ", generating=" + generating.get()
                 + ", current=" + cacheState(saved.current()) + ", next=" + cacheState(nextTrack())
                 + ", station=" + stationStatus() + ", listenerHealth=" + listenerHealth()
@@ -669,7 +694,7 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
     }
 
     private void stopAudio() {
-        asset = null; sessionId = null; timeline.stop(); transfers.clear();
+        asset = null; sessionId = null; timeline.stop(); transfers.clear(); egress.clear();
         for (P player : runtime.players()) send(player, emptyManifest());
     }
 

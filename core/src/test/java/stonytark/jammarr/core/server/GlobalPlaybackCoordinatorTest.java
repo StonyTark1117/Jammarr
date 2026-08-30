@@ -24,6 +24,7 @@ import java.util.function.BooleanSupplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GlobalPlaybackCoordinatorTest {
@@ -66,6 +67,13 @@ class GlobalPlaybackCoordinatorTest {
             assertEquals("plex-track", store.current().key());
             assertEquals(StatePackets.PlaybackOrigin.MANUAL, store.currentOrigin());
             await(() -> runtime.last(runtime.listener, TransportPackets.AudioManifest.class) != null);
+            TransportPackets.AudioManifest manifest =
+                    runtime.last(runtime.listener, TransportPackets.AudioManifest.class);
+            coordinator.chunks(runtime.listener,
+                    new TransportPackets.ChunkRequest(manifest.sessionId(), 1L, 0, 1));
+            assertNull(runtime.last(runtime.listener, TransportPackets.AudioChunk.class));
+            coordinator.tick();
+            assertNotNull(runtime.last(runtime.listener, TransportPackets.AudioChunk.class));
             assertTrue(store.dirtyCount > 0);
         } finally {
             coordinator.close();
