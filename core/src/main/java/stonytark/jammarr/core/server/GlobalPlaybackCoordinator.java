@@ -24,11 +24,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 /** Java 8, Minecraft-independent server-authoritative playback coordinator. */
@@ -49,7 +45,7 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
     private final PlexGateway plex;
     private final StationGenerator stationGenerator;
     private final AudioCache cache;
-    private final ExecutorService io = createIoExecutor();
+    private final BoundedWorkExecutor io = new BoundedWorkExecutor(3, 64, "jammarr-io-");
     private final PlaybackStore saved;
     private final PlaybackTimeline timeline = new PlaybackTimeline(System::currentTimeMillis);
     private final AtomicBoolean preparing = new AtomicBoolean();
@@ -68,6 +64,8 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
             new FairEgressScheduler<UUID, P, JammarrMessage>(MAX_EGRESS_CHUNKS_PER_LISTENER,
                     MAX_EGRESS_CHUNKS, MAX_EGRESS_BACKLOG_BYTES);
     private final RetryGate preparationRetry = new RetryGate();
+    private final RetryGate generationRetry = new RetryGate();
+    private final RetryGate prefetchRetry = new RetryGate();
     private final Deque<QueueTrack> generated = new ArrayDeque<QueueTrack>();
 
     private AudioAsset asset;
@@ -121,12 +119,12 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
         sonicMessage = "Checking Plex Pass and sonic analysis";
         lastPlexValidation = System.currentTimeMillis();
         broadcastState();
-        CompletableFuture.supplyAsync(new Supplier<PlexService.SonicStatus>() {
+        io.supply(new Supplier<PlexService.SonicStatus>() {
             @Override public PlexService.SonicStatus get() {
                 try { plex.validate(); return plex.sonicStatus(); }
                 catch (Exception error) { throw new RuntimeException(error); }
             }
-        }, io).whenComplete((status, error) -> runtime.execute(new Runnable() {
+        }).whenComplete((status, error) -> runtime.execute(new Runnable() {
             @Override public void run() {
                 validating.set(false);
                 nextPlexValidation = System.currentTimeMillis() + PLEX_REVALIDATE_MS;
@@ -144,6 +142,12 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
                     runtime.logger().info("Jammarr connected to Plex; sonic capability is " + sonicCapability);
                     ensureCurrent();
                     requestGeneration();
+                } else if (workQueueFull(error)) {
+                    plexHealth = PlexHealth.OFFLINE;
+                    sonicCapability = StationModels.SonicCapability.PLEX_OFFLINE;
+                    sonicMessage = "Plex validation is waiting for background capacity";
+                    plexDiagnostic = "Background work queue is full; Plex validation will retry";
+                    nextPlexValidation = System.currentTimeMillis() + 1_000L;
                 } else {
                     markPlexFailure(error);
                     runtime.logger().warn("Jammarr Plex validation failed: " + safe(error), root(error));
@@ -167,6 +171,7 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
         else if (EmptyServerPausePolicy.shouldResume(autoPaused, empty)) resumeInternal();
         if (asset == null && saved.current() != null && preparationRetry.ready(now)) prepareCurrent();
         if (asset == null && saved.current() == null) ensureCurrent();
+        if (asset != null && prefetchRetry.ready(now)) prefetchNext();
         if (timeline.ended()) finishCurrent();
         if (generated.size() < GENERATED_PREVIEW_SIZE) requestGeneration();
         if (plexHealth == PlexHealth.OFFLINE && now >= nextPlexValidation) validatePlex();
@@ -207,16 +212,21 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
                     request.kind(), query, page, false, Collections.<StationModels.MediaItem>emptyList()));
             return;
         }
-        CompletableFuture.supplyAsync(new Supplier<PlexService.Page>() {
+        io.supply(new Supplier<PlexService.Page>() {
             @Override public PlexService.Page get() {
                 try { return plex.browse(request.kind(), query, page, PAGE_SIZE); }
                 catch (Exception error) { throw new RuntimeException(error); }
             }
-        }, io).whenComplete((result, error) -> runtime.execute(new Runnable() {
+        }).whenComplete((result, error) -> runtime.execute(new Runnable() {
             @Override public void run() {
                 if (error != null) {
-                    markPlexFailure(error);
-                    sendError(player, StatePackets.ErrorCode.PLEX_OFFLINE, "Plex browsing is currently unavailable");
+                    if (workQueueFull(error)) {
+                        sendError(player, StatePackets.ErrorCode.RATE_LIMITED,
+                                "Jammarr is busy; retry browsing shortly");
+                    } else {
+                        markPlexFailure(error);
+                        sendError(player, StatePackets.ErrorCode.PLEX_OFFLINE, "Plex browsing is currently unavailable");
+                    }
                 } else {
                     send(player,
                             new ControlPackets.BrowseResults(request.kind(), query, page, result.hasMore(), result.items()));
@@ -232,16 +242,21 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
             sendError(player, StatePackets.ErrorCode.QUEUE_FULL, "The global manual queue is full");
             return;
         }
-        CompletableFuture.supplyAsync(new Supplier<List<QueueTrack>>() {
+        io.supply(new Supplier<List<QueueTrack>>() {
             @Override public List<QueueTrack> get() {
                 try { return plex.expand(request.kind(), request.key(), available); }
                 catch (Exception error) { throw new RuntimeException(error); }
             }
-        }, io).whenComplete((tracks, error) -> runtime.execute(new Runnable() {
+        }).whenComplete((tracks, error) -> runtime.execute(new Runnable() {
             @Override public void run() {
                 if (error != null) {
-                    markPlexFailure(error);
-                    sendError(player, StatePackets.ErrorCode.PLEX_OFFLINE, "Unable to queue that Plex item");
+                    if (workQueueFull(error)) {
+                        sendError(player, StatePackets.ErrorCode.RATE_LIMITED,
+                                "Jammarr is busy; retry that request shortly");
+                    } else {
+                        markPlexFailure(error);
+                        sendError(player, StatePackets.ErrorCode.PLEX_OFFLINE, "Unable to queue that Plex item");
+                    }
                     return;
                 }
                 if (tracks.isEmpty()) {
@@ -365,15 +380,18 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
         if (sonicCapability != StationModels.SonicCapability.READY) {
             sendError(player, StatePackets.ErrorCode.INVALID_REQUEST, sonicMessage); return;
         }
-        CompletableFuture.supplyAsync(new Supplier<StationGenerator.GeneratedBatch>() {
+        io.supply(new Supplier<StationGenerator.GeneratedBatch>() {
             @Override public StationGenerator.GeneratedBatch get() {
                 try { return stationGenerator.generate(requested, Collections.<QueueTrack>emptyList(), sonicCapability, false); }
                 catch (Exception error) { throw new RuntimeException(error); }
             }
-        }, io).whenComplete((batch, error) -> runtime.execute(new Runnable() {
+        }).whenComplete((batch, error) -> runtime.execute(new Runnable() {
             @Override public void run() {
                 if (error != null) {
-                    sendError(player, StatePackets.ErrorCode.INVALID_REQUEST, safe(root(error))); return;
+                    sendError(player, workQueueFull(error) ? StatePackets.ErrorCode.RATE_LIMITED
+                            : StatePackets.ErrorCode.INVALID_REQUEST,
+                            workQueueFull(error) ? "Jammarr is busy; retry the preview shortly" : safe(root(error)));
+                    return;
                 }
                 List<StatePackets.QueueEntry> path = new ArrayList<StatePackets.QueueEntry>();
                 for (QueueTrack track : batch.tracks()) {
@@ -504,6 +522,8 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
                 + ", chunkRejected=" + rejectedChunkRequests + ", preparing=" + preparing.get()
                 + ", egressItems=" + egress.backlogItems() + ", egressBytes=" + egress.backlogBytes()
                 + ", egressRejected=" + egress.rejectedBatches()
+                + ", workActive=" + io.activeTasks() + ", workQueued=" + io.queuedTasks()
+                + ", workRejected=" + io.rejectedTasks()
                 + ", prefetching=" + prefetching.get() + ", generating=" + generating.get()
                 + ", current=" + cacheState(saved.current()) + ", next=" + cacheState(nextTrack())
                 + ", station=" + stationStatus() + ", listenerHealth=" + listenerHealth()
@@ -533,13 +553,18 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
         }
         final int bitrate = JammarrSettings.audioBitrateKbps();
         final Set<Path> pinned = pinnedPaths(cache.target(track.key(), bitrate));
-        CompletableFuture.supplyAsync(new Supplier<PreparedAsset>() {
+        io.supply(new Supplier<PreparedAsset>() {
             @Override public PreparedAsset get() { return prepare(track, bitrate, pinned); }
-        }, io).whenComplete((prepared, error) -> runtime.execute(new Runnable() {
+        }).whenComplete((prepared, error) -> runtime.execute(new Runnable() {
             @Override public void run() {
                 preparing.set(false);
                 if (saved.current() == null || !saved.current().key().equals(track.key())) return;
                 if (error != null) {
+                    if (workQueueFull(error)) {
+                        preparationRetry.deferUntil(System.currentTimeMillis() + 500L);
+                        plexDiagnostic = "Background work queue is full; track preparation is deferred";
+                        return;
+                    }
                     if (TrackFailurePolicy.action(error) == TrackFailurePolicy.Action.WAIT_FOR_PLEX) {
                         markPlexFailure(error); preparationRetry.deferUntil(nextPlexValidation); broadcastState(); return;
                     }
@@ -593,22 +618,28 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
         final StationModels.StationDefinition definition = activeDefinition();
         if (!definition.active() || generated.size() >= StationGenerator.LOOKAHEAD_TARGET
                 || plexHealth != PlexHealth.ONLINE || suspendedGeneration == definition.generation()
+                || !generationRetry.ready(System.currentTimeMillis())
                 || definition.adventure() && adventureLoadedGeneration == definition.generation()
                 || !generating.compareAndSet(false, true)) return;
         final long generation = definition.generation();
         final List<QueueTrack> history = new ArrayList<QueueTrack>(saved.history());
-        CompletableFuture.supplyAsync(new Supplier<StationGenerator.GeneratedBatch>() {
+        io.supply(new Supplier<StationGenerator.GeneratedBatch>() {
             @Override public StationGenerator.GeneratedBatch get() {
                 try { return stationGenerator.generate(definition, history, sonicCapability,
                         JammarrSettings.stationMetadataFallbackEnabled()); }
                 catch (Exception error) { throw new RuntimeException(error); }
             }
-        }, io).whenComplete((batch, error) -> runtime.execute(new Runnable() {
+        }).whenComplete((batch, error) -> runtime.execute(new Runnable() {
             @Override public void run() {
                 generating.set(false);
                 if (activeDefinition().generation() != generation
                         || activeDefinition().type() != definition.type()) return;
                 if (error != null) {
+                    if (workQueueFull(error)) {
+                        generationRetry.deferUntil(System.currentTimeMillis() + 500L);
+                        generationMessage = "Station generation is waiting for background capacity";
+                        return;
+                    }
                     Throwable cause = root(error); generationMessage = safe(cause);
                     if (cause instanceof PlexException
                             && (((PlexException) cause).kind() == PlexException.Kind.OFFLINE
@@ -619,6 +650,7 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
                     broadcastState(); return;
                 }
                 suspendedGeneration = -1L;
+                generationRetry.clear();
                 Set<String> existing = new HashSet<String>();
                 for (QueueTrack track : generated) existing.add(track.key());
                 if (saved.current() != null) existing.add(saved.current().key());
@@ -638,14 +670,20 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
         if (!prefetching.compareAndSet(false, true)) return;
         final int bitrate = JammarrSettings.audioBitrateKbps();
         final Set<Path> pinned = pinnedPaths(cache.target(track.key(), bitrate));
-        CompletableFuture.supplyAsync(new Supplier<PreparedAsset>() {
+        io.supply(new Supplier<PreparedAsset>() {
             @Override public PreparedAsset get() { return prepare(track, bitrate, pinned); }
-        }, io).whenComplete((prepared, error) -> runtime.execute(new Runnable() {
+        }).whenComplete((prepared, error) -> runtime.execute(new Runnable() {
             @Override public void run() {
                 prefetching.set(false);
                 QueueTrack expected = nextTrack();
                 if (expected == null || !expected.key().equals(track.key())) { prefetchNext(); return; }
-                if (error == null) { prefetched = prepared; cache.trim(pinnedPaths(prepared.asset.path())); }
+                if (error == null) {
+                    prefetchRetry.clear();
+                    prefetched = prepared; cache.trim(pinnedPaths(prepared.asset.path()));
+                }
+                else if (workQueueFull(error)) {
+                    prefetchRetry.deferUntil(System.currentTimeMillis() + 500L);
+                }
                 else if (TrackFailurePolicy.action(error) == TrackFailurePolicy.Action.WAIT_FOR_PLEX) markPlexFailure(error);
             }
         }));
@@ -956,19 +994,18 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
 
     private String safe(Throwable error) { return SecretRedactor.message(error, JammarrSettings.plexToken()); }
     private static boolean blank(String value) { return value == null || value.trim().isEmpty(); }
+    private static boolean workQueueFull(Throwable error) {
+        Throwable value = error;
+        while (value != null) {
+            if (value instanceof BoundedWorkExecutor.WorkQueueFullException) return true;
+            value = value.getCause();
+        }
+        return false;
+    }
     private static Throwable root(Throwable error) {
         Throwable value = error;
         while (value.getCause() != null) value = value.getCause();
         return value;
-    }
-
-    private static ExecutorService createIoExecutor() {
-        final AtomicInteger sequence = new AtomicInteger();
-        return Executors.newFixedThreadPool(3, runnable -> {
-            Thread thread = new Thread(runnable, "jammarr-legacy-io-" + sequence.getAndIncrement());
-            thread.setDaemon(true);
-            return thread;
-        });
     }
 
     private static final class PreparedAsset {
@@ -987,6 +1024,6 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
     @Override public void close() {
         saved.update(positionMs(), timeline.paused());
         stopAudio();
-        io.shutdownNow();
+        io.close();
     }
 }
