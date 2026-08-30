@@ -20,6 +20,7 @@ def plannedArtifacts = targetManifest.targets.collectMany { target ->
         [minecraft: target.minecraft as String,
          java: target.java.runtime as Integer,
          buildJava: (loader.buildJava ?: target.java.build) as Integer,
+         buildJvmOptions: (loader.buildJvmOptions ?: []) as List,
          bytecodeJava: target.java.bytecode as Integer,
          loader: loader.id as String,
          status: loader.status as String,
@@ -77,6 +78,11 @@ implementedArtifacts.each { artifact ->
             if (buildJavaHome == null) throw new GradleException("No build JDK configured for Java ${artifact.buildJava}")
             environment 'JAVA_HOME', buildJavaHome
             environment 'PATH', "${buildJavaHome}/bin:${System.getenv('PATH')}"
+            if (!artifact.buildJvmOptions.isEmpty()) {
+                String inheritedJavaOptions = System.getenv('JAVA_TOOL_OPTIONS') ?: ''
+                environment 'JAVA_TOOL_OPTIONS',
+                        ([inheritedJavaOptions] + artifact.buildJvmOptions).findAll { !it.isBlank() }.join(' ')
+            }
             List<String> arguments = ['./gradlew', 'verifyRelease']
             if (!(artifact.minecraft in ['1.7.10', '1.12.2'])
                     && !(artifact.minecraft == '1.16.5' && artifact.loader == 'forge')) {
