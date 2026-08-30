@@ -2,6 +2,9 @@
 
 ## 1.0.2 - 2026-08-28
 
+- Give Forge 1.7.10 PCM a single direct OpenAL queue owner instead of routing it through Paulscode's competing stream-maintenance and raw-feed paths, prevent stopped queues from replaying stale PCM, keep a larger backend reserve across ordinary client hitches, and extend rendered legacy audio verification beyond the former ten-second window.
+- Prevent every client backend from starting before its authoritative chunk boundary or without enough decoded PCM to discard startup delay, trim late starts at PCM-sample alignment instead of whole MP3 frames, reject incomplete catch-up, and rebuild on every authoritative timeline change so old and replacement audio cannot overlap.
+- Make the rendered-audio oracle reject deliberately injected early, late, replayed, reordered, and overlapping PCM instead of relying only on cadence and silence.
 - Fix the Forge 1.7.10 handshake-timeout crash reported on Uranium by removing pending state before disconnect callbacks can fire, and extend the production hello deadline from five to sixty seconds.
 - Apply the sixty-second hello policy to every Fabric and Quilt runtime while retaining an acceptance-only short timeout for deterministic missing-client tests.
 - Prefer the Plex music library titled `Music` when `musicLibrary` is blank, and fail closed when unscoped metadata, playlists, native radio, or sonic results do not belong to the selected library.

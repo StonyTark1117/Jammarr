@@ -114,6 +114,12 @@ tasks.withType(Test).configureEach {
     }
 }
 
+def verifyAudioTimingAnalyzer = tasks.register('verifyAudioTimingAnalyzer', Exec) {
+    group = 'verification'
+    description = 'Proves the rendered-audio oracle rejects early, late, reordered, and overlapping PCM.'
+    commandLine('python3', layout.projectDirectory.file('scripts/test-audio-timing-analyzer.py').asFile)
+}
+
 tasks.named('jar', Jar) {
     archiveFileName = "${mod_id}-${mod_version}+mc${minecraft_version}-neoforge.jar"
     from('THIRD_PARTY_NOTICES.md') {
@@ -135,7 +141,7 @@ def releaseEntries = [coreJarEntry, 'META-INF/jarjar/jlayer-1.0.1.jar', 'META-IN
                       'META-INF/THIRD_PARTY_NOTICES.md', 'META-INF/neoforge.mods.toml',
                       'assets/jammarr/lang/en_us.json', 'jammarr.mixins.json', 'jammarr.png']
 tasks.register('verifyRelease') {
-    dependsOn(tasks.named('test'), tasks.named('jar'))
+    dependsOn(tasks.named('test'), tasks.named('jar'), verifyAudioTimingAnalyzer)
     doLast {
         new java.util.zip.ZipFile(releaseArchive.get().asFile).withCloseable { zip ->
             def found = zip.entries().collect { it.name } as Set

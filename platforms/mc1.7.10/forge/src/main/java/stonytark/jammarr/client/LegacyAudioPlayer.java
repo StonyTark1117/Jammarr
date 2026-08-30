@@ -7,7 +7,7 @@ import stonytark.jammarr.Jammarr;
 import stonytark.jammarr.core.client.ChunkWindowTracker;
 import stonytark.jammarr.core.client.ClockSynchronizer;
 import stonytark.jammarr.core.client.DriftPolicy;
-import stonytark.jammarr.core.client.PcmGain;
+import stonytark.jammarr.core.client.PlaybackStartPolicy;
 import stonytark.jammarr.core.network.Hashing;
 import stonytark.jammarr.core.platform.JammarrSettings;
 import stonytark.jammarr.core.protocol.StatePackets;
@@ -23,13 +23,16 @@ import java.io.IOException;
 import java.util.Optional;
 import java.util.UUID;
 
-/** PCM streaming backend for Minecraft 1.7.10's Paulscode/OpenAL sound engine. */
+/** PCM streaming backend using Minecraft 1.7.10's existing OpenAL context. */
 final class LegacyAudioPlayer {
-    private static final String SOURCE = "jammarr:global_music";
     // Keep enough of the server's five-second lead for the first MP3 chunk's
-    // boundary offset so Paulscode can start at the authoritative timestamp.
+    // boundary offset so OpenAL can start at the authoritative timestamp.
     private static final long START_BUFFER_MS = 2_000L;
-    private static final long TARGET_SOUND_QUEUE_MS = 1_000L;
+    private static final long START_ALIGNMENT_TOLERANCE_MS = 2L;
+    // Keep several seconds in OpenAL so an ordinary client-thread hitch cannot
+    // drain the complete queue between feed calls.
+    private static final long TARGET_SOUND_QUEUE_MS = 3_000L;
+    private static final long BACKEND_ACTIVATION_GRACE_MS = 1_000L;
     private static final long DRIFT_REBUFFER_MS = 500L;
     private static final long UNDERRUN_GRACE_MS = 5_000L;
     private static final long MISSING_MANIFEST_RETRY_MS = 2_000L;
@@ -42,10 +45,12 @@ final class LegacyAudioPlayer {
     private LegacyStreamingMp3Decoder decoder;
     private ChunkWindowTracker window;
     private SoundSystem soundSystem;
+    private LegacyOpenAlStream openAlStream;
     private long firstChunkStartMs = -1L;
     private long sourceStartedLocalMs;
     private long sourceStartedPositionMs;
     private long queuedUntilLocalMs;
+    private long backendActivationGraceUntilMs;
     private long lastAudioDataMs;
     private long lastCorrectionMs;
     private long lastRecoveryMs;
@@ -70,23 +75,28 @@ final class LegacyAudioPlayer {
         AudioTimingTrace.record("manifest_received", "firstChunk", value.firstChunk(),
                 "scheduledEpochMs", value.startedAtEpochMs());
         if (value.totalChunks() == 0 || value.sessionId().equals(new UUID(0L, 0L))) { stop(); return; }
-        // Queue pause ahead of any timeline rebuffer/cleanup. Paulscode runs
-        // these commands asynchronously, and cleanup-first can let a fragment
-        // of the old raw stream escape after the shared state says PAUSED.
-        if (value.paused() && started && soundSystem != null) soundSystem.pause(SOURCE);
+        boolean wasPaused = manifest != null && manifest.paused();
+        if (value.paused() && started && openAlStream != null) openAlStream.pause();
         if (manifest == null || !manifest.sessionId().equals(value.sessionId())) {
             resetAudio(); manifest = value; recoveryAttempts = 0; receivedChunks = 0; underruns = 0;
             lastHealthSentMs = 0L; lastHealthState = ""; recoveryFailed = false;
             if (JammarrSettings.enabled()) beginStreaming();
         } else {
+            // The server timeline is exact. Cancel and rebuild even for a
+            // short pause/resume or seek so the old source cannot overlap the
+            // replacement timeline.
             boolean timelineChanged = value.firstChunk() != manifest.firstChunk()
-                    || Math.abs(value.startedAtEpochMs() - manifest.startedAtEpochMs()) > DRIFT_REBUFFER_MS;
+                    || value.startedAtEpochMs() != manifest.startedAtEpochMs();
             manifest = value;
             if (timelineChanged && JammarrSettings.enabled() && !recoveryFailed) rebuffer();
             else if (decoder == null && JammarrSettings.enabled() && !recoveryFailed) beginStreaming();
         }
-        if (started && soundSystem != null) {
-            if (value.paused()) soundSystem.pause(SOURCE); else soundSystem.play(SOURCE);
+        if (started && openAlStream != null) {
+            if (value.paused()) openAlStream.pause();
+            else {
+                if (wasPaused) backendActivationGraceUntilMs = System.currentTimeMillis() + BACKEND_ACTIVATION_GRACE_MS;
+                openAlStream.play();
+            }
         }
     }
 
@@ -143,14 +153,42 @@ final class LegacyAudioPlayer {
         }
         Minecraft minecraft = Minecraft.getMinecraft();
         SoundSystem current = LegacySoundAccess.soundSystem(minecraft);
-        if (started && current != soundSystem) { requestRebuffer("sound engine reload"); return; }
-        long localStart = clock.toLocalTime(manifest.startedAtEpochMs() + Math.max(0L, firstChunkStartMs));
+        if (started && current != soundSystem) {
+            // Numeric OpenAL handles belong to the discarded context and must
+            // not be deleted after Minecraft has installed the replacement.
+            openAlStream = null;
+            soundSystem = null;
+            requestRebuffer("sound engine reload");
+            return;
+        }
+        long decodedStartPosition = Math.max(0L, firstChunkStartMs)
+                + decoder.initialPcmDelayMillis();
+        long localStart = clock.toLocalTime(manifest.startedAtEpochMs() + decodedStartPosition);
+        long authoritativePosition = Math.max(0L,
+                clock.toServerTime(now) - manifest.startedAtEpochMs());
+        PlaybackStartPolicy.Decision startDecision = PlaybackStartPolicy.evaluate(
+                authoritativePosition, decodedStartPosition,
+                decoder.bufferedMillis(), START_BUFFER_MS);
         if (!started && !manifest.paused() && JammarrSettings.enabled() && clock.readyForPlayback()
-                && decoder.format() != null && decoder.bufferedMillis() >= START_BUFFER_MS
+                && decoder.format() != null && startDecision.ready()
                 && firstChunkStartMs >= 0L && now >= localStart) {
             startSource(current, now);
         }
-        if (started && soundSystem != null) {
+        if (started && openAlStream != null) {
+            if (!manifest.paused()) {
+                boolean terminal = decoder.finished() && window.complete() && now >= queuedUntilLocalMs;
+                boolean backendPlaying = openAlStream.playing();
+                if (!backendPlaying && terminal) { stop(); return; }
+                if (LegacyBackendQueueGuard.shouldRecover(false, terminal, backendPlaying,
+                        now, backendActivationGraceUntilMs)) {
+                    // Never restart a stopped source by appending to its old
+                    // queue. Tear it down before supplying more PCM and resume
+                    // from the authoritative position instead.
+                    underruns++;
+                    requestRebuffer("legacy backend underrun");
+                    return;
+                }
+            }
             if (!manifest.paused() && !feedPcm(now)) return;
             if (!manifest.paused() && decoder.bufferedMillis() == 0L && !window.complete()
                     && now - lastAudioDataMs > UNDERRUN_GRACE_MS) {
@@ -164,7 +202,7 @@ final class LegacyAudioPlayer {
                 }
                 lastCorrectionMs = now;
             }
-            if (!manifest.paused() && !soundSystem.playing(SOURCE) && decoder.finished()
+            if (!manifest.paused() && !openAlStream.playing() && decoder.finished()
                     && window.complete() && now >= queuedUntilLocalMs) stop();
         }
         sendHealthIfNeeded(now);
@@ -173,29 +211,47 @@ final class LegacyAudioPlayer {
     private void startSource(SoundSystem system, long now) {
         if (system == null) { requestRebuffer("sound engine unavailable"); return; }
         soundSystem = system;
-        soundSystem.rawDataStream(decoder.format(), true, SOURCE, 0.0F, 0.0F, 0.0F, 0, 0.0F);
-        soundSystem.setLooping(SOURCE, false);
-        soundSystem.setAttenuation(SOURCE, 0);
-        long authoritativePosition = Math.max(firstChunkStartMs,
+        try {
+            openAlStream = new LegacyOpenAlStream(decoder.format());
+        } catch (RuntimeException unavailable) {
+            soundSystem = null;
+            Jammarr.LOGGER.warn("Unable to create Jammarr's legacy OpenAL stream", unavailable);
+            requestRebuffer("sound engine unavailable");
+            return;
+        }
+        long decodedStartPosition = firstChunkStartMs + decoder.initialPcmDelayMillis();
+        long authoritativePosition = Math.max(decodedStartPosition,
                 clock.toServerTime(now) - manifest.startedAtEpochMs());
-        long skippedMillis = decoder.discardMillis(authoritativePosition - firstChunkStartMs);
+        long requiredSkipMs = authoritativePosition - decodedStartPosition;
+        long bufferedBeforeSkipMs = decoder.bufferedMillis();
+        long skippedMillis = decoder.discardMillis(requiredSkipMs);
+        if (!PlaybackStartPolicy.caughtUp(requiredSkipMs, skippedMillis,
+                START_ALIGNMENT_TOLERANCE_MS)) {
+            Jammarr.LOGGER.warn("Jammarr legacy source could not align before start: "
+                    + "requiredSkipMs={} discardedMs={} bufferedBeforeMs={} bufferedAfterMs={}",
+                    requiredSkipMs, skippedMillis, bufferedBeforeSkipMs, decoder.bufferedMillis());
+            requestRebuffer("late audio source startup");
+            return;
+        }
         sourceStartedLocalMs = now;
-        sourceStartedPositionMs = Math.max(0L, firstChunkStartMs + skippedMillis);
+        sourceStartedPositionMs = Math.max(0L, decodedStartPosition + skippedMillis);
         lastCorrectionMs = now;
         queuedUntilLocalMs = now;
+        backendActivationGraceUntilMs = now + BACKEND_ACTIVATION_GRACE_MS;
         started = true;
         openAcceptancePcmTrace();
         AudioTimingTrace.record("channel_started", "positionMs", sourceStartedPositionMs,
-                "scheduledLocalMs", now, "skippedMs", skippedMillis);
-        // A live Paulscode source proves the previous recovery succeeded, so
+                "scheduledLocalMs", now, "requiredSkipMs", requiredSkipMs,
+                "skippedMs", skippedMillis, "decoderWarmupMs", decoder.initialPcmDelayMillis());
+        // A live OpenAL source proves the previous recovery succeeded, so
         // only consecutive failures consume the retry allowance.
         recoveryAttempts = 0;
-        if (!feedPcm(now) || soundSystem == null) return;
-        soundSystem.play(SOURCE);
+        if (!feedPcm(now) || openAlStream == null) return;
+        openAlStream.play();
     }
 
     private boolean feedPcm(long now) {
-        if (soundSystem == null) return false;
+        if (openAlStream == null) return false;
         queuedUntilLocalMs = Math.max(now, queuedUntilLocalMs);
         try {
             while (queuedUntilLocalMs - now < TARGET_SOUND_QUEUE_MS) {
@@ -209,14 +265,14 @@ final class LegacyAudioPlayer {
                 traceAcceptancePcm(pcm);
                 double volume = JammarrSettings.volume()
                         * Minecraft.getMinecraft().gameSettings.getSoundLevel(SoundCategory.MUSIC);
-                PcmGain.apply(pcm, volume);
                 if (Double.compare(volume, appliedVolume) != 0) {
                     appliedVolume = volume;
+                    openAlStream.gain((float) volume);
                     if (ProtocolLimits.audioProbeEnabled()) {
                         Jammarr.LOGGER.info("Acceptance backend volume applied: {}", volume);
                     }
                 }
-                soundSystem.feedRawAudioData(SOURCE, pcm);
+                openAlStream.feed(pcm);
                 queuedUntilLocalMs += decoder.durationMs(pcm);
             }
             return true;
@@ -245,6 +301,10 @@ final class LegacyAudioPlayer {
         if (now - lastSoundReloadMs < SOUND_RELOAD_DEBOUNCE_MS) return;
         lastSoundReloadMs = now;
         soundUnavailable = false;
+        // The event may arrive after Minecraft replaced the OpenAL context;
+        // discard old numeric handles without touching the new context.
+        openAlStream = null;
+        soundSystem = null;
         if (manifest != null) requestRebuffer("sound engine reload");
     }
 
@@ -347,12 +407,12 @@ final class LegacyAudioPlayer {
 
     private void resetAudio() {
         closeAcceptancePcmTrace();
-        SoundSystem previous = soundSystem;
+        LegacyOpenAlStream previous = openAlStream;
+        openAlStream = null;
         soundSystem = null;
         if (previous != null) {
-            try {
-                previous.stop(SOURCE); previous.flush(SOURCE); previous.removeSource(SOURCE);
-            } catch (Throwable unavailable) {
+            try { previous.close(); }
+            catch (Throwable unavailable) {
                 Jammarr.LOGGER.warn("Jammarr legacy sound engine changed during cleanup", unavailable);
             }
         }
@@ -360,6 +420,7 @@ final class LegacyAudioPlayer {
         window = null; started = false; firstChunkStartMs = -1L;
         appliedVolume = Double.NaN;
         sourceStartedLocalMs = 0L; sourceStartedPositionMs = 0L; queuedUntilLocalMs = 0L;
+        backendActivationGraceUntilMs = 0L;
     }
 
     private void openAcceptancePcmTrace() {
@@ -401,6 +462,8 @@ final class LegacyAudioPlayer {
         if (soundUnavailable) return;
         soundUnavailable = true;
         recoveryFailed = true;
+        openAlStream = null;
+        soundSystem = null;
         resetAudio();
         Jammarr.LOGGER.error("Jammarr legacy audio disabled after an unusable OpenAL context", unavailable);
     }

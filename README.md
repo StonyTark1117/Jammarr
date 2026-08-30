@@ -119,7 +119,7 @@ The Stations and Adventure tabs report whether Plex Pass is unavailable, library
 
 Useful narrower gates are `verify1201Family`, `verify1202Family`, `verify1211Family`, `verify2612Family`, `verify262Family`, `verifyQuiltRuntimes`, `verifyLegacy1710`, and `verifyGameTests`. Each target's `verifyRelease` checks loader metadata, translations, decoder dependencies, license notices, canonical filename, and other target-specific invariants. The legacy verifier additionally checks all Jammarr classes are Java 8 bytecode.
 
-`scripts/run-audio-impairment-matrix.sh` reruns the representative 1.7.10, 1.20.1, and 26.2 client matrix with direct transport, 150 ms latency, 20–250 ms jitter, a two-second stall, repeated 250 ms client stalls, and a six-second below-bitrate overload. The gate uses a deterministic 997 Hz carrier with alternating 1477/1975 Hz markers every 250 ms and fails on post-start silence over 60 ms, marker error over 40 ms, onset over 300 ms, or two-client skew over 150 ms.
+`scripts/run-audio-impairment-matrix.sh` reruns the representative 1.7.10, 1.20.1, and 26.2 client matrix with direct transport, 150 ms latency, 20–250 ms jitter, a two-second stall, repeated 250 ms client stalls, and a six-second below-bitrate overload. The gate uses a deterministic 997 Hz carrier with pseudo-random 1477/1975 Hz marker identities every 250 ms, so it detects early, late, replayed, reordered, or overlapping PCM as well as post-start silence over 60 ms, marker displacement, late onset, and two-client skew. Its oracle self-test deliberately injects each timing fault before release verification can pass.
 
 Release checklist:
 

@@ -765,7 +765,12 @@ start_audio_client() {
       ;;
   esac
 
-  mkdir -p "$client_dir/config"
+  mkdir -p "$client_dir/config" "$client_dir/pcm-trace"
+  # A target's acceptance game directory is intentionally reusable, but its
+  # pre-backend PCM traces are evidence for this launch only. Leaving an older
+  # larger trace here can make the strict analyzer select stale audio while
+  # the current client is still appending its trace.
+  rm -f -- "$client_dir/pcm-trace/"*.s16le
   : > "$client_console"
   : > "$control_file"
   printf '%s\n' \
@@ -1372,8 +1377,14 @@ run_two_client_audio() {
   local module leader_pid follower_pid recorder_pid result=0 client_port="$port"
   local proxy_port_file="$output_root/$label.audio-proxy.port"
   local proxy_event_log="$output_root/$label.audio-proxy.jsonl"
+  local capture_seconds=11 minimum_duration_ms=10000
   local -a rendered_timing_args=()
   if [[ "$label" == "1.7.10-forge" ]]; then
+    # The legacy backend can carry several processed OpenAL buffers before a
+    # raw-stream restart exposes stale-buffer replay. Cover sustained playback,
+    # not only the first two compressed transfer windows.
+    capture_seconds=31
+    minimum_duration_ms=30000
     rendered_timing_args+=(--maximum-marker-error-ms 120 --maximum-skew-ms 250)
   fi
 
@@ -1426,7 +1437,7 @@ run_two_client_audio() {
     parec --raw --latency-msec=50 --device="${sink_follower}.monitor" --format=s16le --rate=48000 --channels=2 \
       > "$raw_follower" &
     recorder_pid=$!; active_audio_recorder_pids+=("$recorder_pid")
-    sleep 11
+    sleep "$capture_seconds"
   fi
 
   for recorder_pid in "${active_audio_recorder_pids[@]}"; do
@@ -1443,7 +1454,7 @@ run_two_client_audio() {
     result=1
   fi
   if (( result == 0 )) && ! python3 "$repo_root/scripts/analyze-audio-timing.py" \
-      "$raw_leader" --reference "$raw_follower" --minimum-duration-ms 10000 \
+      "$raw_leader" --reference "$raw_follower" --minimum-duration-ms "$minimum_duration_ms" \
       "${rendered_timing_args[@]}" \
       > "$output_root/$label.audio-timing.json"; then
     echo "$label: deterministic audio timing thresholds failed" >&2
@@ -1455,9 +1466,9 @@ run_two_client_audio() {
       trace=$(find "$output_root/$label.audio-$role/pcm-trace" -type f -name '*.s16le' \
         -printf '%s\t%p\n' 2>/dev/null | sort -nr | head -n 1 | cut -f 2-)
       if [[ -z "$trace" ]] || ! python3 "$repo_root/scripts/analyze-audio-timing.py" \
-          "$trace" --sample-rate 44100 --minimum-duration-ms 10000 \
+          "$trace" --sample-rate 44100 --minimum-duration-ms "$minimum_duration_ms" \
           > "$output_root/$label.audio-$role-fed-timing.json"; then
-        echo "$label: $role PCM supplied to Paulscode failed strict timing thresholds" >&2
+        echo "$label: $role PCM supplied to OpenAL failed strict timing thresholds" >&2
         result=1
         break
       fi
@@ -1474,11 +1485,11 @@ run_two_client_audio() {
       grep -F 'Acceptance audio state: PLAYING' "$output_root/$label.audio-follower.console.log" | tail -n 1
       grep -E 'mean_volume:|max_volume:' "$metrics_leader" | tail -n 2
       grep -E 'mean_volume:|max_volume:' "$metrics_follower" | tail -n 2
-      sed -n '/"duration_ms"\|"marker_count"\|"max_marker_interval_error_ms"\|"max_silence_ms"\|"inter_client_skew_ms"/p' \
+      sed -n '/"duration_ms"\|"marker_count"\|"max_marker_interval_error_ms"\|"marker_sequence_mismatches"\|"max_marker_overlap_ms"\|"max_silence_ms"\|"inter_client_skew_ms"/p' \
         "$output_root/$label.audio-timing.json"
       if [[ "$label" == "1.7.10-forge" ]]; then
-        printf 'Strict pre-backend Paulscode feed timing:\n'
-        sed -n '/"duration_ms"\|"marker_count"\|"max_marker_interval_error_ms"\|"max_silence_ms"/p' \
+        printf 'Strict pre-backend OpenAL feed timing:\n'
+        sed -n '/"duration_ms"\|"marker_count"\|"max_marker_interval_error_ms"\|"marker_sequence_mismatches"\|"max_marker_overlap_ms"\|"max_silence_ms"/p' \
           "$output_root/$label.audio-"{leader,follower}"-fed-timing.json"
       fi
       printf 'Network profile: %s\n' "$network_profile"

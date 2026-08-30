@@ -49,6 +49,46 @@ class StreamingMp3DecoderTest {
         }
     }
 
+    @Test
+    void lateStartupCanTrimInsideADecodedMp3Frame() throws Exception {
+        var chunks = Mp3FrameIndex.split(encodeTestTrack());
+        StreamingMp3Decoder decoder = new StreamingMp3Decoder(0, chunks.size());
+        try {
+            for (Mp3FrameIndex.Chunk chunk : chunks) assertTrue(decoder.offer(chunk.index(), chunk.data()));
+            await(() -> decoder.format() != null && decoder.bufferedMillis() >= 500);
+            await(decoder::finished);
+
+            long before = decoder.bufferedMillis();
+            long discarded = decoder.discardMillis(137);
+            long after = decoder.bufferedMillis();
+
+            assertTrue(Math.abs(discarded - 137) <= 1,
+                    "startup trimming must not be quantized to a whole 26 ms MP3 frame");
+            assertTrue(Math.abs((before - after) - discarded) <= 1);
+            assertNotNull(decoder.poll());
+        } finally {
+            decoder.close();
+        }
+    }
+
+    @Test
+    void midStreamDecodeReportsBitReservoirWarmupBeforeAlignment() throws Exception {
+        var chunks = Mp3FrameIndex.split(encodeTestTrack());
+        StreamingMp3Decoder decoder = new StreamingMp3Decoder(1, chunks.size());
+        try {
+            for (Mp3FrameIndex.Chunk chunk : chunks.subList(1, chunks.size())) {
+                assertTrue(decoder.offer(chunk.index(), chunk.data()));
+            }
+            await(() -> decoder.format() != null && decoder.bufferedMillis() >= 500);
+            await(decoder::finished);
+            assertTrue(decoder.initialPcmDelayMillis() > 0,
+                    "a mid-stream Layer III decoder must expose its bit-reservoir warm-up delay");
+            assertTrue(Math.abs(decoder.discardMillis(137) - 137) <= 1);
+        } finally {
+            decoder.close();
+        }
+    }
+
     private static byte[] encodeTestTrack() throws Exception {
         AudioFormat source = new AudioFormat(44_100, 16, 2, true, false);
         LameEncoder encoder = new LameEncoder(source, 160, LameEncoder.CHANNEL_MODE_STEREO,

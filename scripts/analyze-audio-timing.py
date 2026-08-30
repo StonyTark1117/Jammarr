@@ -9,6 +9,16 @@ import sys
 from pathlib import Path
 
 
+def marker_type(slot: int) -> int:
+    value = (slot + 0x9E3779B9) & 0xFFFFFFFF
+    value ^= value >> 16
+    value = (value * 0x7FEB352D) & 0xFFFFFFFF
+    value ^= value >> 15
+    value = (value * 0x846CA68B) & 0xFFFFFFFF
+    value ^= value >> 16
+    return value & 1
+
+
 def goertzel(samples: list[float], sample_rate: int, frequency: float) -> float:
     coefficient = 2.0 * math.cos(2.0 * math.pi * frequency / sample_rate)
     previous = 0.0
@@ -33,6 +43,7 @@ def analyze(path: Path, sample_rate: int) -> dict:
     window = max(1, sample_rate // 100)
     labels: list[int] = []
     silent: list[bool] = []
+    overlapping: list[bool] = []
     for offset in range(0, len(samples) - window + 1, window):
         frame = samples[offset:offset + window]
         rms = math.sqrt(sum(value * value for value in frame) / len(frame))
@@ -41,6 +52,14 @@ def analyze(path: Path, sample_rate: int) -> dict:
         low = goertzel(frame, sample_rate, 1477.0)
         high = goertzel(frame, sample_rate, 1975.0)
         strongest = max(low, high)
+        weakest = min(low, high)
+        # The fixture emits exactly one marker identity at a time, with a
+        # carrier-only gap between slots. Sustained energy in both identities
+        # therefore identifies two different PCM regions being mixed rather
+        # than an ordinary marker transition.
+        overlapping.append(strongest > carrier * 0.40
+                           and weakest > carrier * 0.25
+                           and strongest < weakest * 4.0)
         # LWJGL 2 / Paulscode attenuates the lower marker relative to the
         # always-present carrier.  Dominance over the other marker frequency
         # keeps this selective while allowing the 1.7.10 capture path to use
@@ -70,6 +89,11 @@ def analyze(path: Path, sample_rate: int) -> dict:
     for value in silent[first_marker_window:]:
         current_silence = current_silence + 10 if value else 0
         longest_silence = max(longest_silence, current_silence)
+    longest_overlap = 0
+    current_overlap = 0
+    for value in overlapping[first_marker_window:]:
+        current_overlap = current_overlap + 10 if value else 0
+        longest_overlap = max(longest_overlap, current_overlap)
     # Compare steady markers with the 250 ms cadence lattice. Pairwise interval
     # error can double two opposite edge-estimation errors (especially through
     # LWJGL2/Paulscode) even though neither marker moved beyond the limit. Pulse
@@ -91,13 +115,39 @@ def analyze(path: Path, sample_rate: int) -> dict:
         marker_error = max(0, max(displacements) - 10)
     else:
         marker_error = 10**9
+    # Marker cadence alone cannot distinguish a roughly one-period replay from
+    # valid audio. Score the detected marker identities against the generated
+    # pseudo-random sequence so stale or out-of-order PCM changes the sequence
+    # even when its timing wraps near the 250 ms lattice.
+    observed: dict[int, tuple[int, int]] = {}
+    if cadence_runs:
+        anchor = cadence_runs[0][1]
+        for label, marker_time, duration in cadence_runs:
+            slot = round((marker_time - anchor) / 250)
+            previous = observed.get(slot)
+            if previous is None or duration > previous[1]:
+                observed[slot] = (label, duration)
+    sequence_mismatches = 10**9
+    sequence_phase = None
+    if len(observed) >= 4:
+        for phase in range(4096):
+            mismatches = sum(label != marker_type(phase + slot)
+                             for slot, (label, _) in observed.items())
+            if mismatches < sequence_mismatches:
+                sequence_mismatches = mismatches
+                sequence_phase = phase
+                if mismatches == 0:
+                    break
     return {
         "file": str(path),
         "duration_ms": round(len(samples) * 1000.0 / sample_rate),
         "first_marker_ms": runs[0][1] if runs else None,
         "marker_count": len(runs),
         "max_marker_interval_error_ms": marker_error,
+        "marker_sequence_mismatches": sequence_mismatches,
+        "marker_sequence_phase": sequence_phase,
         "max_silence_ms": longest_silence,
+        "max_marker_overlap_ms": longest_overlap,
         "markers": [{"type": label, "time_ms": time, "duration_ms": duration}
                     for label, time, duration in runs],
     }
@@ -134,6 +184,10 @@ def validate_stream(value: dict, label: str, args: argparse.Namespace,
         failures.append(f"{prefix}post-start silence gap exceeded the threshold")
     if value["max_marker_interval_error_ms"] > args.maximum_marker_error_ms:
         failures.append(f"{prefix}marker displacement exceeded the threshold")
+    if value["marker_sequence_mismatches"] > args.maximum_sequence_mismatches:
+        failures.append(f"{prefix}marker sequence indicates replayed or out-of-order audio")
+    if value["max_marker_overlap_ms"] > args.maximum_overlap_ms:
+        failures.append(f"{prefix}simultaneous markers indicate overlapping audio")
 
 
 def main() -> None:
@@ -147,6 +201,8 @@ def main() -> None:
     parser.add_argument("--maximum-onset-ms", type=int, default=300)
     parser.add_argument("--maximum-silence-ms", type=int, default=60)
     parser.add_argument("--maximum-marker-error-ms", type=int, default=40)
+    parser.add_argument("--maximum-sequence-mismatches", type=int, default=2)
+    parser.add_argument("--maximum-overlap-ms", type=int, default=20)
     parser.add_argument("--maximum-skew-ms", type=int, default=150)
     args = parser.parse_args()
 

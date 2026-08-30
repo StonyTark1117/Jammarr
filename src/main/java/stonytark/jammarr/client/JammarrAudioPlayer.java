@@ -4,6 +4,7 @@ import stonytark.jammarr.core.client.ChunkWindowTracker;
 import stonytark.jammarr.core.client.ClockSynchronizer;
 import stonytark.jammarr.core.client.DriftPolicy;
 import stonytark.jammarr.core.client.AsyncStartGuard;
+import stonytark.jammarr.core.client.PlaybackStartPolicy;
 import stonytark.jammarr.core.network.Hashing;
 import com.mojang.blaze3d.audio.Library;
 import net.minecraft.client.Minecraft;
@@ -26,6 +27,7 @@ public final class JammarrAudioPlayer {
     // minimum. Requiring the full five-second lead here made an on-time start
     // impossible and allowed clients to settle hundreds of milliseconds apart.
     private static final long START_BUFFER_MS = 2_000;
+    private static final long START_ALIGNMENT_TOLERANCE_MS = 2;
     private static final long DRIFT_REBUFFER_MS = 500;
     private static final long UNDERRUN_GRACE_MS = 5_000;
     private static final long MISSING_MANIFEST_RETRY_MS = 2_000;
@@ -70,7 +72,11 @@ public final class JammarrAudioPlayer {
             resetAudio(); manifest = value; recoveryAttempts = 0; underruns = 0; lastHealthSentMs = 0; lastHealthState = ""; recoveryFailed = false;
             if (JammarrSettings.enabled()) beginStreaming();
         } else {
-            boolean timelineChanged = value.firstChunk() != manifest.firstChunk() || Math.abs(value.startedAtEpochMs() - manifest.startedAtEpochMs()) > DRIFT_REBUFFER_MS;
+            // startedAtEpochMs is an authoritative timeline generation, not a
+            // noisy measurement. Even a short pause/resume or seek must cancel
+            // a pending channel so old and new PCM can never overlap.
+            boolean timelineChanged = value.firstChunk() != manifest.firstChunk()
+                    || value.startedAtEpochMs() != manifest.startedAtEpochMs();
             manifest = value;
             if (timelineChanged && JammarrSettings.enabled() && !recoveryFailed) rebuffer();
             else if (decoder == null && JammarrSettings.enabled() && !recoveryFailed) beginStreaming();
@@ -131,13 +137,17 @@ public final class JammarrAudioPlayer {
         });
         Minecraft minecraft = Minecraft.getInstance();
         if (JammarrSettings.enabled()) minecraft.getMusicManager().stopPlaying();
-        long localStart = clock.toLocalTime(manifest.startedAtEpochMs() + Math.max(0, firstChunkStartMs));
+        long decodedStartPosition = Math.max(0, firstChunkStartMs) + decoder.initialPcmDelayMillis();
+        long localStart = clock.toLocalTime(manifest.startedAtEpochMs() + decodedStartPosition);
+        long authoritativePosition = Math.max(0, clock.toServerTime(now) - manifest.startedAtEpochMs());
+        PlaybackStartPolicy.Decision startDecision = PlaybackStartPolicy.evaluate(
+                authoritativePosition, decodedStartPosition, decoder.bufferedMillis(), START_BUFFER_MS);
         // Read the synchronized guard before the volatile publication flag.
         // The async sound thread clears pending only after publishing started;
         // the reverse order can use a stale false and create a second channel.
         if (!channelStarts.pending() && !started && !manifest.paused() && JammarrSettings.enabled()
                 && clock.readyForPlayback() && decoder.format() != null
-                && decoder.bufferedMillis() >= START_BUFFER_MS && firstChunkStartMs >= 0
+                && startDecision.ready() && firstChunkStartMs >= 0
                 && now >= localStart) {
             startChannel(now);
         }
@@ -173,8 +183,10 @@ public final class JammarrAudioPlayer {
             }
             if (!manifest.paused() && now - lastCorrectionMs >= 2_000) {
                 long estimatedPosition = channelStartedPositionMs + Math.max(0, now - channelStartedLocalMs);
-                long authoritativePosition = Math.max(0, clock.toServerTime(now) - manifest.startedAtEpochMs());
-                if (DriftPolicy.shouldRebuffer(estimatedPosition, authoritativePosition, DRIFT_REBUFFER_MS)) requestRebuffer("clock drift");
+                long authoritativePlaybackPosition = Math.max(0,
+                        clock.toServerTime(now) - manifest.startedAtEpochMs());
+                if (DriftPolicy.shouldRebuffer(estimatedPosition,
+                        authoritativePlaybackPosition, DRIFT_REBUFFER_MS)) requestRebuffer("clock drift");
                 lastCorrectionMs = now;
             }
         }
@@ -243,7 +255,8 @@ public final class JammarrAudioPlayer {
         if (startToken < 0) return;
         StreamingMp3Decoder startingDecoder = decoder;
         UUID startingSession = manifest.sessionId();
-        long startingPosition = Math.max(0, firstChunkStartMs);
+        long startingPosition = Math.max(0, firstChunkStartMs) + startingDecoder.initialPcmDelayMillis();
+        long startingEpochMs = manifest.startedAtEpochMs();
         ChannelAccess access = channelAccess(Minecraft.getInstance().getSoundManager());
         access.createHandle(Library.Pool.STREAMING).whenComplete((handle, error) -> {
             if (error != null || handle == null) {
@@ -251,15 +264,29 @@ public final class JammarrAudioPlayer {
                 return;
             }
             handle.execute(value -> {
+                long readyNow = System.currentTimeMillis();
+                long requiredSkipMs = Math.max(0,
+                        clock.toServerTime(readyNow) - startingEpochMs - startingPosition);
+                long bufferedBeforeSkipMs = startingDecoder.bufferedMillis();
+                long skippedMillis = startingDecoder.discardMillis(requiredSkipMs);
+                if (!PlaybackStartPolicy.caughtUp(requiredSkipMs, skippedMillis,
+                        START_ALIGNMENT_TOLERANCE_MS)) {
+                    Jammarr.LOGGER.warn("Jammarr channel could not align before start: "
+                                    + "requiredSkipMs={} discardedMs={} bufferedBeforeMs={} bufferedAfterMs={}",
+                            requiredSkipMs, skippedMillis, bufferedBeforeSkipMs,
+                            startingDecoder.bufferedMillis());
+                    boolean current = channelStarts.complete(startToken);
+                    value.stop();
+                    if (current) requestRebuffer("late audio channel startup");
+                    return;
+                }
                 boolean published = channelStarts.complete(startToken, () -> {
-                    long readyNow = System.currentTimeMillis();
-                    long authoritativePosition = Math.max(startingPosition,
-                            clock.toServerTime(readyNow) - manifest.startedAtEpochMs());
-                    long skippedMillis = startingDecoder.discardMillis(authoritativePosition - startingPosition);
                     long actualPosition = startingPosition + skippedMillis;
                     AudioTimingTrace.record("channel_started", "positionMs", actualPosition,
                             "scheduledLocalMs", now, "readyLocalMs", readyNow,
-                            "skippedMs", skippedMillis);
+                            "requiredSkipMs", requiredSkipMs, "skippedMs", skippedMillis,
+                            "decoderWarmupMs", startingDecoder.initialPcmDelayMillis(),
+                            "session", startingSession);
                     // Recovery attempts are consecutive failures, not a lifetime budget
                     // for the current track. Reaching a working OpenAL channel proves the
                     // previous attempt succeeded and restores the normal retry allowance.
