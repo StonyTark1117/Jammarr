@@ -64,9 +64,9 @@ public final class JammarrServer {
         });
     }
 
-    public void hello(ServerPlayer sender) {
+    public void hello(ServerPlayer sender, JammarrPayloads.ClientHello payload) {
         if (capabilities.accept(sender.getUUID(), JammarrNetwork.PROTOCOL, JammarrNetwork.PROTOCOL)
-                && player != null) player.hello(sender);
+                && player != null) player.hello(sender, payload.features(), payload.audioChunkBytes(), payload.chunksPerRequest());
     }
     public boolean accepted(ServerPlayer sender) { return capabilities.capable(sender.getUUID()); }
     public void browse(ServerPlayer sender, JammarrPayloads.BrowseRequest request) { if (accepted(sender) && player != null) player.browse(sender, request); }

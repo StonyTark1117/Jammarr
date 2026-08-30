@@ -58,7 +58,7 @@ public final class JammarrNetwork {
                 // An immediate disconnect can close before the terminal packet is
                 // delivered, leaving this client version with only "Disconnected".
                 player.connection.send(new ClientboundDisconnectPacket(reason));
-            } else JammarrServer.instance().hello(player);
+            } else JammarrServer.instance().hello(player, payload);
         });
         receive(JammarrPayloads.TimeSyncRequest.ID, JammarrPayloads.TimeSyncRequest::read, (player, payload) -> {
             if (JammarrServer.instance().accepted(player)) sendToPlayer(player,

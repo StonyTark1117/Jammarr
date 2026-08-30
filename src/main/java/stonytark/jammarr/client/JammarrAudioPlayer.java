@@ -37,6 +37,7 @@ public final class JammarrAudioPlayer {
     private JammarrPayloads.AudioManifest manifest;
     private StreamingMp3Decoder decoder;
     private ChunkWindowTracker window;
+    private int chunksPerRequest = stonytark.jammarr.core.protocol.ProtocolCapabilities.CHUNKS_PER_REQUEST;
     private volatile ChannelAccess.ChannelHandle channel;
     private long firstChunkStartMs = -1;
     private long channelStartedLocalMs;
@@ -57,6 +58,12 @@ public final class JammarrAudioPlayer {
     private final AsyncStartGuard channelStarts = new AsyncStartGuard();
 
     public JammarrAudioPlayer(ClockSynchronizer clock) { this.clock = clock; }
+
+    public void transportLimits(int negotiatedChunksPerRequest) {
+        chunksPerRequest = Math.max(1, Math.min(
+                stonytark.jammarr.core.protocol.ProtocolCapabilities.CHUNKS_PER_REQUEST,
+                negotiatedChunksPerRequest));
+    }
 
     public void manifest(JammarrPayloads.AudioManifest value) {
         AudioTimingTrace.record("manifest_received", "firstChunk", value.firstChunk(),
@@ -243,7 +250,7 @@ public final class JammarrAudioPlayer {
         AudioTimingTrace.record("decoder_started", "firstChunk", manifest.firstChunk());
         firstChunkStartMs = -1;
         decoder = new StreamingMp3Decoder(manifest.firstChunk(), manifest.totalChunks());
-        window = new ChunkWindowTracker(manifest.firstChunk(), manifest.totalChunks(), 8, 1_500);
+        window = new ChunkWindowTracker(manifest.firstChunk(), manifest.totalChunks(), chunksPerRequest, 1_500);
         lastAudioDataMs = System.currentTimeMillis();
         lastRecoveryMs = 0;
         receivedChunks = 0;

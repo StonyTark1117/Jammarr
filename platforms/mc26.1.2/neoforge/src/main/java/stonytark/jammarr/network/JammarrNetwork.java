@@ -57,7 +57,7 @@ public final class JammarrNetwork {
                 // packet is delivered. The client closes itself on receipt.
                 player.connection.send(new ClientboundDisconnectPacket(Component.literal(reason)));
             } else {
-                context.enqueueWork(() -> JammarrServer.instance().hello((ServerPlayer)context.player()));
+                context.enqueueWork(() -> JammarrServer.instance().hello((ServerPlayer)context.player(), payload));
             }
         });
         registrar.playToServer(JammarrPayloads.TimeSyncRequest.TYPE, JammarrPayloads.TimeSyncRequest.CODEC,

@@ -44,6 +44,7 @@ final class LegacyAudioPlayer {
     private TransportPackets.AudioManifest manifest;
     private LegacyStreamingMp3Decoder decoder;
     private ChunkWindowTracker window;
+    private int chunksPerRequest = stonytark.jammarr.core.protocol.ProtocolCapabilities.CHUNKS_PER_REQUEST;
     private SoundSystem soundSystem;
     private LegacyOpenAlStream openAlStream;
     private long firstChunkStartMs = -1L;
@@ -70,6 +71,12 @@ final class LegacyAudioPlayer {
     private FileOutputStream acceptancePcmTrace;
 
     LegacyAudioPlayer(ClockSynchronizer clock) { this.clock = clock; }
+
+    void transportLimits(int negotiatedChunksPerRequest) {
+        chunksPerRequest = Math.max(1, Math.min(
+                stonytark.jammarr.core.protocol.ProtocolCapabilities.CHUNKS_PER_REQUEST,
+                negotiatedChunksPerRequest));
+    }
 
     void manifest(TransportPackets.AudioManifest value) {
         AudioTimingTrace.record("manifest_received", "firstChunk", value.firstChunk(),
@@ -313,7 +320,7 @@ final class LegacyAudioPlayer {
         timingDrainRecorded = false;
         firstChunkStartMs = -1L;
         decoder = new LegacyStreamingMp3Decoder(manifest.firstChunk(), manifest.totalChunks());
-        window = new ChunkWindowTracker(manifest.firstChunk(), manifest.totalChunks(), 8, 1_500L);
+        window = new ChunkWindowTracker(manifest.firstChunk(), manifest.totalChunks(), chunksPerRequest, 1_500L);
         lastAudioDataMs = System.currentTimeMillis();
         lastRecoveryMs = 0L; receivedChunks = 0; recovering = false;
     }

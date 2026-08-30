@@ -49,7 +49,7 @@ public final class JammarrNetwork {
             if (!protocolMatches(payload.protocolVersion())) {
                 context.disconnect(Component.literal("Jammarr protocol mismatch: server requires version " + PROTOCOL));
             } else {
-                context.enqueueWork(() -> JammarrServer.instance().hello((ServerPlayer)context.player()));
+                context.enqueueWork(() -> JammarrServer.instance().hello((ServerPlayer)context.player(), payload));
             }
         });
         registrar.playToServer(JammarrPayloads.TimeSyncRequest.TYPE, JammarrPayloads.TimeSyncRequest.CODEC,

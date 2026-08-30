@@ -37,6 +37,7 @@ public final class JammarrClientState {
     private int acceptanceConfigScreenTicks;
     private boolean acceptanceAudioQueued;
     private AudioPlaybackState lastAcceptanceAudioState;
+    private boolean audioNegotiated;
 
     public void accept(JammarrMessage payload) {
         Minecraft minecraft = Minecraft.getInstance();
@@ -52,6 +53,14 @@ public final class JammarrClientState {
                         "Jammarr protocol mismatch: server requires version " + value.protocolVersion()));
             } else {
                 notice = "";
+                stonytark.jammarr.core.protocol.ProtocolCapabilities.Negotiated negotiated =
+                        stonytark.jammarr.core.protocol.ProtocolCapabilities.negotiate(
+                                value.features(), value.audioChunkBytes(), value.chunksPerRequest());
+                audio.transportLimits(negotiated.chunksPerRequest());
+                audioNegotiated = negotiated.supports(stonytark.jammarr.core.protocol.ProtocolCapabilities.AUDIO_STREAMING);
+                if (!audioNegotiated) {
+                    notice = "The server did not negotiate Jammarr audio streaming";
+                }
                 requestTimeSync();
                 queueAcceptanceAudio();
             }
@@ -84,11 +93,13 @@ public final class JammarrClientState {
             adventurePreview = value;
             if (minecraft.screen instanceof JammarrScreen screen) screen.adventurePreviewChanged();
         } else if (payload instanceof JammarrPayloads.AudioManifest value) {
+            if (!audioNegotiated) return;
             if (ProtocolLimits.audioProbeEnabled()) Jammarr.LOGGER.info(
                     "Acceptance audio manifest: session={} title={} firstChunk={} paused={}",
                     value.sessionId(), value.title(), value.firstChunk(), value.paused());
             audio.manifest(value);
         } else if (payload instanceof JammarrPayloads.AudioChunk value) {
+            if (!audioNegotiated) return;
             audio.chunk(value);
         } else if (payload instanceof JammarrPayloads.ErrorMessage value) {
             notice = value.message();
@@ -162,6 +173,7 @@ public final class JammarrClientState {
         acceptanceScreenProbeSent = false; acceptanceScreenVerified = false; acceptanceScreenTicks = 0;
         acceptanceConfigScreenVerified = false; acceptanceConfigScreenTicks = 0;
         acceptanceAudioQueued = false; lastAcceptanceAudioState = null;
+        audioNegotiated = false;
         acceptanceControl.reset();
         playback = new JammarrPayloads.PlaybackState(JammarrPayloads.PlaybackStatus.IDLE, "", "", "", true, 0, 0, 0, false, List.of());
         station = new JammarrPayloads.StationState(JammarrPayloads.StationType.NONE, false, false, 0,

@@ -44,6 +44,7 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
     private String lastAcceptanceAudioState = "";
     private long lastTimeSync;
     private String notice = "";
+    private boolean audioNegotiated;
 
     @Override public void accept(LegacyPacketTypes.Type<?> type, Object message) {
         Minecraft minecraft = Minecraft.getMinecraft();
@@ -59,6 +60,12 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
                         new ChatComponentText("Jammarr protocol mismatch: server requires version "
                                 + hello.protocolVersion()));
             } else {
+                stonytark.jammarr.core.protocol.ProtocolCapabilities.Negotiated negotiated =
+                        stonytark.jammarr.core.protocol.ProtocolCapabilities.negotiate(
+                                hello.features(), hello.audioChunkBytes(), hello.chunksPerRequest());
+                audio.transportLimits(negotiated.chunksPerRequest());
+                audioNegotiated = negotiated.supports(stonytark.jammarr.core.protocol.ProtocolCapabilities.AUDIO_STREAMING);
+                notice = audioNegotiated ? "" : "The server did not negotiate Jammarr audio streaming";
                 requestTimeSync();
                 queueAcceptanceAudio();
             }
@@ -86,12 +93,14 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
         } else if (type == LegacyPacketTypes.ADVENTURE_PREVIEW) {
             adventure = (StatePackets.AdventurePreview) message; screenChanged();
         } else if (type == LegacyPacketTypes.AUDIO_MANIFEST) {
+            if (!audioNegotiated) return;
             TransportPackets.AudioManifest manifest = (TransportPackets.AudioManifest) message;
             if (ProtocolLimits.audioProbeEnabled()) Jammarr.LOGGER.info(
                     "Acceptance audio manifest: session={} title={} firstChunk={} paused={}",
                     manifest.sessionId(), manifest.title(), manifest.firstChunk(), manifest.paused());
             audio.manifest(manifest);
         } else if (type == LegacyPacketTypes.AUDIO_CHUNK) {
+            if (!audioNegotiated) return;
             audio.chunk((TransportPackets.AudioChunk) message);
         } else if (type == LegacyPacketTypes.ERROR) {
             notice = ((StatePackets.ErrorMessage) message).message();
@@ -143,6 +152,7 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
 
     void stop() {
         audio.stop(); clock.reset(); notice = ""; helloSent = false; helloEligibleAt = 0L; commandProbeSent = false;
+        audioNegotiated = false;
         operatorProbeSent = false; lastTimeSync = 0L;
         acceptanceAudioQueued = false; lastAcceptanceAudioState = "";
         acceptanceScreenOpened = false; acceptanceScreenLogged = false; acceptanceScreenTicks = 0;

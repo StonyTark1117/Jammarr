@@ -7,7 +7,7 @@ package stonytark.jammarr.core.protocol;
  * change update both sides of the assertion.
  */
 public final class ProtocolGoldenVectors {
-    public static final String CLIENT_HELLO = "06";
+    public static final String CLIENT_HELLO = "060f80800108";
     public static final String BROWSE_REQUEST = "000341264202";
     public static final String STATION_REQUEST = "0107000c010002343204536f6e6706417274697374";
     public static final String CHUNK_REQUEST = "00112233445566778899aabbccddeeffac021108";

@@ -11,6 +11,16 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class ControlPacketCodecTest {
+    @Test void protocolSixHelloAdvertisesFeaturesAndTransportLimits() {
+        ControlPackets.ClientHello value = new ControlPackets.ClientHello(ProtocolLimits.VERSION);
+        byte[] bytes = encode(ControlPackets.CLIENT_HELLO, value);
+        assertEquals(ProtocolGoldenVectors.CLIENT_HELLO, hex(bytes));
+        ControlPackets.ClientHello decoded = ControlPackets.CLIENT_HELLO.decode(new ByteArrayWireInput(bytes));
+        assertEquals(ProtocolCapabilities.SUPPORTED_FEATURES, decoded.features());
+        assertEquals(ProtocolCapabilities.AUDIO_CHUNK_BYTES, decoded.audioChunkBytes());
+        assertEquals(ProtocolCapabilities.CHUNKS_PER_REQUEST, decoded.chunksPerRequest());
+    }
+
     @Test void nonIndexedControlRoundTripsItsNegativeSentinel() {
         ControlPackets.ControlRequest value = new ControlPackets.ControlRequest(
                 ControlPackets.ControlAction.PAUSE, -1, "");
@@ -21,7 +31,7 @@ class ControlPacketCodecTest {
         assertEquals("", decoded.expectedKey());
     }
 
-    @Test void protocolFiveStationRequestMatchesGoldenVector() {
+    @Test void protocolSixStationRequestMatchesGoldenVector() {
         ControlPackets.StationRequest request = new ControlPackets.StationRequest(
                 ControlPackets.StationAction.START_NOW, StationType.SONIC_ADVENTURE, false, 12,
                 Collections.singletonList(new StationSeed(ItemKind.TRACK, "42", "Song", "Artist")));

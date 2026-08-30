@@ -55,7 +55,7 @@ public final class JammarrNetwork {
                         String reason = "Jammarr protocol mismatch: server requires version " + PROTOCOL;
                         Jammarr.LOGGER.warn("Disconnecting {}: {}", player.getGameProfile().getName(), reason);
                         player.connection.disconnect(Component.literal(reason));
-                    } else JammarrServer.instance().hello(player);
+                    } else JammarrServer.instance().hello(player, payload);
                 });
         server(id++, JammarrPayloads.TimeSyncRequest.class, JammarrPayloads.TimeSyncRequest::write, JammarrPayloads.TimeSyncRequest::read,
                 (player, payload) -> sendToPlayer(player, new JammarrPayloads.TimeSyncResponse(

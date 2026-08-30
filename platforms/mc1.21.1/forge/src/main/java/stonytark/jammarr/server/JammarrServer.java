@@ -63,9 +63,9 @@ public final class JammarrServer {
         }
     }
 
-    public void hello(ServerPlayer sender) {
+    public void hello(ServerPlayer sender, JammarrPayloads.ClientHello payload) {
         if (capabilities.accept(sender.getUUID(), stonytark.jammarr.network.JammarrNetwork.PROTOCOL,
-                stonytark.jammarr.network.JammarrNetwork.PROTOCOL) && player != null) player.hello(sender);
+                stonytark.jammarr.network.JammarrNetwork.PROTOCOL) && player != null) player.hello(sender, payload.features(), payload.audioChunkBytes(), payload.chunksPerRequest());
     }
     public boolean accepted(ServerPlayer sender) { return capabilities.capable(sender.getUUID()); }
     public void browse(ServerPlayer sender, JammarrPayloads.BrowseRequest request) { if (accepted(sender) && player != null) player.browse(sender, request); }

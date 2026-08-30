@@ -57,7 +57,7 @@ public final class JammarrNetwork {
                     Jammarr.LOGGER.warn("Disconnecting {}: {}", sender.getGameProfile().getName(), reason);
                     sender.connection.disconnect(Component.literal(reason));
                 });
-            } else withSender(context, sender -> JammarrServer.instance().hello(sender));
+            } else withSender(context, sender -> JammarrServer.instance().hello(sender, payload));
         });
         serverbound.addMain(JammarrPayloads.TimeSyncRequest.TYPE, JammarrPayloads.TimeSyncRequest.CODEC, (payload, context) ->
                 withSender(context, sender -> channel.reply(new JammarrPayloads.TimeSyncResponse(

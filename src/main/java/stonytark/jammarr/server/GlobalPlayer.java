@@ -71,9 +71,13 @@ public final class GlobalPlayer implements AutoCloseable {
         }, new ModernPlaybackStore(saved));
     }
 
-    public void hello(ServerPlayer player) {
+    public void hello(ServerPlayer player, long offeredFeatures, int offeredChunkBytes, int offeredChunksPerRequest) {
+        stonytark.jammarr.core.protocol.ProtocolCapabilities.Negotiated negotiated =
+                stonytark.jammarr.core.protocol.ProtocolCapabilities.negotiate(
+                        offeredFeatures, offeredChunkBytes, offeredChunksPerRequest);
         JammarrNetwork.sendToPlayer(player,
-                new JammarrPayloads.ServerHello(JammarrNetwork.PROTOCOL, System.currentTimeMillis()));
+                new JammarrPayloads.ServerHello(JammarrNetwork.PROTOCOL, System.currentTimeMillis(),
+                        negotiated.features(), negotiated.audioChunkBytes(), negotiated.chunksPerRequest()));
         delegate.playerJoined(player);
         server.getCommands().sendCommands(player);
     }

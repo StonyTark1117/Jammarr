@@ -9,7 +9,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/** Shared protocol-5 request and browsing packet models/codecs. */
+/** Shared protocol-6 request and browsing packet models/codecs. */
 public final class ControlPackets {
     public enum BrowseKind { SEARCH, ARTISTS, ALBUMS, PLAYLISTS, QUEUE }
     public enum ControlAction { PAUSE, RESUME, SKIP, CLEAR, REMOVE, MOVE_UP, MOVE_DOWN }
@@ -26,15 +26,27 @@ public final class ControlPackets {
     };
 
     public static final WireCodec<ClientHello> CLIENT_HELLO = new WireCodec<ClientHello>() {
-        @Override public ClientHello decode(WireInput input) { return new ClientHello(input.readVarInt()); }
-        @Override public void encode(WireOutput output, ClientHello value) { output.writeVarInt(value.protocolVersion()); }
+        @Override public ClientHello decode(WireInput input) {
+            return new ClientHello(input.readVarInt(), input.readVarLong(), input.readVarInt(), input.readVarInt());
+        }
+        @Override public void encode(WireOutput output, ClientHello value) {
+            output.writeVarInt(value.protocolVersion());
+            output.writeVarLong(value.features());
+            output.writeVarInt(value.audioChunkBytes());
+            output.writeVarInt(value.chunksPerRequest());
+        }
     };
 
     public static final WireCodec<ServerHello> SERVER_HELLO = new WireCodec<ServerHello>() {
-        @Override public ServerHello decode(WireInput input) { return new ServerHello(input.readVarInt(), input.readLong()); }
+        @Override public ServerHello decode(WireInput input) {
+            return new ServerHello(input.readVarInt(), input.readLong(), input.readVarLong(), input.readVarInt(), input.readVarInt());
+        }
         @Override public void encode(WireOutput output, ServerHello value) {
             output.writeVarInt(value.protocolVersion());
             output.writeLong(value.serverEpochMs());
+            output.writeVarLong(value.features());
+            output.writeVarInt(value.audioChunkBytes());
+            output.writeVarInt(value.chunksPerRequest());
         }
     };
 
@@ -135,19 +147,50 @@ public final class ControlPackets {
 
     public static final class ClientHello implements JammarrMessage {
         private final int protocolVersion;
-        public ClientHello(int protocolVersion) { this.protocolVersion = protocolVersion; }
+        private final long features;
+        private final int audioChunkBytes;
+        private final int chunksPerRequest;
+        public ClientHello(int protocolVersion) {
+            this(protocolVersion, ProtocolCapabilities.SUPPORTED_FEATURES,
+                    ProtocolCapabilities.AUDIO_CHUNK_BYTES, ProtocolCapabilities.CHUNKS_PER_REQUEST);
+        }
+        public ClientHello(int protocolVersion, long features, int audioChunkBytes, int chunksPerRequest) {
+            ProtocolCapabilities.negotiate(features, audioChunkBytes, chunksPerRequest);
+            this.protocolVersion = protocolVersion;
+            this.features = features;
+            this.audioChunkBytes = audioChunkBytes;
+            this.chunksPerRequest = chunksPerRequest;
+        }
         public int protocolVersion() { return protocolVersion; }
+        public long features() { return features; }
+        public int audioChunkBytes() { return audioChunkBytes; }
+        public int chunksPerRequest() { return chunksPerRequest; }
     }
 
     public static final class ServerHello implements JammarrMessage {
         private final int protocolVersion;
         private final long serverEpochMs;
+        private final long features;
+        private final int audioChunkBytes;
+        private final int chunksPerRequest;
         public ServerHello(int protocolVersion, long serverEpochMs) {
+            this(protocolVersion, serverEpochMs, ProtocolCapabilities.SUPPORTED_FEATURES,
+                    ProtocolCapabilities.AUDIO_CHUNK_BYTES, ProtocolCapabilities.CHUNKS_PER_REQUEST);
+        }
+        public ServerHello(int protocolVersion, long serverEpochMs, long features,
+                           int audioChunkBytes, int chunksPerRequest) {
+            ProtocolCapabilities.negotiate(features, audioChunkBytes, chunksPerRequest);
             this.protocolVersion = protocolVersion;
             this.serverEpochMs = serverEpochMs;
+            this.features = features;
+            this.audioChunkBytes = audioChunkBytes;
+            this.chunksPerRequest = chunksPerRequest;
         }
         public int protocolVersion() { return protocolVersion; }
         public long serverEpochMs() { return serverEpochMs; }
+        public long features() { return features; }
+        public int audioChunkBytes() { return audioChunkBytes; }
+        public int chunksPerRequest() { return chunksPerRequest; }
     }
 
     public static final class TimeSyncRequest implements JammarrMessage {

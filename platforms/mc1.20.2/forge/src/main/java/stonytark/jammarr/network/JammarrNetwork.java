@@ -57,7 +57,7 @@ public final class JammarrNetwork {
                         // terminal packet, reducing the client-facing reason to "Disconnected".
                         // Send the terminal packet explicitly; the client closes on receipt.
                         player.connection.send(new ClientboundDisconnectPacket(Component.literal(reason)));
-                    } else JammarrServer.instance().hello(player);
+                    } else JammarrServer.instance().hello(player, payload);
                 });
         server(id++, JammarrPayloads.TimeSyncRequest.class, JammarrPayloads.TimeSyncRequest::write, JammarrPayloads.TimeSyncRequest::read,
                 (player, payload) -> sendToPlayer(player, new JammarrPayloads.TimeSyncResponse(

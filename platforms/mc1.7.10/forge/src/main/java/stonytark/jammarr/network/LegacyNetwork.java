@@ -135,8 +135,12 @@ public final class LegacyNetwork {
             }
             UUID playerId = player.getUniqueID();
             if (!capabilities.accept(playerId, hello.protocolVersion(), Jammarr.PROTOCOL)) return;
+            stonytark.jammarr.core.protocol.ProtocolCapabilities.Negotiated negotiated =
+                    stonytark.jammarr.core.protocol.ProtocolCapabilities.negotiate(
+                            hello.features(), hello.audioChunkBytes(), hello.chunksPerRequest());
             sendToPlayer(player, LegacyPacketTypes.SERVER_HELLO,
-                    new ControlPackets.ServerHello(Jammarr.PROTOCOL, System.currentTimeMillis()));
+                    new ControlPackets.ServerHello(Jammarr.PROTOCOL, System.currentTimeMillis(),
+                            negotiated.features(), negotiated.audioChunkBytes(), negotiated.chunksPerRequest()));
             ServerListener listener = serverListener;
             if (listener != null) listener.accept(player, incoming.type, incoming.message);
             return;

@@ -65,24 +65,27 @@ public final class JammarrPayloads {
         public static final ResourceLocation ID = id("open_screen");
     }
 
-    public record ClientHello(int protocolVersion) implements JammarrMessage {
+    public record ClientHello(int protocolVersion, long features, int audioChunkBytes, int chunksPerRequest) implements JammarrMessage {
         public static final ResourceLocation ID = id("client_hello");
+        public ClientHello(int protocolVersion) { this(protocolVersion, stonytark.jammarr.core.protocol.ProtocolCapabilities.SUPPORTED_FEATURES, stonytark.jammarr.core.protocol.ProtocolCapabilities.AUDIO_CHUNK_BYTES, stonytark.jammarr.core.protocol.ProtocolCapabilities.CHUNKS_PER_REQUEST); }
         public static ClientHello read(FriendlyByteBuf b) {
-            return new ClientHello(decode(ControlPackets.CLIENT_HELLO, b).protocolVersion());
+            ControlPackets.ClientHello value = decode(ControlPackets.CLIENT_HELLO, b);
+            return new ClientHello(value.protocolVersion(), value.features(), value.audioChunkBytes(), value.chunksPerRequest());
         }
         public void write(FriendlyByteBuf b) {
-            ControlPackets.CLIENT_HELLO.encode(new MinecraftWireOutput(b), new ControlPackets.ClientHello(protocolVersion));
+            ControlPackets.CLIENT_HELLO.encode(new MinecraftWireOutput(b), new ControlPackets.ClientHello(protocolVersion, features, audioChunkBytes, chunksPerRequest));
         }
     }
 
-    public record ServerHello(int protocolVersion, long serverEpochMs) implements JammarrMessage {
+    public record ServerHello(int protocolVersion, long serverEpochMs, long features, int audioChunkBytes, int chunksPerRequest) implements JammarrMessage {
         public static final ResourceLocation ID = id("server_hello");
+        public ServerHello(int protocolVersion, long serverEpochMs) { this(protocolVersion, serverEpochMs, stonytark.jammarr.core.protocol.ProtocolCapabilities.SUPPORTED_FEATURES, stonytark.jammarr.core.protocol.ProtocolCapabilities.AUDIO_CHUNK_BYTES, stonytark.jammarr.core.protocol.ProtocolCapabilities.CHUNKS_PER_REQUEST); }
         public static ServerHello read(FriendlyByteBuf b) {
             ControlPackets.ServerHello value = decode(ControlPackets.SERVER_HELLO, b);
-            return new ServerHello(value.protocolVersion(), value.serverEpochMs());
+            return new ServerHello(value.protocolVersion(), value.serverEpochMs(), value.features(), value.audioChunkBytes(), value.chunksPerRequest());
         }
         public void write(FriendlyByteBuf b) {
-            ControlPackets.SERVER_HELLO.encode(new MinecraftWireOutput(b), new ControlPackets.ServerHello(protocolVersion, serverEpochMs));
+            ControlPackets.SERVER_HELLO.encode(new MinecraftWireOutput(b), new ControlPackets.ServerHello(protocolVersion, serverEpochMs, features, audioChunkBytes, chunksPerRequest));
         }
     }
 

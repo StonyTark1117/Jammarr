@@ -30,6 +30,9 @@ class LegacyEnvelopeTest {
         assertEquals(LegacyPacketTypes.CLIENT_HELLO.id(), incoming.messageId());
         assertEquals(ProtocolGoldenVectors.CLIENT_HELLO, hex(incoming.payload()));
         assertEquals(ProtocolLimits.VERSION, decoded.protocolVersion());
+        assertEquals(stonytark.jammarr.core.protocol.ProtocolCapabilities.SUPPORTED_FEATURES, decoded.features());
+        assertEquals(stonytark.jammarr.core.protocol.ProtocolCapabilities.AUDIO_CHUNK_BYTES, decoded.audioChunkBytes());
+        assertEquals(stonytark.jammarr.core.protocol.ProtocolCapabilities.CHUNKS_PER_REQUEST, decoded.chunksPerRequest());
         assertEquals(0, buffer.readableBytes());
     }
 

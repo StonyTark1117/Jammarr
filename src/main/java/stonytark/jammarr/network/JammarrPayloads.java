@@ -71,27 +71,30 @@ public final class JammarrPayloads {
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
-    public record ClientHello(int protocolVersion) implements CustomPacketPayload, JammarrMessage {
+    public record ClientHello(int protocolVersion, long features, int audioChunkBytes, int chunksPerRequest) implements CustomPacketPayload, JammarrMessage {
         public static final Type<ClientHello> TYPE = genericType("client_hello");
         public static final StreamCodec<RegistryFriendlyByteBuf, ClientHello> CODEC = StreamCodec.ofMember(ClientHello::write, ClientHello::read);
+        public ClientHello(int protocolVersion) { this(protocolVersion, stonytark.jammarr.core.protocol.ProtocolCapabilities.SUPPORTED_FEATURES, stonytark.jammarr.core.protocol.ProtocolCapabilities.AUDIO_CHUNK_BYTES, stonytark.jammarr.core.protocol.ProtocolCapabilities.CHUNKS_PER_REQUEST); }
         private static ClientHello read(RegistryFriendlyByteBuf b) {
-            return new ClientHello(decode(ControlPackets.CLIENT_HELLO, b).protocolVersion());
+            ControlPackets.ClientHello value = decode(ControlPackets.CLIENT_HELLO, b);
+            return new ClientHello(value.protocolVersion(), value.features(), value.audioChunkBytes(), value.chunksPerRequest());
         }
         private void write(RegistryFriendlyByteBuf b) {
-            ControlPackets.CLIENT_HELLO.encode(new MinecraftWireOutput(b), new ControlPackets.ClientHello(protocolVersion));
+            ControlPackets.CLIENT_HELLO.encode(new MinecraftWireOutput(b), new ControlPackets.ClientHello(protocolVersion, features, audioChunkBytes, chunksPerRequest));
         }
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
-    public record ServerHello(int protocolVersion, long serverEpochMs) implements CustomPacketPayload, JammarrMessage {
+    public record ServerHello(int protocolVersion, long serverEpochMs, long features, int audioChunkBytes, int chunksPerRequest) implements CustomPacketPayload, JammarrMessage {
         public static final Type<ServerHello> TYPE = genericType("server_hello");
         public static final StreamCodec<RegistryFriendlyByteBuf, ServerHello> CODEC = StreamCodec.ofMember(ServerHello::write, ServerHello::read);
+        public ServerHello(int protocolVersion, long serverEpochMs) { this(protocolVersion, serverEpochMs, stonytark.jammarr.core.protocol.ProtocolCapabilities.SUPPORTED_FEATURES, stonytark.jammarr.core.protocol.ProtocolCapabilities.AUDIO_CHUNK_BYTES, stonytark.jammarr.core.protocol.ProtocolCapabilities.CHUNKS_PER_REQUEST); }
         private static ServerHello read(RegistryFriendlyByteBuf b) {
             ControlPackets.ServerHello value = decode(ControlPackets.SERVER_HELLO, b);
-            return new ServerHello(value.protocolVersion(), value.serverEpochMs());
+            return new ServerHello(value.protocolVersion(), value.serverEpochMs(), value.features(), value.audioChunkBytes(), value.chunksPerRequest());
         }
         private void write(RegistryFriendlyByteBuf b) {
-            ControlPackets.SERVER_HELLO.encode(new MinecraftWireOutput(b), new ControlPackets.ServerHello(protocolVersion, serverEpochMs));
+            ControlPackets.SERVER_HELLO.encode(new MinecraftWireOutput(b), new ControlPackets.ServerHello(protocolVersion, serverEpochMs, features, audioChunkBytes, chunksPerRequest));
         }
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }

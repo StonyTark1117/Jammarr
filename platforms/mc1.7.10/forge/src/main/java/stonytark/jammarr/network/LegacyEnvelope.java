@@ -7,7 +7,7 @@ import stonytark.jammarr.core.protocol.ByteArrayWireInput;
 import stonytark.jammarr.core.protocol.ByteArrayWireOutput;
 import stonytark.jammarr.core.protocol.ProtocolException;
 
-/** One bounded FML payload containing a protocol-5 message identifier and canonical wire bytes. */
+/** One bounded FML payload containing a protocol-6 message identifier and canonical wire bytes. */
 public class LegacyEnvelope implements IMessage {
     public static final int MAX_ENVELOPE_BYTES = 1024 * 1024;
 
