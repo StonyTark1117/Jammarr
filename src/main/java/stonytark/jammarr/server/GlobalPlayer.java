@@ -1,9 +1,9 @@
 package stonytark.jammarr.server;
 
-import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import stonytark.jammarr.Jammarr;
+import stonytark.jammarr.compat.MinecraftCompat;
 import stonytark.jammarr.core.model.QueueTrack;
 import stonytark.jammarr.core.model.StationModels;
 import stonytark.jammarr.core.platform.CoreLogger;
@@ -61,7 +61,7 @@ public final class GlobalPlayer implements AutoCloseable {
                 if (capable.test(player)) JammarrNetwork.sendToPlayer(player, toPayload(message));
             }
             @Override public void chat(ServerPlayer player, String message) {
-                player.sendSystemMessage(Component.literal(message));
+                MinecraftCompat.sendSystemMessage(player, message);
             }
             @Override public CoreLogger logger() {
                 return new CoreLogger() {

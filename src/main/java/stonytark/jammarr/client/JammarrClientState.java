@@ -4,6 +4,7 @@ import com.mojang.brigadier.tree.CommandNode;
 import stonytark.jammarr.core.client.ClockSynchronizer;
 import net.minecraft.client.Minecraft;
 import stonytark.jammarr.Jammarr;
+import stonytark.jammarr.compat.MinecraftCompat;
 import stonytark.jammarr.core.protocol.JammarrMessage;
 import stonytark.jammarr.core.protocol.AcceptanceControlFile;
 import stonytark.jammarr.core.protocol.ProtocolLimits;
@@ -49,7 +50,7 @@ public final class JammarrClientState {
                 Jammarr.LOGGER.info("Acceptance client received server hello after delayed handshake");
             }
             if (value.protocolVersion() != ProtocolLimits.clientHelloVersion() && minecraft.getConnection() != null) {
-                minecraft.getConnection().getConnection().disconnect(net.minecraft.network.chat.Component.literal(
+                minecraft.getConnection().getConnection().disconnect(MinecraftCompat.literal(
                         "Jammarr protocol mismatch: server requires version " + value.protocolVersion()));
             } else {
                 notice = "";
@@ -103,7 +104,7 @@ public final class JammarrClientState {
             audio.chunk(value);
         } else if (payload instanceof JammarrPayloads.ErrorMessage value) {
             notice = value.message();
-            if (minecraft.player != null) minecraft.player.displayClientMessage(net.minecraft.network.chat.Component.literal("Jammarr: " + value.message()), false);
+            if (minecraft.player != null) minecraft.player.displayClientMessage(MinecraftCompat.literal("Jammarr: " + value.message()), false);
             refreshScreen(minecraft);
             if (minecraft.screen instanceof JammarrScreen screen) screen.requestFailed();
         }
@@ -207,14 +208,28 @@ public final class JammarrClientState {
         if (!nonOperatorCommandsVerified && !operatorVisible) {
             nonOperatorCommandsVerified = true;
             Jammarr.LOGGER.info("Acceptance command permissions: non-operator public=true operator=false");
-            connection.sendCommand("jammarr");
+            sendAcceptanceCommand(connection, "jammarr");
             acceptanceScreenProbeSent = true;
             Jammarr.LOGGER.info("Acceptance client issued: /jammarr");
         } else if (nonOperatorCommandsVerified && !operatorCommandsVerified && operatorVisible) {
             operatorCommandsVerified = true;
             Jammarr.LOGGER.info("Acceptance command permissions: operator public=true operator=true");
-            connection.sendCommand("jammarr diagnostics");
+            sendAcceptanceCommand(connection, "jammarr diagnostics");
             Jammarr.LOGGER.info("Acceptance client issued: /jammarr diagnostics");
+        }
+    }
+
+    private static void sendAcceptanceCommand(Object connection, String command) {
+        try {
+            connection.getClass().getMethod("sendCommand", String.class).invoke(connection, command);
+            return;
+        } catch (ReflectiveOperationException ignored) {
+            // Minecraft 1.19.2 and older only expose the chat-command path.
+        }
+        try {
+            connection.getClass().getMethod("sendChat", String.class).invoke(connection, "/" + command);
+        } catch (ReflectiveOperationException error) {
+            Jammarr.LOGGER.warn("Acceptance client could not issue /{} on this Minecraft version", command, error);
         }
     }
     private void probeScreenRendering() {

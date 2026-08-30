@@ -1,0 +1,31 @@
+[versions]
+minecraft = "1.18.2"
+java = "17"
+fabric-loom = "1.17.19"
+fabric-loader = "0.19.3"
+quilt-loader = "0.30.0"
+fabric-api = "0.77.0+1.18.2"
+modmenu = "3.2.5"
+forgegradle = "6.0.54"
+forge-jarjar = "0.2.3"
+forge-loader = "40.3.12"
+jlayer = "1.0.1"
+jump3r = "1.0.5"
+junit = "5.10.2"
+
+[plugins]
+fabric-loom = { id = "fabric-loom", version.ref = "fabric-loom" }
+forgegradle = { id = "net.minecraftforge.gradle", version.ref = "forgegradle" }
+forge-jarjar = { id = "net.minecraftforge.jarjar", version.ref = "forge-jarjar" }
+
+[libraries]
+fabric-loader = { module = "net.fabricmc:fabric-loader", version.ref = "fabric-loader" }
+quilt-loader = { module = "org.quiltmc:quilt-loader", version.ref = "quilt-loader" }
+fabric-api = { module = "net.fabricmc.fabric-api:fabric-api", version.ref = "fabric-api" }
+modmenu = { module = "com.terraformersmc:modmenu", version.ref = "modmenu" }
+forge = { module = "net.minecraftforge:forge", version.ref = "forge-loader" }
+jlayer = { module = "javazoom:jlayer", version.ref = "jlayer" }
+jump3r = { module = "de.sciss:jump3r", version.ref = "jump3r" }
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
+junit-launcher = { module = "org.junit.platform:junit-platform-launcher" }

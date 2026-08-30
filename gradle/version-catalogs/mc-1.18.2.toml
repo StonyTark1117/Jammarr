@@ -1,0 +1,12 @@
+[versions]
+minecraft = "1.18.2"
+java = "17"
+fabric-loader = "0.19.3"
+quilt-loader = "0.30.0"
+fabric-api = "0.77.0+1.18.2"
+forge = "40.3.12"
+fabric-loom = "1.17.19"
+forgegradle = "6.0.54"
+gradle-fabric = "9.5.0"
+gradle-forge = "8.8"
+modmenu = "3.2.5"

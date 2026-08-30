@@ -39,6 +39,30 @@ jobs:
             runtime: 1.16.5-forge
             quilt: ''
             game-tests: false
+          - name: 1.18.2-fabric
+            task: verifyFabric1182
+            artifact: platforms/mc1.18.2/fabric/build/libs/jammarr-1.1.0+mc1.18.2-fabric.jar
+            runtime: 1.18.2-fabric
+            quilt: 1.18.2-quilt
+            game-tests: false
+          - name: 1.18.2-forge
+            task: verifyForge1182
+            artifact: platforms/mc1.18.2/forge/build/libs/jammarr-1.1.0+mc1.18.2-forge.jar
+            runtime: 1.18.2-forge
+            quilt: ''
+            game-tests: false
+          - name: 1.19.2-fabric
+            task: verifyFabric1192
+            artifact: platforms/mc1.19.2/fabric/build/libs/jammarr-1.1.0+mc1.19.2-fabric.jar
+            runtime: 1.19.2-fabric
+            quilt: 1.19.2-quilt
+            game-tests: false
+          - name: 1.19.2-forge
+            task: verifyForge1192
+            artifact: platforms/mc1.19.2/forge/build/libs/jammarr-1.1.0+mc1.19.2-forge.jar
+            runtime: 1.19.2-forge
+            quilt: ''
+            game-tests: false
           - name: 1.20.1-fabric
             task: verifyFabric1201
             artifact: platforms/mc1.20.1/fabric/build/libs/jammarr-1.1.0+mc1.20.1-fabric.jar
@@ -147,6 +171,13 @@ jobs:
           cache: gradle
       - name: Record Java 8 home
         run: echo "JAMMARR_JAVA8_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Record Java 17 home
+        run: echo "JAMMARR_JAVA17_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
