@@ -107,13 +107,19 @@ uses_legacy_audio_profile() {
 }
 
 uses_legacy_fml_log() {
-  [[ ${target_log_profile[$1]} == "legacy-fml" ]]
+  [[ ${target_log_profile[$1]} == legacy-fml* ]]
+}
+
+uses_legacy_fml16_log() {
+  [[ ${target_log_profile[$1]} == "legacy-fml16" ]]
 }
 
 mod_log_path() {
   local label=$1
   local run_dir=$2
-  if uses_legacy_fml_log "$label"; then
+  if uses_legacy_fml16_log "$label"; then
+    printf '%s/ForgeModLoader-server-0.log\n' "$run_dir"
+  elif uses_legacy_fml_log "$label"; then
     printf '%s/logs/fml-server-latest.log\n' "$run_dir"
   else
     printf '%s/logs/latest.log\n' "$run_dir"
@@ -1962,7 +1968,11 @@ run_target() {
   mod_log=$(mod_log_path "$label" "$run_dir")
   local console_log="$output_root/$label.console.log"
   local server_evidence_log="$console_log"
-  if uses_legacy_fml_log "$label"; then
+  if uses_legacy_fml16_log "$label"; then
+    # Java util logging rotates the numbered FML file between the invalid and
+    # normal startup probes. The captured console is stable for live joins.
+    server_evidence_log="$console_log"
+  elif uses_legacy_fml_log "$label"; then
     # Forge 1.8.9's development Log4j configuration does not attach its
     # Minecraft/FML console appenders. The same authoritative events are
     # still written to latest.log and fml-server-latest.log.
@@ -2211,7 +2221,7 @@ run_target() {
     fi
   fi
   if grep -Eiq 'Failed to start the minecraft server|ModLoadingException|Preparing crash report|Encountered an unexpected exception' \
-      "$latest_log" "$mod_log" "$console_log"; then
+      "$latest_log" "$mod_log" "$console_log" 2>/dev/null; then
     echo "$label: fatal startup marker found; see $console_log" >&2
     result=1
   fi

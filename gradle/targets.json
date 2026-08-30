@@ -38,6 +38,32 @@
   },
   "targets": [
     {
+      "minecraft": "1.6.4",
+      "java": {
+        "build": 21,
+        "runtime": 8,
+        "bytecode": 7
+      },
+      "loaders": [
+        {
+          "id": "forge",
+          "status": "preview",
+          "implemented": true,
+          "quiltCompatible": false,
+          "artifactProfile": "legacy-java8-asm4",
+          "runtimeCapabilities": {
+            "control": "rcon",
+            "commandMarkers": "legacy-response",
+            "audioProfile": "legacy-openal",
+            "logProfile": "legacy-fml16",
+            "disableConfigurationCache": false
+          },
+          "path": "platforms/mc1.6.4/forge",
+          "artifact": "jammarr-1.1.0+mc1.6.4-forge.jar"
+        }
+      ]
+    },
+    {
       "minecraft": "1.7.10",
       "java": {
         "build": 26,

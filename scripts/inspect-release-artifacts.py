@@ -18,7 +18,7 @@ TARGET_MANIFEST = json.loads(
     (Path(__file__).resolve().parents[1] / "gradle" / "targets.json").read_text("utf-8"))
 PRODUCT_VERSION = TARGET_MANIFEST["productVersion"]
 PROTOCOL_VERSION = TARGET_MANIFEST["protocolVersion"]
-CLASS_MAJOR = {8: 52, 17: 61, 21: 65, 25: 69}
+CLASS_MAJOR = {7: 51, 8: 52, 17: 61, 21: 65, 25: 69}
 TARGETS = tuple(
     (target["minecraft"], loader["id"], target["java"]["runtime"],
      CLASS_MAJOR[target["java"]["bytecode"]], loader.get("artifactProfile", "modern"))
@@ -258,7 +258,7 @@ def verify_remappable_keybinding(archive: zipfile.ZipFile, minecraft: str,
         if not isinstance(translations.get(key), str) or not translations[key].strip():
             fail(f"{filename} is missing the Controls translation {key}")
 
-    legacy = artifact_profile == "legacy-java8"
+    legacy = artifact_profile.startswith("legacy-")
     class_name = ("stonytark/jammarr/client/LegacyClient.class" if legacy
                   else "stonytark/jammarr/client/JammarrClient.class")
     try:
@@ -271,9 +271,14 @@ def verify_remappable_keybinding(archive: zipfile.ZipFile, minecraft: str,
         fail(f"{filename} does not register the namespaced Jammarr Controls category")
 
     if legacy:
-        required = (b"net/minecraft/client/settings/KeyBinding", b"registerKeyBinding",
-                    b"InputEvent$KeyInputEvent")
-        consumes_binding = b"isPressed" in client or b"func_151468_f" in client
+        if artifact_profile == "legacy-java8-asm4":
+            required = (b"net/minecraft/client/settings/KeyBinding", b"KeyBindingRegistry",
+                        b"registerKeyBinding")
+        else:
+            required = (b"net/minecraft/client/settings/KeyBinding", b"registerKeyBinding",
+                        b"InputEvent$KeyInputEvent")
+        consumes_binding = (b"isPressed" in client or b"func_151468_f" in client
+                            or (artifact_profile == "legacy-java8-asm4" and b"func_74509_c" in client))
         if any(marker not in client for marker in required) or not consumes_binding:
             fail(f"{filename} does not register and consume a remappable legacy KeyBinding")
         legacy_lang = archive.read("assets/jammarr/lang/en_US.lang")
@@ -299,7 +304,7 @@ def verify_remappable_keybinding(archive: zipfile.ZipFile, minecraft: str,
 
 def verify_config_translations(archive: zipfile.ZipFile, minecraft: str,
                                loader: str, artifact_profile: str, filename: str) -> None:
-    if artifact_profile == "legacy-java8" or loader == "fabric":
+    if artifact_profile.startswith("legacy-") or loader == "fabric":
         return
     config = archive.read("stonytark/jammarr/config/JammarrConfig.class")
     keys = (
@@ -351,7 +356,7 @@ def verify_metadata(archive: zipfile.ZipFile, names: set[str], minecraft: str, l
             fail(f"{filename} has incorrect nested-library metadata: {sorted(declared_jars)}")
         return
 
-    if artifact_profile == "legacy-java8":
+    if artifact_profile.startswith("legacy-"):
         metadata = json.loads(archive.read("mcmod.info"))
         if len(metadata) != 1 or metadata[0].get("modid") != "jammarr":
             fail(f"{filename} has incorrect legacy mod identity")
@@ -360,7 +365,11 @@ def verify_metadata(archive: zipfile.ZipFile, names: set[str], minecraft: str, l
         if "jammarr.mixins.json" in names:
             fail(f"{filename} must not advertise unsupported modern Mixins on legacy Forge")
         legacy_class = archive.read("stonytark/jammarr/Jammarr.class")
-        if b"NetworkCheckHandler" not in legacy_class or b"acceptableRemoteVersions" not in legacy_class:
+        if artifact_profile == "legacy-java8-asm4":
+            if b"NetworkMod" not in legacy_class or b"clientSideRequired" not in legacy_class \
+                    or b"serverSideRequired" not in legacy_class:
+                fail(f"{filename} does not contain optional-client FML 6 negotiation")
+        elif b"NetworkCheckHandler" not in legacy_class or b"acceptableRemoteVersions" not in legacy_class:
             fail(f"{filename} does not contain optional-client FML negotiation")
         return
 
@@ -388,7 +397,7 @@ def verify_jar(path: Path, minecraft: str, loader: str, java: int,
             fail(f"{filename} is missing required entries: {sorted(missing)}")
         if loader == "fabric" and "fabric.mod.json" not in names:
             fail(f"{filename} is missing Fabric metadata")
-        if artifact_profile == "legacy-java8" and "mcmod.info" not in names:
+        if artifact_profile.startswith("legacy-") and "mcmod.info" not in names:
             fail(f"{filename} is missing legacy Forge metadata")
 
         verify_metadata(archive, names, minecraft, loader, java, artifact_profile, filename)
@@ -405,7 +414,7 @@ def verify_jar(path: Path, minecraft: str, loader: str, java: int,
         if main_major != expected_major:
             fail(f"{filename} targets class major {main_major}, expected {expected_major} for Java {java}")
 
-        if artifact_profile == "legacy-java8":
+        if artifact_profile.startswith("legacy-"):
             required_legacy = {
                 "assets/jammarr/lang/en_US.lang",
                 "stonytark/jammarr/core/server/ChunkTransferPolicy.class",
@@ -425,8 +434,8 @@ def verify_jar(path: Path, minecraft: str, loader: str, java: int,
             for name in names:
                 if name.startswith("stonytark/jammarr/") and name.endswith(".class"):
                     major = class_major(archive.read(name), f"{filename}:{name}")
-                    if major != 52:
-                        fail(f"{filename}:{name} is class major {major}, expected Java 8 major 52")
+                    if major != expected_major:
+                        fail(f"{filename}:{name} is class major {major}, expected major {expected_major}")
             # The shared core is compiled against stable names while legacy Forge
             # reobfuscates Minecraft methods in adapters. Require each adapter to
             # declare its full shared contract so an inherited MCP-named method

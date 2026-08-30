@@ -1,0 +1,349 @@
+plugins {
+    id 'java-library'
+    id 'net.minecraftforge.gradle' version '7.0.36'
+    id 'net.minecraftforge.renamer' version '1.1.5'
+}
+
+group = 'stonytark'
+version = '1.1.0'
+
+def artifactVersion = version.toString()
+def canonicalName = "jammarr-${artifactVersion}+mc1.6.4-forge"
+base { archivesName = canonicalName }
+def acceptanceServerGameDir = providers.gradleProperty('jammarrServerGameDir')
+        .map { file(it) }
+        .getOrElse(layout.projectDirectory.dir('run').asFile)
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(8)
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+minecraft {
+    // 9.11.1.964 is the newest ForgeGradle-1 userdev Mavenizer can reproduce.
+    // The resulting SRG artifact is runtime-certified against recommended Forge 9.11.1.1345.
+    mappings channel: 'snapshot', version: '20130918-1.6.3'
+    runs {
+        register('client') {
+            workingDir = layout.projectDirectory.dir('run-client')
+            if (providers.gradleProperty('jammarrAcceptanceGameDir').isPresent()) {
+                workingDir = file(providers.gradleProperty('jammarrAcceptanceGameDir').get())
+            }
+        }
+        register('server') {
+            workingDir = acceptanceServerGameDir
+            args '--nogui'
+        }
+    }
+}
+
+repositories {
+    minecraft.mavenizer(it)
+    maven fg.forgeMaven
+    maven fg.minecraftLibsMaven
+    ivy {
+        name = 'forgeArtifactOnly'
+        url = 'https://maven.minecraftforge.net/'
+        patternLayout {
+            artifact '[organisation]/[module]/[revision]/[module]-[revision](-[classifier]).[ext]'
+            m2compatible = true
+        }
+        metadataSources { artifact() }
+    }
+    mavenCentral()
+}
+
+configurations {
+    embeddedLibraries
+    recommendedForgeInstaller
+    recommendedClientNatives
+    implementation.extendsFrom(embeddedLibraries)
+}
+
+dependencies {
+    implementation minecraft.dependency("net.minecraftforge:forge:1.6.4-${forge_compile_version}")
+    recommendedForgeInstaller "net.minecraftforge:forge:1.6.4-${forge_runtime_version}:installer@jar"
+    recommendedClientNatives 'org.lwjgl.lwjgl:lwjgl-platform:2.9.0:natives-linux@jar'
+    recommendedClientNatives 'net.java.jinput:jinput-platform:2.0.5:natives-linux@jar'
+    embeddedLibraries 'javazoom:jlayer:1.0.1'
+    embeddedLibraries 'de.sciss:jump3r:1.0.5'
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+dependencyLocking { lockAllConfigurations() }
+
+sourceSets {
+    main {
+        java.srcDirs = ['src/main/java']
+        resources {
+            srcDirs = ['src/main/resources', '../../../src/main/resources']
+            exclude 'jammarr.mixins.json'
+        }
+    }
+    test {
+        java.srcDirs = ['src/test/java']
+        resources {
+            srcDir '../../../test-fixtures'
+            exclude 'java/**'
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
+tasks.named('compileJava', JavaCompile) {
+    source fileTree('../../../core/src/main/java') {
+        exclude 'stonytark/jammarr/core/server/PlayerDirectory.java'
+    }
+}
+tasks.named('compileTestJava', JavaCompile) {
+    source fileTree('../../../core/src/test/java') {
+        exclude 'stonytark/jammarr/core/server/GlobalPlaybackCoordinatorTest.java'
+    }
+}
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+    inputs.property 'jammarrLiveTestEnabled', System.getenv('JAMMARR_LIVE_TEST') ?: 'false'
+    outputs.upToDateWhen { System.getenv('JAMMARR_LIVE_TEST') != 'true' }
+}
+
+tasks.named('processResources', ProcessResources) {
+    inputs.property 'modVersion', artifactVersion
+    filesMatching('mcmod.info') { expand modVersion: artifactVersion }
+}
+
+tasks.named('jar', Jar) {
+    archiveVersion = ''
+    archiveClassifier = 'dev'
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from { configurations.embeddedLibraries.collect { zipTree(it) } }
+    exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', 'META-INF/INDEX.LIST', 'module-info.class'
+    from('../../../LICENSE') {
+        into 'META-INF'
+        rename { 'LICENSE-Jammarr-CC0-1.0.txt' }
+    }
+    from('../../../LICENSE-LGPL-2.1-or-later.txt') { into 'META-INF' }
+    from('../../../THIRD_PARTY_NOTICES.md') { into 'META-INF' }
+    manifest.attributes(
+            'FMLCorePluginContainsFMLMod': 'true',
+            'Implementation-Title': 'Jammarr',
+            'Implementation-Version': artifactVersion)
+}
+
+renamer.mappings(minecraft.dependency.toSrg)
+renamer.classes(tasks.named('jar', Jar)) {
+    archiveClassifier = 'raw'
+}
+
+def rawArchive = layout.buildDirectory.file("libs/${canonicalName}-raw.jar")
+def releaseArchive = layout.buildDirectory.file("libs/${canonicalName}.jar")
+tasks.register('normalizeLegacyBytecode') {
+    dependsOn tasks.named('renameJar')
+    inputs.file rawArchive
+    outputs.file releaseArchive
+    doLast {
+        def input = rawArchive.get().asFile
+        def output = releaseArchive.get().asFile
+        output.parentFile.mkdirs()
+        def temporary = new File(output.parentFile, output.name + '.part')
+        new java.util.zip.ZipInputStream(new BufferedInputStream(new FileInputStream(input))).withCloseable { zin ->
+            new java.util.zip.ZipOutputStream(new BufferedOutputStream(new FileOutputStream(temporary))).withCloseable { zout ->
+                java.util.zip.ZipEntry entry
+                while ((entry = zin.nextEntry) != null) {
+                    def entryBytes = new ByteArrayOutputStream()
+                    byte[] buffer = new byte[64 * 1024]
+                    int count
+                    while ((count = zin.read(buffer)) >= 0) {
+                        if (count > 0) entryBytes.write(buffer, 0, count)
+                    }
+                    byte[] bytes = entryBytes.toByteArray()
+                    if (entry.name.startsWith('stonytark/jammarr/') && entry.name.endsWith('.class')) {
+                        if (bytes.length < 8 || (bytes[0] & 0xff) != 0xca || (bytes[1] & 0xff) != 0xfe
+                                || (bytes[2] & 0xff) != 0xba || (bytes[3] & 0xff) != 0xbe) {
+                            throw new GradleException("Invalid class header in ${entry.name}")
+                        }
+                        int major = ((bytes[6] & 0xff) << 8) | (bytes[7] & 0xff)
+                        if (major != 52) throw new GradleException("Expected Java 8 input bytecode in ${entry.name}, found ${major}")
+                        // Forge 1.6.4 bundles ASM 4, which understands the Java 8
+                        // instructions Jammarr uses but rejects class-file version 52.
+                        // Jammarr requires a Java 8 runtime; version 51 lets FML's
+                        // discovery parser inspect those classes safely.
+                        bytes[6] = 0
+                        bytes[7] = 51
+                    }
+                    def normalized = new java.util.zip.ZipEntry(entry.name)
+                    normalized.time = 0L
+                    zout.putNextEntry(normalized)
+                    if (!entry.directory) zout.write(bytes)
+                    zout.closeEntry()
+                }
+            }
+        }
+        java.nio.file.Files.move(temporary.toPath(), output.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+    }
+}
+
+def recommendedUniversal = new File(acceptanceServerGameDir,
+        "minecraftforge-universal-1.6.4-${forge_runtime_version}.jar")
+def recommendedMinecraftServer = new File(acceptanceServerGameDir, 'minecraft_server.1.6.4.jar')
+def recommendedMod = new File(acceptanceServerGameDir, "mods/${canonicalName}.jar")
+def installRecommendedServer = tasks.register('installRecommendedServer', Exec) {
+    dependsOn tasks.named('normalizeLegacyBytecode')
+    inputs.files(configurations.recommendedForgeInstaller, releaseArchive)
+    outputs.files(recommendedUniversal, recommendedMinecraftServer, recommendedMod)
+    workingDir acceptanceServerGameDir
+    doFirst {
+        acceptanceServerGameDir.mkdirs()
+        recommendedMod.parentFile.mkdirs()
+        def installer = configurations.recommendedForgeInstaller.singleFile
+        def digest = java.security.MessageDigest.getInstance('SHA-256')
+        installer.withInputStream { stream ->
+            byte[] buffer = new byte[64 * 1024]
+            int count
+            while ((count = stream.read(buffer)) >= 0) if (count > 0) digest.update(buffer, 0, count)
+        }
+        def actual = digest.digest().collect { String.format('%02x', it & 0xff) }.join()
+        if (actual != '01a1845146ad7e5b00e4ff5e6d4d378577634c3dc6ca7e574ce42aabf6025dc0') {
+            throw new GradleException("Forge 1.6.4 recommended installer checksum mismatch: ${actual}")
+        }
+        java.nio.file.Files.copy(releaseArchive.get().asFile.toPath(), recommendedMod.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        def java8 = javaToolchains.launcherFor {
+            languageVersion = JavaLanguageVersion.of(8)
+        }.get().executablePath.asFile
+        commandLine java8, '-jar', installer, '--installServer'
+    }
+    onlyIf {
+        !recommendedUniversal.isFile() || !recommendedMinecraftServer.isFile()
+                || !recommendedMod.isFile()
+                || !java.util.Arrays.equals(java.nio.file.Files.readAllBytes(recommendedMod.toPath()),
+                        java.nio.file.Files.readAllBytes(releaseArchive.get().asFile.toPath()))
+    }
+}
+
+def recommendedClientRoot = layout.buildDirectory.dir('recommended-client')
+def recommendedClientJar = recommendedClientRoot.map { it.file('client.jar') }
+def recommendedClientNatives = recommendedClientRoot.map { it.dir('natives') }
+def downloadRecommendedClient = tasks.register('downloadRecommendedClient') {
+    outputs.file recommendedClientJar
+    doLast {
+        def output = recommendedClientJar.get().asFile
+        output.parentFile.mkdirs()
+        def temporary = new File(output.parentFile, output.name + '.part')
+        new URL('https://launcher.mojang.com/v1/objects/1703704407101cf72bd88e68579e3696ce733ecd/client.jar')
+                .withInputStream { input -> temporary.withOutputStream { it << input } }
+        def digest = java.security.MessageDigest.getInstance('SHA-1')
+        temporary.withInputStream { stream ->
+            byte[] buffer = new byte[64 * 1024]
+            int count
+            while ((count = stream.read(buffer)) >= 0) if (count > 0) digest.update(buffer, 0, count)
+        }
+        def actual = digest.digest().collect { String.format('%02x', it & 0xff) }.join()
+        if (actual != '1703704407101cf72bd88e68579e3696ce733ecd') {
+            throw new GradleException("Minecraft 1.6.4 client checksum mismatch: ${actual}")
+        }
+        java.nio.file.Files.move(temporary.toPath(), output.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+    }
+}
+
+def extractRecommendedClientNatives = tasks.register('extractRecommendedClientNatives', Sync) {
+    from { configurations.recommendedClientNatives.collect { zipTree(it) } }
+    into recommendedClientNatives
+    exclude 'META-INF/**'
+}
+
+afterEvaluate {
+    tasks.named('runServer', JavaExec) {
+        dependsOn installRecommendedServer
+        workingDir acceptanceServerGameDir
+        mainClass = 'cpw.mods.fml.relauncher.ServerLaunchWrapper'
+        classpath = files(recommendedUniversal, recommendedMinecraftServer,
+                fileTree(new File(acceptanceServerGameDir, 'libraries')) { include '**/*.jar' })
+        args = []
+        javaLauncher = javaToolchains.launcherFor {
+            languageVersion = JavaLanguageVersion.of(8)
+        }
+    }
+    tasks.named('runClient', JavaExec) {
+        dependsOn installRecommendedServer, downloadRecommendedClient, extractRecommendedClientNatives
+        def clientGameDir = providers.gradleProperty('jammarrAcceptanceGameDir')
+                .map { file(it) }
+                .getOrElse(layout.projectDirectory.dir('run-client').asFile)
+        def includeMod = !(System.getenv('JAVA_TOOL_OPTIONS') ?: '').contains('jammarr.acceptance.suppressClientHello=true')
+        workingDir clientGameDir
+        mainClass = 'net.minecraft.launchwrapper.Launch'
+        def productionLibraries = configurations.runtimeClasspath.filter {
+            !it.name.startsWith('forge-1.6.4-9.11.1.964')
+                    && !it.name.startsWith('mappings_snapshot-')
+        }
+        classpath = files(recommendedClientJar, recommendedUniversal, productionLibraries,
+                includeMod ? releaseArchive : files())
+        def username = providers.gradleProperty('jammarrAcceptanceUsername').getOrElse('JammarrDev')
+        def endpoint = providers.gradleProperty('jammarrAcceptanceServer').orNull
+        def launchArguments = ['--username', username, '--session', '-', '--version', '1.6.4',
+                               '--gameDir', clientGameDir.absolutePath,
+                               '--assetsDir', new File(clientGameDir, 'assets').absolutePath,
+                               '--tweakClass', 'cpw.mods.fml.common.launcher.FMLTweaker']
+        if (endpoint != null) {
+            def separator = endpoint.lastIndexOf(':')
+            launchArguments.addAll(['--server', endpoint.substring(0, separator),
+                                    '--port', endpoint.substring(separator + 1)])
+        }
+        args = launchArguments
+        jvmArgs "-Dorg.lwjgl.librarypath=${recommendedClientNatives.get().asFile.absolutePath}",
+                "-Dnet.java.games.input.librarypath=${recommendedClientNatives.get().asFile.absolutePath}",
+                // FML 6's obsolete certificate probe rejects the checksum-verified
+                // Mojang client when launched outside the historical launcher.
+                '-Dfml.ignoreInvalidMinecraftCertificates=true'
+        javaLauncher = javaToolchains.launcherFor {
+            languageVersion = JavaLanguageVersion.of(8)
+        }
+        doFirst {
+            clientGameDir.mkdirs()
+            new File(clientGameDir, 'assets').mkdirs()
+        }
+    }
+}
+
+tasks.register('verifyRelease') {
+    dependsOn tasks.named('test'), tasks.named('normalizeLegacyBytecode')
+    inputs.file releaseArchive
+    doLast {
+        def archiveFile = releaseArchive.get().asFile
+        if (!archiveFile.isFile()) throw new GradleException("Missing Forge 1.6.4 artifact ${archiveFile}")
+        new java.util.zip.ZipFile(archiveFile).withCloseable { zip ->
+            Set<String> found = zip.entries().collect { it.name } as Set
+            ['mcmod.info', 'assets/jammarr/lang/en_us.json', 'assets/jammarr/lang/en_US.lang',
+             'jammarr.png', 'META-INF/LICENSE-Jammarr-CC0-1.0.txt',
+             'META-INF/LICENSE-LGPL-2.1-or-later.txt', 'META-INF/THIRD_PARTY_NOTICES.md',
+             'stonytark/jammarr/Jammarr.class',
+             'stonytark/jammarr/core/server/GlobalPlaybackCoordinator.class',
+             'stonytark/jammarr/network/LegacyNetwork.class',
+             'stonytark/jammarr/server/LegacyGlobalPlayer.class',
+             'stonytark/jammarr/client/LegacyAudioPlayer.class',
+             'stonytark/jammarr/client/LegacyScreen.class',
+             'stonytark/jammarr/server/LegacySavedData.class',
+             'javazoom/jl/decoder/Decoder.class', 'de/sciss/jump3r/mp3/Lame.class'].each { entry ->
+                if (!found.contains(entry)) throw new GradleException("Forge 1.6.4 archive is missing ${entry}")
+            }
+            found.findAll { it.startsWith('stonytark/jammarr/') && it.endsWith('.class') }.each { entry ->
+                def stream = zip.getInputStream(zip.getEntry(entry))
+                byte[] header = new byte[8]
+                if (stream.read(header) != 8) throw new GradleException("Unable to inspect ${entry}")
+                stream.close()
+                int major = ((header[6] & 0xff) << 8) | (header[7] & 0xff)
+                if (major != 51) throw new GradleException("Forge 1.6.4 archive contains bytecode FML's ASM 4 cannot inspect: ${entry}")
+            }
+            String metadata = zip.getInputStream(zip.getEntry('mcmod.info')).getText('UTF-8')
+            ['"modid": "jammarr"', '"version": "1.1.0"', '"mcversion": "1.6.4"'].each { required ->
+                if (!metadata.contains(required)) throw new GradleException("Forge 1.6.4 metadata is missing ${required}")
+            }
+        }
+    }
+}

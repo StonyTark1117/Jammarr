@@ -1,0 +1,9 @@
+[versions]
+minecraft = "1.6.4"
+java = "8"
+forge-compile = "9.11.1.964"
+forge = "9.11.1.1345"
+forgegradle = "7.0.36"
+renamer = "1.1.5"
+gradle = "9.3.1"
+mappings = "snapshot-20130918-1.6.3"

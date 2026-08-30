@@ -103,7 +103,7 @@ implementedArtifacts.each { artifact ->
                         ([inheritedJavaOptions] + artifact.buildJvmOptions).findAll { !it.isBlank() }.join(' ')
             }
             List<String> arguments = ['./gradlew', 'verifyRelease']
-            if (artifact.artifactProfile != 'legacy-java8'
+            if (!artifact.artifactProfile.startsWith('legacy-')
                     && !(artifact.minecraft == '1.16.5' && artifact.loader == 'forge')) {
                 arguments.add(':core:test')
             }

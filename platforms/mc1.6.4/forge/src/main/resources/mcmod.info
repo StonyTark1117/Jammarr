@@ -1,0 +1,16 @@
+[
+  {
+    "modid": "jammarr",
+    "name": "Jammarr",
+    "description": "Streams a shared, synchronized Plex music queue to every player.",
+    "version": "${modVersion}",
+    "mcversion": "1.6.4",
+    "url": "",
+    "updateUrl": "",
+    "authorList": ["stonytark_mkii"],
+    "credits": "",
+    "logoFile": "jammarr.png",
+    "screenshots": [],
+    "dependencies": []
+  }
+]
