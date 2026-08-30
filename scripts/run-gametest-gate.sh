@@ -15,7 +15,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-cd "$repo_dir"
+cd "$repo_dir/platforms/mc1.21.1/neoforge"
 setsid ./gradlew runGameTestServer --no-daemon --max-workers=1 >"$log_file" 2>&1 &
 gate_pid=$!
 

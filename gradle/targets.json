@@ -403,7 +403,7 @@
           "status": "stable",
           "implemented": true,
           "quiltCompatible": false,
-          "path": ".",
+          "path": "platforms/mc1.21.1/neoforge",
           "artifact": "jammarr-1.1.0+mc1.21.1-neoforge.jar"
         }
       ]

@@ -2,12 +2,12 @@
 
 Jammarr provides one server-authoritative Plex music queue for Minecraft. Players browse and queue music in-game, operators control playback, and every listening client follows the same server timeline.
 
-Jammarr is intentionally a required server-and-client mod. A server-only mod cannot decode arbitrary Plex audio through an unmodified Minecraft client's sound engine.
+Jammarr may be installed on a dedicated server without requiring every player to install it. Vanilla clients can join and play normally, but only clients with the matching Jammarr build negotiate music browsing, controls, and synchronized audio; an unmodified client cannot decode the Plex stream.
 
 ## Requirements
 
 - One supported Minecraft/loader combination from the table below and its required Java version.
-- The matching Jammarr Minecraft-version and loader JAR on the dedicated server and every connecting client.
+- The matching Jammarr Minecraft-version and loader JAR on the dedicated server, plus on each client that should receive Jammarr functionality.
 - A Plex Media Server reachable from the Minecraft server. Clients do not need network access to Plex.
 
 | Minecraft | Java | Fabric | Quilt | Forge | NeoForge |
@@ -19,7 +19,7 @@ Jammarr is intentionally a required server-and-client mod. A server-only mod can
 | 26.1.2 | 25 | supported | supported | supported | supported |
 | 26.2 | 25 | supported | supported | supported | supported |
 
-Fabric, Quilt, and NeoForge are unavailable for Minecraft 1.7.10. Quilt is supported on every modern target using the matching `-fabric.jar`, Quilt Loader 0.30.0, and upstream Fabric API; no QSL, Quilted Fabric API, or separate `-quilt.jar` is required or published. Fabric-to-Quilt connections and other cross-loader or cross-Minecraft pairings are unsupported. Every artifact uses protocol 5 and is named `jammarr-<mod-version>+mc<version>-<loader>.jar`; there is no cross-Minecraft or Forge-family universal JAR. Exact pinned dependencies are listed in the family catalogs under `gradle/version-catalogs/` and copied into the generated release manifest.
+Fabric, Quilt, and NeoForge are unavailable for Minecraft 1.7.10. Quilt is supported on every modern target using the matching `-fabric.jar`, Quilt Loader 0.30.0, and upstream Fabric API; no QSL, Quilted Fabric API, or separate `-quilt.jar` is required or published. Fabric-to-Quilt connections and other cross-loader or cross-Minecraft pairings are unsupported. Every 1.1.0 artifact uses protocol 6 and is named `jammarr-<mod-version>+mc<version>-<loader>.jar`; there is no cross-Minecraft or Forge-family universal JAR. Exact pinned dependencies are listed in the family catalogs under `gradle/version-catalogs/` and copied into the generated release manifest.
 
 No external FFmpeg installation is required. Plex prepares an MP3 rendition; if a Plex version returns variable-bitrate data, Jammarr normalizes it in-process to the configured constant bitrate using its bundled pure-Java encoder.
 

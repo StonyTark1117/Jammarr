@@ -1,7 +1,5 @@
 plugins {
-    id 'java-library'
-    id 'idea'
-    id 'net.neoforged.moddev' version '2.0.143'
+    id 'base'
 }
 
 import groovy.json.JsonOutput
@@ -36,163 +34,11 @@ if (targetManifest.targets.size() != 26 || plannedArtifacts.size() != 68
         || plannedArtifacts.count { it.quiltCompatible } != 24 || implementedArtifacts.size() != 16) {
     throw new GradleException('Jammarr target manifest does not contain the expected 26/68/24/16 matrix')
 }
-
-repositories {
-    mavenCentral()
-}
-
-base {
-    archivesName = mod_id
-}
-
-java.toolchain.languageVersion = JavaLanguageVersion.of(21)
-
-neoForge {
-    version = project.neo_version
-
-    parchment {
-        mappingsVersion = project.parchment_mappings_version
-        minecraftVersion = project.parchment_minecraft_version
-    }
-
-    runs {
-        client {
-            client()
-            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
-            if (providers.gradleProperty('jammarrAcceptanceServer').isPresent()) {
-                gameDirectory = file(providers.gradleProperty('jammarrAcceptanceGameDir').get())
-                programArguments.addAll '--username', providers.gradleProperty('jammarrAcceptanceUsername').get(),
-                        '--quickPlayMultiplayer', providers.gradleProperty('jammarrAcceptanceServer').get()
-            }
-        }
-        server {
-            server()
-            programArgument '--nogui'
-            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
-        }
-        gameTestServer {
-            type = 'gameTestServer'
-            gameDirectory = layout.buildDirectory.dir('run-gametest').get().asFile
-            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
-        }
-        data {
-            data()
-            programArguments.addAll '--mod', project.mod_id, '--all', '--output', file('src/generated/resources/').getAbsolutePath(), '--existing', file('src/main/resources/').getAbsolutePath()
-        }
-        configureEach {
-            logLevel = org.slf4j.event.Level.INFO
-        }
-    }
-
-    mods {
-        "${mod_id}" {
-            sourceSet(sourceSets.main)
-        }
-    }
-
-    unitTest {
-        enable()
-        testedMod = mods."${mod_id}"
-    }
-}
-
-sourceSets.main.resources { srcDir 'src/generated/resources' }
-sourceSets.test.java.srcDir('test-fixtures/java/mc1.21')
-sourceSets.test.resources {
-    srcDir 'test-fixtures'
-    exclude 'java/**'
-}
-
-def emptyGameTestInput = layout.projectDirectory.file('gradle/empty-gametest.nbt.b64')
-def emptyGameTestOutput = layout.buildDirectory.dir('generated/gametestResources')
-var generateGameTestTemplate = tasks.register('generateGameTestTemplate') {
-    inputs.file(emptyGameTestInput)
-    outputs.dir(emptyGameTestOutput)
-    doLast {
-        def inputFile = inputs.files.singleFile
-        def outputFile = new File(outputs.files.singleFile, 'data/jammarr/structure/empty.nbt')
-        outputFile.parentFile.mkdirs()
-        outputFile.bytes = java.util.Base64.getDecoder().decode(inputFile.text.trim())
-    }
-}
-sourceSets.main.resources.srcDir(generateGameTestTemplate)
-
-dependencies {
-    jarJar(implementation(project(':core')))
-    additionalRuntimeClasspath(project(':core'))
-    neoForgeTestLibraries(project(':core'))
-    jarJar(implementation('javazoom:jlayer:1.0.1'))
-    jarJar(implementation('de.sciss:jump3r:1.0.5'))
-    // NeoForge 1.21.1 does not expose ordinary Java libraries to the
-    // dedicated development run unless they are added to this classpath.
-    additionalRuntimeClasspath('javazoom:jlayer:1.0.1')
-    additionalRuntimeClasspath('de.sciss:jump3r:1.0.5')
-    testImplementation(platform('org.junit:junit-bom:5.10.2'))
-    testImplementation('org.junit.jupiter:junit-jupiter')
-    testRuntimeOnly('org.junit.platform:junit-platform-launcher')
-}
-
-tasks.withType(Test).configureEach {
-    useJUnitPlatform()
-    inputs.property('jammarrLiveTestEnabled', providers.environmentVariable('JAMMARR_LIVE_TEST').orElse('false'))
-    outputs.upToDateWhen { System.getenv('JAMMARR_LIVE_TEST') != 'true' }
-    outputs.cacheIf('credentialed Plex integration tests must execute live') {
-        System.getenv('JAMMARR_LIVE_TEST') != 'true'
-    }
-}
-
-def verifyAudioTimingAnalyzer = tasks.register('verifyAudioTimingAnalyzer', Exec) {
-    group = 'verification'
-    description = 'Proves the rendered-audio oracle rejects early, late, reordered, and overlapping PCM.'
-    commandLine('python3', layout.projectDirectory.file('scripts/test-audio-timing-analyzer.py').asFile)
-}
-
-tasks.named('jar', Jar) {
-    archiveFileName = "${mod_id}-${mod_version}+mc${minecraft_version}-neoforge.jar"
-    from('THIRD_PARTY_NOTICES.md') {
-        into('META-INF')
-    }
-    from('LICENSE') {
-        into('META-INF')
-        rename { 'LICENSE-Jammarr-CC0-1.0.txt' }
-    }
-    from('LICENSE-LGPL-2.1-or-later.txt') {
-        into('META-INF')
-    }
-}
-
-def releaseArchive = tasks.named('jar', Jar).flatMap { it.archiveFile }
-def coreJarEntry = "META-INF/jarjar/stonytark.core-${mod_version}.jar".toString()
-def releaseEntries = [coreJarEntry, 'META-INF/jarjar/jlayer-1.0.1.jar', 'META-INF/jarjar/jump3r-1.0.5.jar',
-                      'META-INF/LICENSE-Jammarr-CC0-1.0.txt', 'META-INF/LICENSE-LGPL-2.1-or-later.txt',
-                      'META-INF/THIRD_PARTY_NOTICES.md', 'META-INF/neoforge.mods.toml',
-                      'assets/jammarr/lang/en_us.json', 'jammarr.mixins.json', 'jammarr.png']
-tasks.register('verifyRelease') {
-    dependsOn(tasks.named('test'), tasks.named('jar'), verifyAudioTimingAnalyzer)
-    doLast {
-        new java.util.zip.ZipFile(releaseArchive.get().asFile).withCloseable { zip ->
-            def found = zip.entries().collect { it.name } as Set
-            releaseEntries.each { entry ->
-                if (!found.contains(entry)) throw new org.gradle.api.GradleException("Release archive is missing ${entry}")
-            }
-            new java.util.zip.ZipInputStream(zip.getInputStream(zip.getEntry(coreJarEntry))).withCloseable { nested ->
-                boolean foundCoreClass = false
-                for (def entry = nested.nextEntry; entry != null; entry = nested.nextEntry) {
-                    if (entry.name == 'stonytark/jammarr/core/server/ChunkTransferPolicy.class') {
-                        byte[] header = nested.readNBytes(8)
-                        int major = ((header[6] & 0xff) << 8) | (header[7] & 0xff)
-                        if (major != 52) throw new org.gradle.api.GradleException("Shared core is not Java 8 bytecode: class major ${major}")
-                        foundCoreClass = true
-                    }
-                }
-                if (!foundCoreClass) throw new org.gradle.api.GradleException('Release archive does not contain the shared transport core')
-            }
-            ['META-INF/neoforge.mods.toml', 'jammarr.mixins.json'].each { entry ->
-                def text = zip.getInputStream(zip.getEntry(entry)).getText('UTF-8').toLowerCase(java.util.Locale.ROOT)
-                if (text.contains('pampmod') || text.contains('pamp_')) {
-                    throw new org.gradle.api.GradleException("Release archive still contains the old PAmpMod identifier in ${entry}")
-                }
-            }
+implementedArtifacts.each { artifact ->
+    File targetDirectory = layout.projectDirectory.dir(artifact.projectPath).asFile
+    ['build.gradle', 'gradlew', 'gradle.lockfile'].each { required ->
+        if (!new File(targetDirectory, required).isFile()) {
+            throw new GradleException("Implemented target ${artifact.minecraft}-${artifact.loader} is missing ${required}")
         }
     }
 }
@@ -415,32 +261,4 @@ tasks.register('verifyFabricLoaderMinimumRuntimes', Exec) {
     environment('JAMMARR_FABRIC_LOADER_VERSION', '0.19.2')
     commandLine('bash', 'scripts/run-dedicated-server-gate.sh', 'fabric')
     mustRunAfter('verifyQuiltModMenuRuntimes')
-}
-
-var generateModMetadata = tasks.register('generateModMetadata', ProcessResources) {
-    var replaceProperties = [minecraft_version      : minecraft_version,
-                             minecraft_version_range: minecraft_version_range,
-                             neo_version            : neo_version,
-                             neo_version_range      : neo_version_range,
-                             loader_version_range   : loader_version_range,
-                             mod_id                 : mod_id,
-                             mod_name               : mod_name,
-                             mod_license            : mod_license,
-                             mod_version            : mod_version,
-                             mod_authors            : mod_authors,
-                             mod_description        : mod_description]
-    inputs.properties replaceProperties
-    expand replaceProperties
-    from 'src/main/templates'
-    into 'build/generated/sources/modMetadata'
-}
-
-sourceSets.main.resources.srcDir generateModMetadata
-neoForge.ideSyncTask generateModMetadata
-
-idea {
-    module {
-        downloadSources = true
-        downloadJavadoc = true
-    }
 }
