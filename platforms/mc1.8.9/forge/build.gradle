@@ -1,0 +1,195 @@
+buildscript {
+    repositories {
+        mavenCentral()
+        maven { name = 'forge'; url = 'https://maven.minecraftforge.net/' }
+    }
+    dependencies {
+        classpath 'net.minecraftforge.gradle:ForgeGradle:2.1-SNAPSHOT'
+    }
+    configurations.classpath.resolutionStrategy.cacheChangingModulesFor 0, 'seconds'
+}
+
+apply plugin: 'java-library'
+apply plugin: 'net.minecraftforge.gradle.forge'
+
+group = 'stonytark'
+version = '1.1.0'
+archivesBaseName = 'jammarr-1.1.0+mc1.8.9-forge'
+sourceCompatibility = targetCompatibility = JavaVersion.VERSION_1_8
+
+minecraft {
+    version = '1.8.9-11.15.1.2318-1.8.9'
+    mappings = 'stable_22'
+    runDir = 'run'
+    makeObfSourceJar = false
+}
+
+task prefetchLegacyAssets(type: Exec, dependsOn: getAssetIndex) {
+    description = 'Downloads the Minecraft 1.8 asset index objects over checksum-verified HTTPS.'
+    commandLine 'python3', file('../../../scripts/prefetch-legacy-assets.py'),
+            '--assets-dir', new File(gradle.gradleUserHomeDir, 'caches/minecraft/assets'),
+            '--index', '1.8'
+}
+
+getAssets.dependsOn prefetchLegacyAssets
+
+def acceptanceServer = project.findProperty('jammarrAcceptanceServer')
+def acceptanceUsername = project.findProperty('jammarrAcceptanceUsername')
+def acceptanceGameDir = project.findProperty('jammarrAcceptanceGameDir')
+
+tasks.getByName('runClient').configure {
+    outputs.upToDateWhen { false }
+    if (acceptanceUsername != null) args '--username', acceptanceUsername
+    if (acceptanceGameDir != null) {
+        // ForgeGradle 2.1 re-applies minecraft.runDir during task execution,
+        // so pass Minecraft's own game-directory argument as well.
+        workingDir file(acceptanceGameDir)
+        args '--gameDir', acceptanceGameDir
+    }
+    if (acceptanceServer != null) {
+        int separator = acceptanceServer.lastIndexOf(':')
+        if (separator <= 0 || separator == acceptanceServer.length() - 1) {
+            throw new GradleException('jammarrAcceptanceServer must use host:port syntax')
+        }
+        args '--server', acceptanceServer.substring(0, separator),
+                '--port', acceptanceServer.substring(separator + 1)
+    }
+}
+
+tasks.getByName('runServer').configure {
+    outputs.upToDateWhen { false }
+}
+
+repositories {
+    mavenCentral()
+}
+
+configurations {
+    embeddedLibraries
+    compile.extendsFrom(embeddedLibraries)
+}
+
+dependencyLocking {
+    lockAllConfigurations()
+}
+
+dependencies {
+    embeddedLibraries 'javazoom:jlayer:1.0.1'
+    embeddedLibraries 'de.sciss:jump3r:1.0.5'
+    testCompile 'org.junit.jupiter:junit-jupiter-api:5.10.2'
+    testCompile 'org.junit.jupiter:junit-jupiter-params:5.10.2'
+    testRuntime 'org.junit.jupiter:junit-jupiter-engine:5.10.2'
+    testRuntime 'org.junit.platform:junit-platform-launcher:1.10.2'
+}
+
+sourceSets {
+    main {
+        java.srcDirs = ['src/main/java', '../../../core/src/main/java']
+        resources {
+            srcDirs = ['src/main/resources', '../../../src/main/resources']
+            exclude 'jammarr.mixins.json'
+        }
+    }
+    test {
+        java.srcDirs = ['src/test/java', '../../../core/src/test/java']
+        resources {
+            srcDir '../../../test-fixtures'
+            exclude 'java/**'
+        }
+    }
+}
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
+
+test {
+    useJUnitPlatform()
+    inputs.property 'jammarrLiveTestEnabled', System.getenv('JAMMARR_LIVE_TEST') ?: 'false'
+    outputs.upToDateWhen { System.getenv('JAMMARR_LIVE_TEST') != 'true' }
+}
+
+processResources {
+    inputs.property 'modVersion', project.version
+    filesMatching('mcmod.info') {
+        expand modVersion: project.version
+    }
+}
+
+jar {
+    version = ''
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from { configurations.embeddedLibraries.collect { zipTree(it) } }
+    exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', 'META-INF/INDEX.LIST', 'module-info.class'
+    from('../../../LICENSE') {
+        into 'META-INF'
+        rename { 'LICENSE-Jammarr-CC0-1.0.txt' }
+    }
+    from('../../../LICENSE-LGPL-2.1-or-later.txt') { into 'META-INF' }
+    from('../../../THIRD_PARTY_NOTICES.md') { into 'META-INF' }
+    manifest.attributes(
+            'FMLCorePluginContainsFMLMod': 'true',
+            'Implementation-Title': 'Jammarr',
+            'Implementation-Version': project.version)
+}
+
+def sha256 = { File file ->
+    java.security.MessageDigest digest = java.security.MessageDigest.getInstance('SHA-256')
+    file.withInputStream { stream ->
+        byte[] buffer = new byte[65536]
+        int count
+        while ((count = stream.read(buffer)) >= 0) if (count > 0) digest.update(buffer, 0, count)
+    }
+    digest.digest().collect { String.format('%02x', it & 0xff) }.join()
+}
+
+task verifyToolchainLock {
+    doLast {
+        File wrapper = file('gradle/wrapper/gradle-wrapper.jar')
+        if (sha256(wrapper) != '718d7b25ea60b357fc4cb2212ce10b3f03dfd0e6fe5f23f565b15553ec46bb7e') {
+            throw new GradleException('Forge 1.8.9 Gradle wrapper checksum does not match the pinned MDK')
+        }
+        File forgeGradle = buildscript.configurations.classpath.files.find { it.name.startsWith('ForgeGradle-2.1') }
+        if (forgeGradle == null || sha256(forgeGradle) != '29f4f9a4b7ad917937d6ca761404ed4c56ee2a716cbfdd190b9aa99f25eb4695') {
+            throw new GradleException('ForgeGradle 2.1 snapshot does not match build 2.1-20211118.174922-42')
+        }
+    }
+}
+
+def releaseArchive = file("$buildDir/libs/${archivesBaseName}.jar")
+task verifyRelease(dependsOn: [test, reobfJar, verifyToolchainLock]) {
+    inputs.file releaseArchive
+    doLast {
+        if (!releaseArchive.isFile()) {
+            throw new GradleException("Missing Forge 1.8.9 artifact ${releaseArchive}")
+        }
+        new java.util.zip.ZipFile(releaseArchive).withCloseable { zip ->
+            Set<String> found = zip.entries().collect { it.name } as Set
+            ['mcmod.info', 'assets/jammarr/lang/en_us.json', 'assets/jammarr/lang/en_US.lang',
+             'jammarr.png', 'META-INF/LICENSE-Jammarr-CC0-1.0.txt',
+             'META-INF/LICENSE-LGPL-2.1-or-later.txt', 'META-INF/THIRD_PARTY_NOTICES.md',
+             'stonytark/jammarr/Jammarr.class',
+             'stonytark/jammarr/core/server/GlobalPlaybackCoordinator.class',
+             'stonytark/jammarr/network/LegacyNetwork.class',
+             'stonytark/jammarr/server/LegacyGlobalPlayer.class',
+             'stonytark/jammarr/client/LegacyAudioPlayer.class',
+             'stonytark/jammarr/client/LegacyScreen.class',
+             'stonytark/jammarr/server/LegacySavedData.class',
+             'javazoom/jl/decoder/Decoder.class', 'de/sciss/jump3r/mp3/Lame.class'].each { entry ->
+                if (!found.contains(entry)) throw new GradleException("Forge 1.8.9 archive is missing ${entry}")
+            }
+            found.findAll { it.startsWith('stonytark/jammarr/') && it.endsWith('.class') }.each { entry ->
+                InputStream stream = zip.getInputStream(zip.getEntry(entry))
+                byte[] header = new byte[8]
+                if (stream.read(header) != 8) throw new GradleException("Unable to inspect ${entry}")
+                stream.close()
+                int major = ((header[6] & 0xff) << 8) | (header[7] & 0xff)
+                if (major != 52) throw new GradleException("Forge 1.8.9 archive contains non-Java-8 bytecode: ${entry}")
+            }
+            String metadata = zip.getInputStream(zip.getEntry('mcmod.info')).getText('UTF-8')
+            ['"modid": "jammarr"', '"version": "1.1.0"', '"mcversion": "1.8.9"'].each { required ->
+                if (!metadata.contains(required)) throw new GradleException("Forge 1.8.9 metadata is missing ${required}")
+            }
+        }
+    }
+}

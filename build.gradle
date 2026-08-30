@@ -49,10 +49,14 @@ if (artifactFilenames.size() != artifactFilenames.toSet().size()) {
 }
 implementedArtifacts.each { artifact ->
     File targetDirectory = layout.projectDirectory.dir(artifact.projectPath).asFile
-    ['build.gradle', 'gradlew', 'gradle.lockfile'].each { required ->
+    ['build.gradle', 'gradlew'].each { required ->
         if (!new File(targetDirectory, required).isFile()) {
             throw new GradleException("Implemented target ${artifact.minecraft}-${artifact.loader} is missing ${required}")
         }
+    }
+    if (!new File(targetDirectory, 'gradle.lockfile').isFile()
+            && !new File(targetDirectory, 'gradle/dependency-locks').isDirectory()) {
+        throw new GradleException("Implemented target ${artifact.minecraft}-${artifact.loader} is missing dependency locks")
     }
 }
 
@@ -99,7 +103,7 @@ implementedArtifacts.each { artifact ->
                         ([inheritedJavaOptions] + artifact.buildJvmOptions).findAll { !it.isBlank() }.join(' ')
             }
             List<String> arguments = ['./gradlew', 'verifyRelease']
-            if (!(artifact.minecraft in ['1.7.10', '1.12.2'])
+            if (artifact.artifactProfile != 'legacy-java8'
                     && !(artifact.minecraft == '1.16.5' && artifact.loader == 'forge')) {
                 arguments.add(':core:test')
             }

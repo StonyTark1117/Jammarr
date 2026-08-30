@@ -99,7 +99,7 @@ uses_console_control() {
 }
 
 uses_legacy_command_markers() {
-  [[ ${target_command_markers[$1]} == "legacy-1710" ]]
+  [[ ${target_command_markers[$1]} == "legacy-response" ]]
 }
 
 uses_legacy_audio_profile() {
@@ -108,6 +108,16 @@ uses_legacy_audio_profile() {
 
 uses_legacy_fml_log() {
   [[ ${target_log_profile[$1]} == "legacy-fml" ]]
+}
+
+mod_log_path() {
+  local label=$1
+  local run_dir=$2
+  if uses_legacy_fml_log "$label"; then
+    printf '%s/logs/fml-server-latest.log\n' "$run_dir"
+  else
+    printf '%s/logs/latest.log\n' "$run_dir"
+  fi
 }
 
 disables_configuration_cache() {
@@ -369,6 +379,17 @@ run_wrong_protocol_client() {
     'Jammarr protocol mismatch: server requires' true
 }
 
+optional_client_joined() {
+  local label=$1
+  local server_log=$2
+  local client_log=$3
+  local username=$4
+  grep -Fq "$username joined the game" "$server_log" 2>/dev/null && return 0
+  uses_legacy_fml_log "$label" \
+    && grep -Fq 'Server side modded connection established' "$server_log" 2>/dev/null \
+    && grep -Fq 'Client side modded connection established' "$client_log" 2>/dev/null
+}
+
 run_optional_client() {
   local label=$1
   local target_dir=$2
@@ -409,7 +430,7 @@ run_optional_client() {
   active_client_pid=$pid
 
   deadline=$((SECONDS + 600))
-  while ! grep -Fq "$username joined the game" "$server_console" 2>/dev/null; do
+  while ! optional_client_joined "$label" "$server_console" "$client_console" "$username"; do
     if client_bootstrap_failed "$client_console" || ! group_alive "$pid" || (( SECONDS >= deadline )); then
       echo "$label: client without a Jammarr hello did not join; see $client_console" >&2
       result=1
@@ -428,7 +449,12 @@ run_optional_client() {
       result=1
     else
       {
-        grep -F "$username joined the game" "$server_console" | tail -n 1
+        if uses_legacy_fml_log "$label"; then
+          grep -F 'Server side modded connection established' "$server_console" | tail -n 1
+          grep -F 'Client side modded connection established' "$client_console" | tail -n 1
+        else
+          grep -F "$username joined the game" "$server_console" | tail -n 1
+        fi
         printf '%s\n' 'Client remained connected for 10 seconds without sending a Jammarr hello.'
       } > "$evidence"
     fi
@@ -663,7 +689,7 @@ run_command_client() {
 
   if uses_console_control "$label"; then
     printf 'deop %s\n' "$username" >&"$fifo_fd"
-  elif ! python3 "$repo_root/scripts/minecraft-rcon.py" 127.0.0.1 "$rcon_port" "$rcon_password" \
+  elif ! run_minecraft_rcon 127.0.0.1 "$rcon_port" "$rcon_password" \
       "deop $username" > /dev/null 2>&1; then
     # A never-before-seen player is not in ops.json, which some versions report
     # as a command failure. The real non-operator command tree below is authority.
@@ -722,12 +748,23 @@ run_command_client() {
   fi
 
   if (( result == 0 )); then
-    if uses_console_control "$label"; then
-      printf 'op %s\n' "$username" >&"$fifo_fd"
+    if uses_legacy_command_markers "$label"; then
+      if uses_console_control "$label"; then
+        printf 'op %s\n' "$username" >&"$fifo_fd"
+      elif ! run_minecraft_rcon 127.0.0.1 "$rcon_port" "$rcon_password" \
+          "op $username" > /dev/null; then
+        echo "$label: unable to promote the real legacy command-probe client" >&2
+        result=1
+      fi
       sleep 1
-      printf 'tell %s JAMMARR_ACCEPTANCE_OPERATOR_READY\n' "$username" >&"$fifo_fd"
+      if uses_console_control "$label"; then
+        printf 'tell %s JAMMARR_ACCEPTANCE_OPERATOR_READY\n' "$username" >&"$fifo_fd"
+      else
+        run_minecraft_rcon 127.0.0.1 "$rcon_port" "$rcon_password" \
+          "tell $username JAMMARR_ACCEPTANCE_OPERATOR_READY" > /dev/null || result=1
+      fi
       deadline=$((SECONDS + 60))
-      while ! grep -Fq 'Acceptance command response: Plex=' "$client_console" 2>/dev/null; do
+      while (( result == 0 )) && ! grep -Fq 'Acceptance command response: Plex=' "$client_console" 2>/dev/null; do
         if ! group_alive "$pid" || (( SECONDS >= deadline )); then
           echo "$label: operator diagnostics response was not observed; see $client_console" >&2
           result=1
@@ -738,9 +775,25 @@ run_command_client() {
       if (( result == 0 )); then
         grep -F 'Acceptance command response:' "$client_console" > "$diagnostics"
       fi
-      printf 'deop %s\n' "$username" >&"$fifo_fd"
+      deadline=$((SECONDS + 60))
+      while (( result == 0 )) \
+          && { ! grep -Fq 'Acceptance legacy Jammarr screen remained open across client ticks' "$client_console" \
+            || ! grep -Fq 'Acceptance legacy Jammarr config screen remained open across client ticks' "$client_console"; }; do
+        if ! group_alive "$pid" || (( SECONDS >= deadline )); then
+          echo "$label: legacy Jammarr player/config screens did not remain open across client ticks; see $client_console" >&2
+          result=1
+          break
+        fi
+        sleep 1
+      done
+      if uses_console_control "$label"; then
+        printf 'deop %s\n' "$username" >&"$fifo_fd"
+      else
+        run_minecraft_rcon 127.0.0.1 "$rcon_port" "$rcon_password" \
+          "deop $username" > /dev/null 2>&1 || true
+      fi
     else
-      if ! python3 "$repo_root/scripts/minecraft-rcon.py" 127.0.0.1 "$rcon_port" "$rcon_password" \
+      if ! run_minecraft_rcon 127.0.0.1 "$rcon_port" "$rcon_password" \
           "op $username" > /dev/null; then
         echo "$label: unable to promote the real command-probe client" >&2
         result=1
@@ -768,7 +821,7 @@ run_command_client() {
       fi
       if (( result == 0 )); then
         grep -F '[CHAT] Plex=' "$client_console" | tail -n 1 > "$diagnostics"
-        if ! python3 "$repo_root/scripts/minecraft-rcon.py" 127.0.0.1 "$rcon_port" "$rcon_password" \
+        if ! run_minecraft_rcon 127.0.0.1 "$rcon_port" "$rcon_password" \
             'jammarr diagnostics' >> "$diagnostics"; then
           echo "$label: diagnostics command failed over authenticated server administration" >&2
           result=1
@@ -788,7 +841,7 @@ run_command_client() {
           sleep 1
         done
       fi
-      python3 "$repo_root/scripts/minecraft-rcon.py" 127.0.0.1 "$rcon_port" "$rcon_password" \
+      run_minecraft_rcon 127.0.0.1 "$rcon_port" "$rcon_password" \
         "deop $username" > /dev/null 2>&1 || true
     fi
   fi
@@ -807,6 +860,7 @@ run_command_client() {
       grep -E 'Acceptance command permissions:|Acceptance command response: (Queue is empty|Operator permission is required|Plex=)' \
         "$client_console" || true
       grep -E 'Acceptance Jammarr (config )?screen remained open across rendered frames' "$client_console" || true
+      grep -E 'Acceptance legacy Jammarr (config )?screen remained open across client ticks' "$client_console" || true
       cat "$diagnostics"
     } > "$evidence"
   fi
@@ -1144,6 +1198,7 @@ run_audio_control_scenarios() {
   local rcon_port=$9
   local rcon_password=${10}
   local fifo_fd=${11}
+  local server_log=${12}
   local leader_log="$output_root/$label.audio-leader.console.log"
   local follower_log="$output_root/$label.audio-follower.console.log"
   local scenario_evidence="$output_root/$label.audio-scenarios.evidence.txt"
@@ -1154,7 +1209,7 @@ run_audio_control_scenarios() {
   : > "$scenario_evidence"
   if uses_console_control "$label"; then
     printf 'op JammarrAudioA\n' >&"$fifo_fd"
-  elif ! python3 "$repo_root/scripts/minecraft-rcon.py" 127.0.0.1 "$rcon_port" "$rcon_password" \
+  elif ! run_minecraft_rcon 127.0.0.1 "$rcon_port" "$rcon_password" \
       'op JammarrAudioA' > /dev/null; then
     echo "$label: unable to promote the audio scenario leader" >&2
     return 1
@@ -1270,14 +1325,13 @@ run_audio_control_scenarios() {
   fi
   printf 'Resource and sound-engine reload recovered audible playback.\n' >> "$scenario_evidence"
 
-  local server_log="$output_root/$label.console.log"
   local transcodes_before transcodes_after
   first=$(wc -l < "$server_log")
   printf 'offline\n' > "$fake_plex_state"
   if uses_console_control "$label"; then
     printf 'jammarr reload\n' >&"$fifo_fd"
   else
-    if ! python3 "$repo_root/scripts/minecraft-rcon.py" 127.0.0.1 "$rcon_port" "$rcon_password" \
+    if ! run_minecraft_rcon 127.0.0.1 "$rcon_port" "$rcon_password" \
         'jammarr reload' > /dev/null; then
       printf 'online\n' > "$fake_plex_state"
       return 1
@@ -1317,7 +1371,7 @@ run_audio_control_scenarios() {
   if uses_console_control "$label"; then
     printf 'jammarr reload\n' >&"$fifo_fd"
   else
-    python3 "$repo_root/scripts/minecraft-rcon.py" 127.0.0.1 "$rcon_port" "$rcon_password" \
+    run_minecraft_rcon 127.0.0.1 "$rcon_port" "$rcon_password" \
       'jammarr reload' > /dev/null || return 1
   fi
   if ! wait_for_marker_after "$server_log" "$first" 'Jammarr connected to Plex; sonic capability is READY' 60; then
@@ -1445,6 +1499,7 @@ run_two_client_audio() {
   local rcon_port=$5
   local rcon_password=$6
   local fifo_fd=$7
+  local server_log=$8
   local sink_prefix="jammarr_${BASHPID}_${label//[^a-zA-Z0-9]/_}"
   local sink_leader="${sink_prefix}_leader" sink_follower="${sink_prefix}_follower"
   local raw_leader="$output_root/$label.audio-leader.s16le"
@@ -1577,7 +1632,7 @@ run_two_client_audio() {
   if (( result == 0 )) && [[ "$audio_scenario_gate" == "true" ]]; then
     if ! run_audio_control_scenarios "$label" "$target_dir" "$java_home" "$client_port" \
         "$sink_leader" "$sink_follower" "$leader_pid" "$follower_pid" \
-        "$rcon_port" "$rcon_password" "$fifo_fd"; then
+        "$rcon_port" "$rcon_password" "$fifo_fd" "$server_log"; then
       result=1
     fi
   fi
@@ -1762,6 +1817,8 @@ run_invalid_config_check_once() {
   local level_name=$6
   local console_log="$output_root/$label.invalid-config.console.log"
   local latest_log="$run_dir/logs/latest.log"
+  local mod_log
+  mod_log=$(mod_log_path "$label" "$run_dir")
   local pid result=0
   local -a cache_args=()
   local -a runtime_args=(-PjammarrServerGameDir="$run_dir")
@@ -1799,7 +1856,7 @@ run_invalid_config_check_once() {
 
   local deadline=$((SECONDS + 600))
   while group_alive "$pid"; do
-    if grep -Fq 'Invalid Jammarr configuration value for plexUrl' "$console_log" 2>/dev/null; then
+    if grep -Fq 'Invalid Jammarr configuration value for plexUrl' "$console_log" "$mod_log" 2>/dev/null; then
       break
     fi
     if (( SECONDS >= deadline )); then
@@ -1818,17 +1875,17 @@ run_invalid_config_check_once() {
   fi
   wait "$pid" 2>/dev/null || true
   active_server_pid=""
-  if ! grep -Fq 'Invalid Jammarr configuration value for plexUrl' "$latest_log" "$console_log" 2>/dev/null \
+  if ! grep -Fq 'Invalid Jammarr configuration value for plexUrl' "$latest_log" "$mod_log" "$console_log" 2>/dev/null \
       && grep -Eq 'Failed to get asset:|SocketTimeoutException|HttpTimeoutException|Could not download' \
         "$console_log" 2>/dev/null; then
     restore_server_config
     return 75
   fi
-  if ! grep -Fq 'Invalid Jammarr configuration value for plexUrl' "$latest_log" "$console_log" 2>/dev/null; then
+  if ! grep -Fq 'Invalid Jammarr configuration value for plexUrl' "$latest_log" "$mod_log" "$console_log" 2>/dev/null; then
     echo "$label: invalid configuration failure did not identify the rejected key" >&2
     result=1
   fi
-  if grep -Fq 'private-pass' "$latest_log" "$console_log" 2>/dev/null; then
+  if grep -Fq 'private-pass' "$latest_log" "$mod_log" "$console_log" 2>/dev/null; then
     echo "$label: invalid configuration diagnostics leaked a credential" >&2
     result=1
   fi
@@ -1871,6 +1928,19 @@ set_property() {
   fi
 }
 
+run_minecraft_rcon() {
+  local attempt status=1
+  for attempt in 1 2 3; do
+    if python3 "$repo_root/scripts/minecraft-rcon.py" "$@"; then
+      return 0
+    else
+      status=$?
+    fi
+    if (( attempt < 3 )); then sleep 1; fi
+  done
+  return "$status"
+}
+
 backup_server_properties() {
   local properties=$1
   local label=$2
@@ -1888,7 +1958,16 @@ run_target() {
   local run_dir="$target_dir/run"
   [[ "$label" == *-quilt ]] && run_dir="$target_dir/run-quilt"
   local latest_log="$run_dir/logs/latest.log"
+  local mod_log
+  mod_log=$(mod_log_path "$label" "$run_dir")
   local console_log="$output_root/$label.console.log"
+  local server_evidence_log="$console_log"
+  if uses_legacy_fml_log "$label"; then
+    # Forge 1.8.9's development Log4j configuration does not attach its
+    # Minecraft/FML console appenders. The same authoritative events are
+    # still written to latest.log and fml-server-latest.log.
+    server_evidence_log="$mod_log"
+  fi
   local fifo_dir fifo fifo_fd pid server_pid server_group port rcon_port rcon_password result=0
   local fake_plex_port fake_request_start plex_deadline level_name
   local -a cache_args=()
@@ -1977,7 +2056,7 @@ run_target() {
 
   local startup_deadline=$((SECONDS + 180))
   while :; do
-    if grep -Eq 'Done \([^)]*\)! For help' "$console_log" 2>/dev/null; then
+    if grep -Eq 'Done \([^)]*\)! For help' "$console_log" "$latest_log" 2>/dev/null; then
       break
     fi
     if ! kill -0 "$pid" 2>/dev/null; then
@@ -2022,7 +2101,7 @@ run_target() {
   fi
 
   if (( result == 0 )) && [[ "$protocol_client_gate" == "true" ]]; then
-    if ! run_wrong_protocol_client "$label" "$target_dir" "$java_home" "$port" "$console_log"; then
+    if ! run_wrong_protocol_client "$label" "$target_dir" "$java_home" "$port" "$server_evidence_log"; then
       result=1
     fi
   fi
@@ -2034,7 +2113,7 @@ run_target() {
   fi
 
   if (( result == 0 )) && [[ "$command_client_gate" == "true" ]]; then
-    if ! run_command_client "$label" "$target_dir" "$java_home" "$port" "$console_log" \
+    if ! run_command_client "$label" "$target_dir" "$java_home" "$port" "$server_evidence_log" \
         "$rcon_port" "$rcon_password" "$fifo_fd"; then
       result=1
     fi
@@ -2042,13 +2121,13 @@ run_target() {
 
   if (( result == 0 )) && [[ "$audio_client_gate" == "true" ]]; then
     if ! run_two_client_audio "$label" "$target_dir" "$java_home" "$port" \
-        "$rcon_port" "$rcon_password" "$fifo_fd"; then
+        "$rcon_port" "$rcon_password" "$fifo_fd" "$server_evidence_log"; then
       result=1
     fi
   fi
 
   if (( result == 0 )); then
-    if ! run_optional_client "$label" "$target_dir" "$java_home" "$port" "$console_log"; then
+    if ! run_optional_client "$label" "$target_dir" "$java_home" "$port" "$server_evidence_log"; then
       result=1
     fi
     # Let the server finish its disconnect/player-removal tick before the
@@ -2058,7 +2137,7 @@ run_target() {
 
   if uses_console_control "$label"; then
     printf 'stop\n' >&"$fifo_fd"
-  elif ! python3 "$repo_root/scripts/minecraft-rcon.py" 127.0.0.1 "$rcon_port" "$rcon_password" stop \
+  elif ! run_minecraft_rcon 127.0.0.1 "$rcon_port" "$rcon_password" stop \
       >> "$console_log" 2>&1; then
     printf 'stop\n' >&"$fifo_fd"
   fi
@@ -2112,22 +2191,27 @@ run_target() {
   rm -f -- "$fifo"
   rmdir -- "$fifo_dir"
 
-  if [[ ! -f "$latest_log" ]] || ! grep -Eq 'Stopping (the )?server' "$latest_log" \
-      || ! grep -q 'Saving players' "$latest_log"; then
-    echo "$label: log does not prove a clean Minecraft shutdown" >&2
-    result=1
-  fi
   if uses_legacy_fml_log "$label"; then
-    if ! grep -q 'Initializing Jammarr 1.1.0 for Forge 1.7.10 protocol 6' "$run_dir/logs/fml-server-latest.log"; then
-      echo "$label: FML log does not prove Jammarr initialized" >&2
+    if [[ ! -f "$mod_log" ]] \
+        || ! grep -Eq 'Initializing Jammarr 1\.1\.0 for Forge [^ ]+ protocol 6' "$mod_log" \
+        || ! grep -q 'FMLServerStoppingEvent' "$mod_log" \
+        || ! grep -q 'FMLServerStoppedEvent' "$mod_log"; then
+      echo "$label: FML log does not prove initialization and clean lifecycle shutdown" >&2
       result=1
     fi
-  elif ! grep -Eiq 'jammarr' "$latest_log"; then
-    echo "$label: server log does not prove Jammarr loaded" >&2
-    result=1
+  else
+    if [[ ! -f "$latest_log" ]] || ! grep -Eq 'Stopping (the )?server' "$latest_log" \
+        || ! grep -q 'Saving players' "$latest_log"; then
+      echo "$label: log does not prove a clean Minecraft shutdown" >&2
+      result=1
+    fi
+    if ! grep -Eiq 'jammarr' "$latest_log"; then
+      echo "$label: server log does not prove Jammarr loaded" >&2
+      result=1
+    fi
   fi
   if grep -Eiq 'Failed to start the minecraft server|ModLoadingException|Preparing crash report|Encountered an unexpected exception' \
-      "$latest_log" "$console_log"; then
+      "$latest_log" "$mod_log" "$console_log"; then
     echo "$label: fatal startup marker found; see $console_log" >&2
     result=1
   fi

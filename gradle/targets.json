@@ -54,13 +54,38 @@
           "artifactProfile": "legacy-java8",
           "runtimeCapabilities": {
             "control": "console",
-            "commandMarkers": "legacy-1710",
+            "commandMarkers": "legacy-response",
             "audioProfile": "legacy-openal",
             "logProfile": "legacy-fml",
             "disableConfigurationCache": false
           },
           "path": "platforms/mc1.7.10/forge",
           "artifact": "jammarr-1.1.0+mc1.7.10-forge.jar"
+        }
+      ]
+    },
+    {
+      "minecraft": "1.8.9",
+      "java": {
+        "build": 8,
+        "runtime": 8,
+        "bytecode": 8
+      },
+      "loaders": [
+        {
+          "id": "forge",
+          "status": "preview",
+          "implemented": true,
+          "quiltCompatible": false,
+          "artifactProfile": "legacy-java8",
+          "runtimeCapabilities": {
+            "commandMarkers": "legacy-response",
+            "audioProfile": "legacy-openal",
+            "logProfile": "legacy-fml",
+            "disableConfigurationCache": false
+          },
+          "path": "platforms/mc1.8.9/forge",
+          "artifact": "jammarr-1.1.0+mc1.8.9-forge.jar"
         }
       ]
     },

@@ -46,7 +46,9 @@ def fixture() -> dict:
                         "implemented": True,
                         "quiltCompatible": False,
                         "verificationTask": "verifySpecialForge",
-                        "runtimeCapabilities": {"control": "console"},
+                        "runtimeCapabilities": {
+                            "control": "console", "commandMarkers": "legacy-response"
+                        },
                         "path": "platforms/forge",
                         "artifact": "forge.jar",
                     },
@@ -67,6 +69,7 @@ class TargetMatrixTests(unittest.TestCase):
                          ["1.20.1-fabric", "1.20.1-quilt", "1.20.1-forge"])
         self.assertEqual([entry["port"] for entry in runtimes], [26000, 26001, 26002])
         self.assertEqual(runtimes[-1]["control"], "console")
+        self.assertEqual(runtimes[-1]["commandMarkers"], "legacy-response")
         self.assertTrue(runtimes[-1]["disableConfigurationCache"])
 
     def test_duplicate_target_fails_closed(self) -> None:

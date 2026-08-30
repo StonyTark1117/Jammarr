@@ -1,0 +1,6 @@
+[versions]
+minecraft = "1.8.9"
+java = "8"
+forge = "11.15.1.2318"
+forgegradle = "2.1-20211118.174922-42"
+gradle = "4.10.3"
