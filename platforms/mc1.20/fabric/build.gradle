@@ -1,0 +1,192 @@
+plugins {
+    alias(libs.plugins.fabric.loom)
+}
+apply from: file('../../../gradle/quilt-runtime.gradle')
+
+group = 'stonytark'
+version = '1.1.0'
+def artifactVersion = version.toString()
+def runtimeLoader = providers.gradleProperty('jammarrRuntimeLoader').orElse('fabric')
+def quiltRuntime = runtimeLoader.map { it == 'quilt' }
+def fabricLoaderVersion = providers.gradleProperty('jammarrFabricLoaderVersion').orElse(libs.versions.fabric.loader)
+def includeModMenu = providers.gradleProperty('jammarrIncludeModMenu').map { it.toBoolean() }.orElse(false)
+def quiltRuntimeLibraries = jammarrQuiltRuntimeProfiles[libs.versions.quilt.loader.get()]
+if (!(runtimeLoader.get() in ['fabric', 'quilt'])) {
+    throw new GradleException("Unsupported Jammarr runtime loader: ${runtimeLoader.get()}")
+}
+
+base {
+    archivesName = "jammarr-${project.version}+mc1.20-fabric"
+}
+
+loom {
+    runs {
+        server {
+            if (quiltRuntime.get()) {
+                property 'loader.development', 'true'
+                property 'loader.remapClasspathFile', file('.gradle/loom-cache/remapClasspath.txt').absolutePath
+                property 'loader.classPathGroups', "${layout.buildDirectory.dir('classes/java/main').get().asFile}${File.pathSeparator}${layout.buildDirectory.dir('resources/main').get().asFile}"
+            }
+            if (providers.gradleProperty('jammarrServerGameDir').isPresent()) {
+                runDir providers.gradleProperty('jammarrServerGameDir').get()
+            }
+        }
+        client {
+            if (quiltRuntime.get()) {
+                property 'loader.development', 'true'
+                property 'loader.remapClasspathFile', file('.gradle/loom-cache/remapClasspath.txt').absolutePath
+                property 'loader.classPathGroups', "${layout.buildDirectory.dir('classes/java/main').get().asFile}${File.pathSeparator}${layout.buildDirectory.dir('resources/main').get().asFile}"
+            }
+            if (providers.gradleProperty('jammarrAcceptanceServer').isPresent()) {
+                runDir providers.gradleProperty('jammarrAcceptanceGameDir').get()
+                programArgs '--username', providers.gradleProperty('jammarrAcceptanceUsername').get(),
+                        '--quickPlayMultiplayer', providers.gradleProperty('jammarrAcceptanceServer').get()
+            }
+        }
+    }
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(libs.versions.java.get().toInteger())
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+    withSourcesJar()
+}
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.fabricmc.net/' }
+    maven { url = 'https://maven.quiltmc.org/repository/release/' }
+    maven { url = 'https://maven.terraformersmc.com/releases/' }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${libs.versions.minecraft.get()}"
+    mappings loom.officialMojangMappings()
+    modImplementation quiltRuntime.get() ? libs.quilt.loader : "net.fabricmc:fabric-loader:${fabricLoaderVersion.get()}"
+    if (quiltRuntime.get()) quiltRuntimeLibraries.each { implementation it }
+    modImplementation libs.fabric.api
+    modCompileOnly libs.modmenu
+    if (includeModMenu.get()) modRuntimeOnly(libs.modmenu) {
+        exclude group: 'net.fabricmc', module: 'fabric-loader'
+    }
+
+    implementation project(':core')
+    include project(':core')
+    implementation libs.jlayer
+    include libs.jlayer
+    implementation libs.jump3r
+    include libs.jump3r
+    testImplementation platform(libs.junit.bom)
+    testImplementation libs.junit.jupiter
+    testRuntimeOnly libs.junit.launcher
+}
+
+dependencyLocking { lockAllConfigurations() }
+if (quiltRuntime.get()) {
+    configurations.configureEach {
+        resolutionStrategy.deactivateDependencyLocking()
+        quiltRuntimeLibraries.each { dependency -> resolutionStrategy.force(dependency) }
+    }
+}
+
+sourceSets {
+    main {
+        java {
+            setSrcDirs([file('../../../src/main/java'), file('../common/src/main'), file('src/main')])
+            exclude 'stonytark/jammarr/Jammarr.java'
+            exclude 'stonytark/jammarr/client/JammarrClient.java'
+            exclude 'stonytark/jammarr/client/JammarrClientConfigScreen.java'
+            exclude 'stonytark/jammarr/client/JammarrScreen.java'
+            exclude 'stonytark/jammarr/config/JammarrConfig.java'
+            exclude 'stonytark/jammarr/gametest/**'
+            exclude 'stonytark/jammarr/network/JammarrNetwork.java'
+            exclude 'stonytark/jammarr/network/JammarrPayloads.java'
+            exclude 'stonytark/jammarr/network/MinecraftWireInput.java'
+            exclude 'stonytark/jammarr/network/MinecraftWireOutput.java'
+            exclude 'stonytark/jammarr/server/JammarrCommands.java'
+            exclude 'stonytark/jammarr/server/JammarrServer.java'
+            exclude 'stonytark/jammarr/server/JammarrSavedData.java'
+        }
+        resources {
+            srcDir file('../../../src/main/resources')
+            exclude 'META-INF/neoforge.mods.toml'
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+sourceSets.test.java.srcDir(file('../../../test-fixtures/java/mc1.20'))
+sourceSets.test.resources { srcDir file('../../../test-fixtures'); exclude 'java/**' }
+tasks.withType(Test).configureEach { useJUnitPlatform() }
+
+tasks.named('processResources') {
+    inputs.property 'version', artifactVersion
+    filesMatching('fabric.mod.json') { expand version: artifactVersion }
+    filesMatching('jammarr.mixins.json') { filter { it.replace('"JAVA_21"', '"JAVA_17"') } }
+}
+
+tasks.named('jar', Jar) {
+    from('../../../THIRD_PARTY_NOTICES.md') { into('META-INF') }
+    from('../../../LICENSE') {
+        into('META-INF')
+        rename { 'LICENSE-Jammarr-CC0-1.0.txt' }
+    }
+    from('../../../LICENSE-LGPL-2.1-or-later.txt') { into('META-INF') }
+}
+
+tasks.named('remapJar') {
+    archiveFileName = "jammarr-${project.version}+mc1.20-fabric.jar"
+}
+
+def releaseArchive = tasks.named('remapJar').flatMap { it.archiveFile }
+def expectedReleaseName = "jammarr-${artifactVersion}+mc1.20-fabric.jar"
+def releaseEntries = ['META-INF/jars/core-1.1.0.jar', 'META-INF/jars/jlayer-1.0.1.jar',
+                      'META-INF/jars/jump3r-1.0.5.jar', 'META-INF/LICENSE-Jammarr-CC0-1.0.txt',
+                      'META-INF/LICENSE-LGPL-2.1-or-later.txt', 'META-INF/THIRD_PARTY_NOTICES.md',
+                      'fabric.mod.json', 'jammarr.mixins.json', 'jammarr.png',
+                      'assets/jammarr/lang/en_us.json', 'stonytark/jammarr/Jammarr.class',
+                      'stonytark/jammarr/client/JammarrClient.class',
+                      'stonytark/jammarr/client/JammarrModMenu.class',
+                      'stonytark/jammarr/network/JammarrNetwork.class',
+                      'stonytark/jammarr/network/JammarrPayloads.class']
+
+tasks.register('verifyRelease') {
+    group = 'verification'
+    dependsOn(tasks.named('build'))
+    doLast {
+        def archive = releaseArchive.get().asFile
+        if (archive.name != expectedReleaseName) {
+            throw new GradleException("Unexpected release filename: ${archive.name}")
+        }
+        new java.util.zip.ZipFile(archive).withCloseable { zip ->
+            def found = zip.entries().collect { it.name } as Set
+            releaseEntries.each { entry ->
+                if (!found.contains(entry)) throw new GradleException("Release archive is missing ${entry}")
+            }
+            def metadata = new groovy.json.JsonSlurper().parseText(
+                    zip.getInputStream(zip.getEntry('fabric.mod.json')).getText('UTF-8'))
+            if (metadata.id != 'jammarr' || metadata.depends.minecraft != '=1.20'
+                    || metadata.depends.java != '>=17' || metadata.depends.fabricloader != '>=0.19.2') {
+                throw new GradleException('Fabric metadata does not identify the expected mod, Minecraft, and Java versions')
+            }
+            if (!zip.getInputStream(zip.getEntry('jammarr.mixins.json')).getText('UTF-8').contains('"JAVA_17"')) {
+                throw new GradleException('Fabric 1.20 mixin metadata does not target Java 17')
+            }
+            new java.util.zip.ZipInputStream(zip.getInputStream(zip.getEntry('META-INF/jars/core-1.1.0.jar'))).withCloseable { nested ->
+                boolean foundCoreClass = false
+                for (def entry = nested.nextEntry; entry != null; entry = nested.nextEntry) {
+                    if (entry.name == 'stonytark/jammarr/core/server/ChunkTransferPolicy.class') {
+                        byte[] header = nested.readNBytes(8)
+                        int major = ((header[6] & 0xff) << 8) | (header[7] & 0xff)
+                        if (major != 52) throw new GradleException("Shared core is not Java 8 bytecode: class major ${major}")
+                        foundCoreClass = true
+                    }
+                }
+                if (!foundCoreClass) throw new GradleException('Release archive does not contain the shared transport core')
+            }
+        }
+    }
+}

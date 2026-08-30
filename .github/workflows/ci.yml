@@ -63,6 +63,18 @@ jobs:
             runtime: 1.19.2-forge
             quilt: ''
             game-tests: false
+          - name: 1.20-fabric
+            task: verifyFabric120
+            artifact: platforms/mc1.20/fabric/build/libs/jammarr-1.1.0+mc1.20-fabric.jar
+            runtime: 1.20-fabric
+            quilt: 1.20-quilt
+            game-tests: false
+          - name: 1.20-forge
+            task: verifyForge120
+            artifact: platforms/mc1.20/forge/build/libs/jammarr-1.1.0+mc1.20-forge.jar
+            runtime: 1.20-forge
+            quilt: ''
+            game-tests: false
           - name: 1.20.1-fabric
             task: verifyFabric1201
             artifact: platforms/mc1.20.1/fabric/build/libs/jammarr-1.1.0+mc1.20.1-fabric.jar

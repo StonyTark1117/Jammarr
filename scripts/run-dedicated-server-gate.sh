@@ -76,6 +76,9 @@ targets=(
   "1.19.2-fabric|platforms/mc1.19.2/fabric|$java21_home|25702"
   "1.19.2-quilt|platforms/mc1.19.2/fabric|$java21_home|25703"
   "1.19.2-forge|platforms/mc1.19.2/forge|$java21_home|25704"
+  "1.20-fabric|platforms/mc1.20/fabric|$java21_home|25708"
+  "1.20-quilt|platforms/mc1.20/fabric|$java21_home|25709"
+  "1.20-forge|platforms/mc1.20/forge|$java21_home|25710"
   "1.20.1-fabric|platforms/mc1.20.1/fabric|$java21_home|25571"
   "1.20.1-quilt|platforms/mc1.20.1/fabric|$java21_home|25648"
   "1.20.1-forge|platforms/mc1.20.1/forge|$java21_home|25572"
@@ -820,7 +823,7 @@ start_audio_client() {
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
   [[ "$role" == "leader" ]] && leader=true
   case "$label" in
-    1.16.5-forge|1.18.2-forge|1.19.2-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge)
+    1.16.5-forge|1.18.2-forge|1.19.2-forge|1.20-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge)
       cache_args+=(--no-configuration-cache)
       ;;
   esac
@@ -1750,7 +1753,7 @@ run_invalid_config_check_once() {
   [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
   case "$label" in
-    1.16.5-forge|1.18.2-forge|1.19.2-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge)
+    1.16.5-forge|1.18.2-forge|1.19.2-forge|1.20-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge)
       cache_args+=(--no-configuration-cache)
       ;;
   esac
@@ -1926,7 +1929,7 @@ run_target() {
     set_property "$run_dir/server.properties" rcon.password "$rcon_password"
   fi
   case "$label" in
-    1.16.5-forge|1.18.2-forge|1.19.2-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge)
+    1.16.5-forge|1.18.2-forge|1.19.2-forge|1.20-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge)
       cache_args+=(--no-configuration-cache)
       ;;
   esac

@@ -130,7 +130,7 @@
         {
           "id": "fabric",
           "status": "stable",
-          "implemented": false,
+          "implemented": true,
           "quiltCompatible": true,
           "path": "platforms/mc1.20/fabric",
           "artifact": "jammarr-1.1.0+mc1.20-fabric.jar"
@@ -138,7 +138,7 @@
         {
           "id": "forge",
           "status": "preview",
-          "implemented": false,
+          "implemented": true,
           "quiltCompatible": false,
           "path": "platforms/mc1.20/forge",
           "artifact": "jammarr-1.1.0+mc1.20-forge.jar"
