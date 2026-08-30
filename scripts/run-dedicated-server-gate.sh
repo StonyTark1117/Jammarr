@@ -65,6 +65,7 @@ fi
 
 targets=(
   "1.7.10-forge|platforms/mc1.7.10/forge|$java26_home|25695"
+  "1.12.2-forge|platforms/mc1.12.2/forge|$java26_home|25696"
   "1.20.1-fabric|platforms/mc1.20.1/fabric|$java21_home|25571"
   "1.20.1-quilt|platforms/mc1.20.1/fabric|$java21_home|25648"
   "1.20.1-forge|platforms/mc1.20.1/forge|$java21_home|25572"
@@ -76,7 +77,7 @@ targets=(
   "1.21.1-fabric|platforms/mc1.21.1/fabric|$java21_home|25581"
   "1.21.1-quilt|platforms/mc1.21.1/fabric|$java21_home|25650"
   "1.21.1-forge|platforms/mc1.21.1/forge|$java21_home|25582"
-  "1.21.1-neoforge|.|$java21_home|25566"
+  "1.21.1-neoforge|platforms/mc1.21.1/neoforge|$java21_home|25566"
   "26.1.2-fabric|platforms/mc26.1.2/fabric|$java26_home|25642"
   "26.1.2-quilt|platforms/mc26.1.2/fabric|$java26_home|25651"
   "26.1.2-forge|platforms/mc26.1.2/forge|$java26_home|25643"
@@ -290,13 +291,6 @@ fake_plex_requests_complete() {
   ' "$fake_plex_request_log"
 }
 
-missing_client_rejection_logged() {
-  local latest_log=$1
-  local console_log=$2
-  grep -Eiq 'Jammarr is required on the client|Jammarr protocol (handshake )?timed out|Disconnecting VANILLA connection attempt:.*require (Forge|NeoForge)|incompatible.*Jammarr' \
-    "$latest_log" "$console_log" 2>/dev/null
-}
-
 client_bootstrap_failed() {
   local console_log=$1
   grep -Eq 'Timed out trying to setup the Game Window|Failed to initialize the mod loading system and display|ArrayIndexOutOfBoundsException: 0' \
@@ -349,16 +343,72 @@ run_wrong_protocol_client() {
     'Jammarr protocol mismatch: server requires' true
 }
 
-run_missing_hello_client() {
+run_optional_client() {
   local label=$1
   local target_dir=$2
   local java_home=$3
   local port=$4
   local server_console=$5
-  run_acceptance_client "$label" "$target_dir" "$java_home" "$port" "$server_console" \
-    missing-client JammarrMissing \
-    '-Djammarr.acceptance.enabled=true -Djammarr.acceptance.suppressClientHello=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
-    'Jammarr protocol handshake timed out'
+  local scenario=optional-client username=JammarrVanilla
+  local client_dir="$output_root/$label.$scenario"
+  local client_console="$output_root/$label.$scenario.console.log"
+  local evidence="$output_root/$label.$scenario.evidence.txt"
+  local pid deadline result=0
+  local -a runtime_args=()
+  [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
+  [[ "$label" == *-quilt && "$quilt_modmenu_gate" == true ]] && runtime_args+=(-PjammarrIncludeModMenu=true)
+  [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
+
+  mkdir -p "$client_dir"
+  : > "$client_console"
+  printf '%s\n' 'onboardAccessibility:false' 'skipMultiplayerWarning:true' \
+    'joinedFirstServer:true' 'narrator:0' > "$client_dir/options.txt"
+  (
+    cd "$target_dir" || exit 1
+    ulimit -f "$client_log_limit_blocks"
+    exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 \
+      xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' env \
+      JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
+      JAVA_TOOL_OPTIONS='-Djammarr.acceptance.enabled=true -Djammarr.acceptance.suppressClientHello=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
+      LIBGL_ALWAYS_SOFTWARE=1 \
+      ./gradlew runClient --no-daemon --max-workers=1 --console=plain \
+      "${runtime_args[@]}" \
+      -PjammarrAcceptanceUsername="$username" \
+      -PjammarrAcceptanceServer="127.0.0.1:${port}" \
+      -PjammarrAcceptanceGameDir="$client_dir" \
+      > "$client_console" 2>&1
+  ) &
+  pid=$!
+  active_client_pid=$pid
+
+  deadline=$((SECONDS + 600))
+  while ! grep -Fq "$username joined the game" "$server_console" 2>/dev/null; do
+    if client_bootstrap_failed "$client_console" || ! group_alive "$pid" || (( SECONDS >= deadline )); then
+      echo "$label: client without a Jammarr hello did not join; see $client_console" >&2
+      result=1
+      break
+    fi
+    sleep 1
+  done
+  if (( result == 0 )); then
+    sleep 10
+    if ! group_alive "$pid" \
+        || grep -Eiq 'Jammarr protocol (handshake )?timed out|required on the client' "$client_console"; then
+      echo "$label: client without a Jammarr hello did not remain connected" >&2
+      result=1
+    elif grep -Fq 'received server hello' "$client_console"; then
+      echo "$label: suppressed client unexpectedly negotiated Jammarr capability" >&2
+      result=1
+    else
+      {
+        grep -F "$username joined the game" "$server_console" | tail -n 1
+        printf '%s\n' 'Client remained connected for 10 seconds without sending a Jammarr hello.'
+      } > "$evidence"
+    fi
+  fi
+  terminate_client_launch "$pid" 20 || result=1
+  active_client_pid=""
+  return "$result"
 }
 
 run_delayed_hello_client() {
@@ -1814,8 +1864,7 @@ run_target() {
   local latest_log="$run_dir/logs/latest.log"
   local console_log="$output_root/$label.console.log"
   local fifo_dir fifo fifo_fd pid server_pid server_group port rcon_port rcon_password result=0
-  local fake_plex_port fake_request_start plex_deadline level_name probe_output
-  local -a probe_args=()
+  local fake_plex_port fake_request_start plex_deadline level_name
   local -a cache_args=()
   local -a runtime_args=(-PjammarrServerGameDir="$run_dir")
   [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
@@ -1974,37 +2023,12 @@ run_target() {
     fi
   fi
 
-  if (( result == 0 )) && [[ "$label" == "1.7.10-forge" ]]; then
-    if ! run_missing_hello_client "$label" "$target_dir" "$java_home" "$port" "$console_log"; then
+  if (( result == 0 )); then
+    if ! run_optional_client "$label" "$target_dir" "$java_home" "$port" "$console_log"; then
       result=1
     fi
-  elif (( result == 0 )); then
-    probe_output="$output_root/$label.missing-client.json"
-    case "$label" in
-      26.1.2-*)
-        # Minecraft 26.1 can close legacy protocol -1 status queries before a
-        # response; use the protocol declared by these pinned target builds.
-        probe_args+=(--protocol 775 --version 26.1.2)
-        ;;
-      26.2-*)
-        probe_args+=(--protocol 776 --version 26.2)
-        ;;
-    esac
-    if ! python3 "$repo_root/scripts/minecraft-login-probe.py" 127.0.0.1 "$port" --timeout 35 \
-        "${probe_args[@]}" \
-        > "$probe_output" 2>&1; then
-      if grep -Fq '"closed": true' "$probe_output" \
-          && missing_client_rejection_logged "$latest_log" "$console_log"; then
-        printf '%s\n' 'Socket closure paired with the server client-facing required-mod rejection log.' \
-          > "$output_root/$label.missing-client.server.txt"
-      else
-        echo "$label: missing-client probe did not observe a clear required-mod disconnect; see $probe_output" >&2
-        result=1
-      fi
-    fi
     # Let the server finish its disconnect/player-removal tick before the
-    # shutdown probe begins; newer versions otherwise may overlap chunk unload
-    # with the immediate save-all performed by stop.
+    # shutdown probe begins.
     sleep 2
   fi
 

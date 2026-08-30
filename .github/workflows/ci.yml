@@ -21,6 +21,12 @@ jobs:
             runtime: 1.7.10-forge
             quilt: ''
             game-tests: false
+          - name: 1.12.2-forge
+            task: verifyForge1122
+            artifact: platforms/mc1.12.2/forge/build/libs/jammarr-1.1.0+mc1.12.2-forge.jar
+            runtime: 1.12.2-forge
+            quilt: ''
+            game-tests: false
           - name: 1.20.1-fabric
             task: verifyFabric1201
             artifact: platforms/mc1.20.1/fabric/build/libs/jammarr-1.1.0+mc1.20.1-fabric.jar
@@ -233,7 +239,7 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: gradle
-      - name: Download all 16 verified artifacts
+      - name: Download all 17 verified artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: release-jar-*
@@ -241,7 +247,7 @@ jobs:
           merge-multiple: true
       - name: Assemble and inspect release bundle
         run: |
-          test "$(find build/prebuilt-release -maxdepth 1 -type f -name '*.jar' | wc -l)" -eq 16
+          test "$(find build/prebuilt-release -maxdepth 1 -type f -name '*.jar' | wc -l)" -eq 17
           ./gradlew indexReleaseArtifacts -PjammarrPrebuiltArtifactDir=build/prebuilt-release --no-daemon --max-workers=1
           python3 scripts/inspect-release-artifacts.py build/releases
           (cd build/releases && sha256sum -c SHA256SUMS)

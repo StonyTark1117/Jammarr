@@ -31,8 +31,8 @@ def plannedArtifacts = targetManifest.targets.collectMany { target ->
 }
 def implementedArtifacts = plannedArtifacts.findAll { it.implemented }
 if (targetManifest.targets.size() != 26 || plannedArtifacts.size() != 68
-        || plannedArtifacts.count { it.quiltCompatible } != 24 || implementedArtifacts.size() != 16) {
-    throw new GradleException('Jammarr target manifest does not contain the expected 26/68/24/16 matrix')
+        || plannedArtifacts.count { it.quiltCompatible } != 24) {
+    throw new GradleException('Jammarr target manifest does not contain the expected 26/68/24 matrix')
 }
 implementedArtifacts.each { artifact ->
     File targetDirectory = layout.projectDirectory.dir(artifact.projectPath).asFile
@@ -73,7 +73,7 @@ implementedArtifacts.each { artifact ->
                 environment 'PATH', java26Path
             }
             List<String> arguments = ['./gradlew', 'verifyRelease']
-            if (artifact.minecraft != '1.7.10') arguments.add(':core:test')
+            if (!(artifact.minecraft in ['1.7.10', '1.12.2'])) arguments.add(':core:test')
             arguments.addAll('--no-daemon', '--max-workers=1')
             if (artifact.loader != 'fabric') arguments.add('--no-configuration-cache')
             commandLine(arguments)

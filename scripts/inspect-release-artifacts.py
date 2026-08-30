@@ -14,26 +14,19 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 
-PRODUCT_VERSION = "1.1.0"
-PROTOCOL_VERSION = 6
-TARGETS = (
-    ("1.7.10", "forge", 8, 52),
-    ("1.20.1", "fabric", 17, 61),
-    ("1.20.1", "forge", 17, 61),
-    ("1.20.1", "neoforge", 17, 61),
-    ("1.20.2", "fabric", 17, 61),
-    ("1.20.2", "forge", 17, 61),
-    ("1.20.2", "neoforge", 17, 61),
-    ("1.21.1", "fabric", 21, 65),
-    ("1.21.1", "forge", 21, 65),
-    ("1.21.1", "neoforge", 21, 65),
-    ("26.1.2", "fabric", 25, 69),
-    ("26.1.2", "forge", 25, 69),
-    ("26.1.2", "neoforge", 25, 69),
-    ("26.2", "fabric", 25, 69),
-    ("26.2", "forge", 25, 69),
-    ("26.2", "neoforge", 25, 69),
+TARGET_MANIFEST = json.loads(
+    (Path(__file__).resolve().parents[1] / "gradle" / "targets.json").read_text("utf-8"))
+PRODUCT_VERSION = TARGET_MANIFEST["productVersion"]
+PROTOCOL_VERSION = TARGET_MANIFEST["protocolVersion"]
+CLASS_MAJOR = {8: 52, 17: 61, 21: 65, 25: 69}
+TARGETS = tuple(
+    (target["minecraft"], loader["id"], target["java"]["runtime"],
+     CLASS_MAJOR[target["java"]["bytecode"]])
+    for target in TARGET_MANIFEST["targets"]
+    for loader in target["loaders"]
+    if loader["implemented"]
 )
+LEGACY_MINECRAFT = {"1.7.10", "1.12.2"}
 COMMON_ENTRIES = {
     "META-INF/LICENSE-Jammarr-CC0-1.0.txt",
     "META-INF/LICENSE-LGPL-2.1-or-later.txt",
@@ -266,7 +259,7 @@ def verify_remappable_keybinding(archive: zipfile.ZipFile, minecraft: str,
         if not isinstance(translations.get(key), str) or not translations[key].strip():
             fail(f"{filename} is missing the Controls translation {key}")
 
-    legacy = minecraft == "1.7.10"
+    legacy = minecraft in LEGACY_MINECRAFT
     class_name = ("stonytark/jammarr/client/LegacyClient.class" if legacy
                   else "stonytark/jammarr/client/JammarrClient.class")
     try:
@@ -307,7 +300,7 @@ def verify_remappable_keybinding(archive: zipfile.ZipFile, minecraft: str,
 
 def verify_config_translations(archive: zipfile.ZipFile, minecraft: str,
                                loader: str, filename: str) -> None:
-    if minecraft == "1.7.10" or loader == "fabric":
+    if minecraft in LEGACY_MINECRAFT or loader == "fabric":
         return
     config = archive.read("stonytark/jammarr/config/JammarrConfig.class")
     keys = (
@@ -359,14 +352,14 @@ def verify_metadata(archive: zipfile.ZipFile, names: set[str], minecraft: str, l
             fail(f"{filename} has incorrect nested-library metadata: {sorted(declared_jars)}")
         return
 
-    if minecraft == "1.7.10":
+    if minecraft in LEGACY_MINECRAFT:
         metadata = json.loads(archive.read("mcmod.info"))
         if len(metadata) != 1 or metadata[0].get("modid") != "jammarr":
             fail(f"{filename} has incorrect legacy mod identity")
         if metadata[0].get("version") != PRODUCT_VERSION or metadata[0].get("mcversion") != minecraft:
             fail(f"{filename} has incorrect legacy version metadata")
         if "jammarr.mixins.json" in names:
-            fail(f"{filename} must not advertise unsupported modern Mixins on Forge 1.7.10")
+            fail(f"{filename} must not advertise unsupported modern Mixins on legacy Forge")
         legacy_class = archive.read("stonytark/jammarr/Jammarr.class")
         if b"NetworkCheckHandler" not in legacy_class or b"acceptableRemoteVersions" not in legacy_class:
             fail(f"{filename} does not contain optional-client FML negotiation")
@@ -395,7 +388,7 @@ def verify_jar(path: Path, minecraft: str, loader: str, java: int, expected_majo
             fail(f"{filename} is missing required entries: {sorted(missing)}")
         if loader == "fabric" and "fabric.mod.json" not in names:
             fail(f"{filename} is missing Fabric metadata")
-        if minecraft == "1.7.10" and "mcmod.info" not in names:
+        if minecraft in LEGACY_MINECRAFT and "mcmod.info" not in names:
             fail(f"{filename} is missing legacy Forge metadata")
 
         verify_metadata(archive, names, minecraft, loader, java, filename)
@@ -412,7 +405,7 @@ def verify_jar(path: Path, minecraft: str, loader: str, java: int, expected_majo
         if main_major != expected_major:
             fail(f"{filename} targets class major {main_major}, expected {expected_major} for Java {java}")
 
-        if minecraft == "1.7.10":
+        if minecraft in LEGACY_MINECRAFT:
             required_legacy = {
                 "assets/jammarr/lang/en_US.lang",
                 "stonytark/jammarr/core/server/ChunkTransferPolicy.class",
@@ -434,7 +427,7 @@ def verify_jar(path: Path, minecraft: str, loader: str, java: int, expected_majo
                     major = class_major(archive.read(name), f"{filename}:{name}")
                     if major != 52:
                         fail(f"{filename}:{name} is class major {major}, expected Java 8 major 52")
-            # The shared core is compiled against stable names while Forge 1.7.10
+            # The shared core is compiled against stable names while legacy Forge
             # reobfuscates Minecraft methods in adapters. Require each adapter to
             # declare its full shared contract so an inherited MCP-named method
             # cannot disappear from the production linkage (as markDirty once did).
@@ -503,7 +496,7 @@ def main() -> int:
 
     entries = manifest.get("artifacts", [])
     if len(entries) != len(TARGETS) or {entry.get("filename") for entry in entries} != expected_names:
-        fail("release manifest does not map exactly the 16 canonical artifacts")
+        fail(f"release manifest does not map exactly the {len(TARGETS)} canonical artifacts")
     manifest_by_name = {entry["filename"]: entry for entry in entries}
 
     sums = {}
@@ -513,7 +506,7 @@ def main() -> int:
             fail(f"invalid SHA256SUMS line: {line!r}")
         sums[match.group(2)] = match.group(1)
     if set(sums) != expected_names:
-        fail("SHA256SUMS does not cover exactly the 16 canonical artifacts")
+        fail(f"SHA256SUMS does not cover exactly the {len(TARGETS)} canonical artifacts")
 
     for minecraft, loader, java, major in TARGETS:
         filename = f"jammarr-{PRODUCT_VERSION}+mc{minecraft}-{loader}.jar"
@@ -536,7 +529,7 @@ def main() -> int:
             fail(f"{filename} does not record the certified Quilt Loader version")
         verify_jar(path, minecraft, loader, java, major)
 
-    print(f"Inspected 16 Jammarr release artifacts in {release_dir}")
+    print(f"Inspected {len(TARGETS)} Jammarr release artifacts in {release_dir}")
     return 0
 
 

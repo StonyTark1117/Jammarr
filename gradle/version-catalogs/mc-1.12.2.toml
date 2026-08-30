@@ -1,0 +1,6 @@
+[versions]
+minecraft = "1.12.2"
+java = "8"
+forge = "14.23.5.2847"
+retrofutura-gradle = "2.0.3"
+gradle = "9.5.0"
