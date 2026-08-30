@@ -18,7 +18,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public final class AudioCache {
-    public static final int CACHE_FORMAT_VERSION = 1;
+    public static final int CACHE_FORMAT_VERSION = 2;
     private final Path directory;
     private final long maxBytes;
     private final CoreLogger logger;
@@ -37,13 +37,13 @@ public final class AudioCache {
     public AudioAsset load(Path path) throws IOException { return load(path, -1); }
 
     public AudioAsset load(Path path, int expectedBitrateKbps) throws IOException {
-        byte[] bytes = Files.readAllBytes(path);
         Files.setLastModifiedTime(path, java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis()));
         try {
-            Mp3FrameIndex.Info info = Mp3FrameIndex.inspect(bytes);
+            Mp3FrameIndex.FileIndex index = Mp3FrameIndex.index(path);
+            Mp3FrameIndex.Info info = index.info();
             if (info.channels() != 2) throw new IllegalArgumentException("Plex audio must be stereo MP3 format");
             loads.incrementAndGet();
-            return new AudioAsset(path, Hashing.sha256(bytes), Mp3FrameIndex.split(bytes), bytes.length, info.durationMs());
+            return new AudioAsset(path, index.sha256(), index.chunks(), index.size(), info.durationMs());
         } catch (IllegalArgumentException invalid) {
             invalidEntries.incrementAndGet();
             throw new IOException("Cached Plex audio is not a valid Layer III MP3", invalid);
@@ -55,7 +55,8 @@ public final class AudioCache {
         AudioAsset validated = load(temporary, expectedBitrateKbps);
         try { Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING); }
         catch (java.nio.file.AtomicMoveNotSupportedException ignored) { Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING); }
-        AudioAsset result = new AudioAsset(target, validated.sha256(), validated.chunks(), validated.size(), validated.durationMs());
+        AudioAsset result = new AudioAsset(target, validated.sha256(), validated.chunks(),
+                validated.size(), validated.durationMs());
         Files.setLastModifiedTime(target, java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis()));
         installs.incrementAndGet(); trim(pinned); return result;
     }

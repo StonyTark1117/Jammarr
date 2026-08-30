@@ -399,7 +399,7 @@ public final class PlexService implements PlexGateway {
         try {
             downloadTranscode(track, plexOutput, bitrate);
             Mp3FrameIndex.Info info;
-            try { info = Mp3FrameIndex.inspect(Files.readAllBytes(plexOutput)); }
+            try { info = Mp3FrameIndex.inspect(plexOutput); }
             catch (IllegalArgumentException invalid) { throw new PlexException(PlexException.Kind.INVALID_RESPONSE, "Plex returned invalid MP3 audio", invalid); }
             if (info.constantBitrate() && info.bitrateKbps() == bitrate && info.channels() == 2) {
                 Files.move(plexOutput, output, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
@@ -417,7 +417,7 @@ public final class PlexService implements PlexGateway {
             if (Files.size(output) > maxTranscodeBytes) {
                 throw new PlexException(PlexException.Kind.INVALID_RESPONSE, "Normalized Plex audio exceeds the configured safety limit");
             }
-            Mp3FrameIndex.Info normalized = Mp3FrameIndex.inspect(Files.readAllBytes(output));
+            Mp3FrameIndex.Info normalized = Mp3FrameIndex.inspect(output);
             if (normalized.channels() != 2) {
                 throw new PlexException(PlexException.Kind.TRANSCODE, "Unable to produce stereo MP3 audio");
             }

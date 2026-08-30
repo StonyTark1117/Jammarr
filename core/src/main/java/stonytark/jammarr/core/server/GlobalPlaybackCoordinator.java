@@ -438,14 +438,23 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
                 TRACK_START_DELAY_MS + ChunkTransferPolicy.MAX_PLAYBACK_LEAD_MS)) {
             rejectedChunkRequests++; stats.rejected++; return;
         }
-        int end = start + request.count();
         List<FairEgressScheduler.Item<JammarrMessage>> outgoing =
                 new ArrayList<FairEgressScheduler.Item<JammarrMessage>>(request.count());
-        for (int index = start; index < end; index++) {
-            Mp3FrameIndex.Chunk chunk = asset.chunks().get(index);
+        List<Mp3FrameIndex.Chunk> loaded;
+        try {
+            loaded = asset.readChunks(start, request.count());
+        } catch (IOException unreadable) {
+            rejectedChunkRequests++; stats.rejected++;
+            runtime.logger().warn("Unable to read a bounded Jammarr audio chunk window", unreadable);
+            sendError(player, StatePackets.ErrorCode.TRACK_FAILED,
+                    "The current cached audio became unavailable; retry playback shortly");
+            return;
+        }
+        for (Mp3FrameIndex.Chunk chunk : loaded) {
+            byte[] data = chunk.data();
             outgoing.add(new FairEgressScheduler.Item<JammarrMessage>(
                     new TransportPackets.AudioChunk(sessionId, request.requestId(), chunk.index(),
-                            chunk.startMs(), chunk.sha256(), chunk.data()), chunk.data().length));
+                            chunk.startMs(), chunk.sha256(), data), data.length));
         }
         if (!egress.enqueueBatch(runtime.playerId(player), player, outgoing)) {
             rejectedChunkRequests++; stats.rejected++;

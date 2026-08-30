@@ -67,6 +67,29 @@ class AudioCacheTest {
         assertTrue(cache.target("versioned", 160).getFileName().toString().endsWith("-v" + AudioCache.CACHE_FORMAT_VERSION + ".mp3"));
     }
 
+    @Test void keepsOnlyFrameOffsetsInMemoryAndReadsBoundedVerifiedWindows() throws Exception {
+        AudioCache cache = new AudioCache(directory, 1_000_000);
+        byte[] bytes = repeatedStream(100);
+        Path file = directory.resolve("indexed-v" + AudioCache.CACHE_FORMAT_VERSION + ".mp3");
+        Files.write(file, bytes);
+
+        AudioAsset asset = cache.load(file, 128);
+        assertTrue(asset.chunks().size() > 1);
+        for (Mp3FrameIndex.Chunk chunk : asset.chunks()) {
+            assertTrue(chunk.fileBacked());
+            assertTrue(chunk.length() <= Mp3FrameIndex.MAX_CHUNK_BYTES);
+        }
+        java.io.ByteArrayOutputStream restored = new java.io.ByteArrayOutputStream();
+        for (Mp3FrameIndex.Chunk chunk : asset.readChunks(0, asset.chunks().size())) {
+            restored.write(chunk.data());
+        }
+        assertArrayEquals(bytes, restored.toByteArray());
+
+        bytes[asset.chunks().get(0).offset() + 10] ^= 1;
+        Files.write(file, bytes);
+        assertThrows(java.io.IOException.class, () -> asset.readChunks(0, 1));
+    }
+
     private Path temp(String name) throws Exception { Path path = directory.resolve(name + ".part"); Files.write(path, stream()); return path; }
     private static byte[] stream() {
         byte[] frame = new byte[417]; frame[0] = (byte)0xff; frame[1] = (byte)0xfb; frame[2] = (byte)0x90; frame[3] = 0;
@@ -75,5 +98,14 @@ class AudioCacheTest {
     private static byte[] variableStream() {
         byte[] bytes = new byte[417 + 365]; bytes[0] = (byte)0xff; bytes[1] = (byte)0xfb; bytes[2] = (byte)0x90;
         bytes[417] = (byte)0xff; bytes[418] = (byte)0xfb; bytes[419] = (byte)0x80; return bytes;
+    }
+    private static byte[] repeatedStream(int frames) {
+        byte[] frame = stream();
+        frame = Arrays.copyOf(frame, frame.length / 2);
+        byte[] bytes = new byte[frame.length * frames];
+        for (int index = 0; index < frames; index++) {
+            System.arraycopy(frame, 0, bytes, index * frame.length, frame.length);
+        }
+        return bytes;
     }
 }
