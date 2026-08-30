@@ -1,0 +1,16 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "stonytark.jammarr.mixin",
+  "compatibilityLevel": "JAVA_8",
+  "mixins": [
+    "ServerPacketListenerMixin"
+  ],
+  "client": [
+    "client.ClientPlayNetworkHandlerMixin",
+    "client.SoundSystemAccessor"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

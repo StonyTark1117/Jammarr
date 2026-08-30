@@ -21,7 +21,7 @@ def plannedArtifacts = targetManifest.targets.collectMany { target ->
          java: target.java.runtime as Integer,
          buildJava: (loader.buildJava ?: target.java.build) as Integer,
          buildJvmOptions: (loader.buildJvmOptions ?: []) as List,
-         bytecodeJava: target.java.bytecode as Integer,
+         bytecodeJava: (loader.bytecodeJava ?: target.java.bytecode) as Integer,
          loader: loader.id as String,
          status: loader.status as String,
          implemented: loader.implemented as Boolean,

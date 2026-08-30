@@ -114,6 +114,10 @@ uses_legacy_fml16_log() {
   [[ ${target_log_profile[$1]} == "legacy-fml16" ]]
 }
 
+uses_legacy_fabric16_log() {
+  [[ ${target_log_profile[$1]} == "legacy-fabric16" ]]
+}
+
 mod_log_path() {
   local label=$1
   local run_dir=$2
@@ -2201,7 +2205,14 @@ run_target() {
   rm -f -- "$fifo"
   rmdir -- "$fifo_dir"
 
-  if uses_legacy_fml_log "$label"; then
+  if uses_legacy_fabric16_log "$label"; then
+    if ! grep -Eq 'Initializing Jammarr 1\.1\.0 for Legacy Fabric 1\.6\.4 protocol 6' "$console_log" \
+        || ! grep -Eq 'Stopping (the )?server' "$console_log" \
+        || ! grep -q 'Saving players' "$console_log"; then
+      echo "$label: console log does not prove Legacy Fabric initialization and clean lifecycle shutdown" >&2
+      result=1
+    fi
+  elif uses_legacy_fml_log "$label"; then
     if [[ ! -f "$mod_log" ]] \
         || ! grep -Eq 'Initializing Jammarr 1\.1\.0 for Forge [^ ]+ protocol 6' "$mod_log" \
         || ! grep -q 'FMLServerStoppingEvent' "$mod_log" \

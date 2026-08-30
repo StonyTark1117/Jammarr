@@ -1,0 +1,16 @@
+pluginManagement {
+    repositories {
+        maven { name = 'Fabric'; url = 'https://maven.fabricmc.net/' }
+        maven { name = 'Legacy Fabric'; url = 'https://maven.legacyfabric.net/' }
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+plugins {
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
+}
+
+rootProject.name = 'jammarr-mc1.6.4-legacy-fabric'
+include 'core'
+project(':core').projectDir = file('../../../core')

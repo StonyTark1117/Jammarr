@@ -21,7 +21,7 @@ PROTOCOL_VERSION = TARGET_MANIFEST["protocolVersion"]
 CLASS_MAJOR = {7: 51, 8: 52, 17: 61, 21: 65, 25: 69}
 TARGETS = tuple(
     (target["minecraft"], loader["id"], target["java"]["runtime"],
-     CLASS_MAJOR[target["java"]["bytecode"]], loader.get("artifactProfile", "modern"),
+     CLASS_MAJOR[loader.get("bytecodeJava", target["java"]["bytecode"])], loader.get("artifactProfile", "modern"),
      bool(loader.get("quiltCompatible", False)))
     for target in TARGET_MANIFEST["targets"]
     for loader in target["loaders"]
@@ -274,9 +274,10 @@ def verify_remappable_keybinding(archive: zipfile.ZipFile, minecraft: str,
 
     if legacy_fabric:
         required = (b"net/legacyfabric/fabric/api/client/keybinding/v1/KeyBindingHelper",
-                    b"registerKeyBinding", b"net/minecraft/class_327")
+                    b"registerKeyBinding")
+        mapped_keybinding = b"net/minecraft/class_327" in client or b"net/minecraft/class_304" in client
         consumes_binding = b"method_841" in client or b"wasPressed" in client
-        if any(marker not in client for marker in required) or not consumes_binding:
+        if any(marker not in client for marker in required) or not mapped_keybinding or not consumes_binding:
             fail(f"{filename} does not register and consume a Legacy Fabric KeyBinding")
         legacy_lang = archive.read("assets/jammarr/lang/en_US.lang")
         if b"key.jammarr.open=" not in legacy_lang or b"key.categories.jammarr=" not in legacy_lang:
