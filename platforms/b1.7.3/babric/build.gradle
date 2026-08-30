@@ -1,0 +1,200 @@
+plugins {
+    id 'fabric-loom' version "${loom_version}"
+    id 'babric-loom-extension' version "${babric_loom_version}"
+}
+
+group = 'stonytark'
+version = '1.1.0'
+def artifactVersion = version.toString()
+
+base {
+    archivesName = "jammarr-${artifactVersion}+mcb1.7.3-babric"
+}
+
+def acceptanceWithoutJammarr = (System.getenv('JAVA_TOOL_OPTIONS') ?: '')
+        .contains('jammarr.acceptance.suppressClientHello=true')
+
+sourceSets {
+    vanillaClient {
+        runtimeClasspath += configurations.runtimeClasspath
+    }
+    main.resources {
+        setSrcDirs([file('src/main/resources'), file('../../../src/main/resources')])
+        exclude 'mcmod.info', 'jammarr.mixins.json'
+    }
+    test.resources {
+        srcDir file('../../../test-fixtures')
+        exclude 'java/**'
+    }
+}
+
+loom {
+    customMinecraftManifest.set("https://babric.github.io/manifest-polyfill/${minecraft_version}.json")
+    intermediaryUrl.set('https://maven.glass-launcher.net/babric/babric/intermediary/%1$s/intermediary-%1$s-v2.jar')
+    runs {
+        server {
+            if (providers.gradleProperty('jammarrServerGameDir').isPresent()) {
+                runDir project.relativePath(file(providers.gradleProperty('jammarrServerGameDir').get()))
+            }
+        }
+        client {
+            if (providers.gradleProperty('jammarrAcceptanceServer').isPresent()) {
+                runDir project.relativePath(file(providers.gradleProperty('jammarrAcceptanceGameDir').get()))
+                def endpoint = providers.gradleProperty('jammarrAcceptanceServer').get()
+                if (acceptanceWithoutJammarr) {
+                    def separator = endpoint.lastIndexOf(':')
+                    if (separator <= 0 || separator == endpoint.length() - 1) {
+                        throw new GradleException('jammarrAcceptanceServer must use host:port syntax')
+                    }
+                    source sourceSets.vanillaClient
+                    programArgs '--server', endpoint.substring(0, separator),
+                            '--port', endpoint.substring(separator + 1)
+                } else {
+                    property 'jammarr.acceptance.server', endpoint
+                }
+                programArgs '--username', providers.gradleProperty('jammarrAcceptanceUsername').get()
+            }
+        }
+    }
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(17)
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+repositories {
+    maven { url = 'https://maven.glass-launcher.net/babric' }
+    maven { url = 'https://maven.glass-launcher.net/releases' }
+    maven { url = 'https://maven.glass-launcher.net/snapshots' }
+    maven { url = 'https://maven.minecraftforge.net/' }
+    maven { url = 'https://jitpack.io/' }
+    exclusiveContent {
+        forRepository { maven { url = 'https://api.modrinth.com/maven' } }
+        filter { includeGroup 'maven.modrinth' }
+    }
+    mavenCentral()
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${minecraft_version}"
+    mappings "net.glasslauncher:biny:${biny_version}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${loader_version}"
+    modImplementation "net.modificationstation:StationAPI:${stationapi_version}"
+    implementation 'org.apache.logging.log4j:log4j-api:2.17.2'
+    runtimeOnly 'org.apache.logging.log4j:log4j-core:2.17.2'
+    runtimeOnly 'org.slf4j:slf4j-simple:2.0.9'
+
+    implementation project(':core')
+    include project(':core')
+    implementation 'javazoom:jlayer:1.0.1'
+    include 'javazoom:jlayer:1.0.1'
+    implementation 'de.sciss:jump3r:1.0.5'
+    include 'de.sciss:jump3r:1.0.5'
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+configurations.configureEach {
+    if (canBeResolved && !name.startsWith('mod')) {
+        resolutionStrategy.activateDependencyLocking()
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 17
+    options.encoding = 'UTF-8'
+}
+tasks.withType(Test).configureEach { useJUnitPlatform() }
+
+tasks.named('processResources') {
+    inputs.property 'version', artifactVersion
+    filesMatching('fabric.mod.json') { expand version: artifactVersion }
+}
+
+tasks.named('jar', Jar) {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from('../../../THIRD_PARTY_NOTICES.md') { into('META-INF') }
+    from('../../../LICENSE') {
+        into('META-INF')
+        rename { 'LICENSE-Jammarr-CC0-1.0.txt' }
+    }
+    from('../../../LICENSE-LGPL-2.1-or-later.txt') { into('META-INF') }
+}
+
+tasks.named('remapJar') {
+    archiveFileName = "jammarr-${artifactVersion}+mcb1.7.3-babric.jar"
+}
+
+def sha256 = { File file ->
+    def digest = java.security.MessageDigest.getInstance('SHA-256')
+    file.withInputStream { stream ->
+        byte[] buffer = new byte[64 * 1024]
+        int count
+        while ((count = stream.read(buffer)) >= 0) if (count > 0) digest.update(buffer, 0, count)
+    }
+    digest.digest().collect { String.format('%02x', it & 0xff) }.join()
+}
+
+tasks.register('verifyToolchainLock') {
+    doLast {
+        def wrapper = file('gradle/wrapper/gradle-wrapper.jar')
+        if (sha256(wrapper) != '497c8c2a7e5031f6aa847f88104aa80a93532ec32ee17bdb8d1d2f67a194a9c7') {
+            throw new GradleException('Babric Gradle wrapper checksum does not match the pinned wrapper')
+        }
+        def loomJar = buildscript.configurations.classpath.files.find { it.name == 'fabric-loom-1.9.2.jar' }
+        if (loomJar == null || sha256(loomJar) != 'd9b6222250899ec0c063b594481da8b31788949f6daee282c252941f395f4c34') {
+            throw new GradleException('Fabric Loom does not match pinned 1.9.2 bytes')
+        }
+        def extensionJar = buildscript.configurations.classpath.files.find { it.name == 'babric-loom-extension-1.9.2.jar' }
+        if (extensionJar == null || sha256(extensionJar) != '08771387afc1bb512d48e327497d7390734fcedb93f46d65aec7a9da7dfa5348') {
+            throw new GradleException('Babric Loom extension does not match pinned 1.9.2 bytes')
+        }
+    }
+}
+
+def releaseArchive = tasks.named('remapJar').flatMap { it.archiveFile }
+tasks.register('verifyRelease') {
+    group = 'verification'
+    dependsOn tasks.named('build'), tasks.named('verifyToolchainLock')
+    inputs.file releaseArchive
+    doLast {
+        def archive = releaseArchive.get().asFile
+        if (archive.name != "jammarr-${artifactVersion}+mcb1.7.3-babric.jar") {
+            throw new GradleException("Unexpected release filename: ${archive.name}")
+        }
+        new java.util.zip.ZipFile(archive).withCloseable { zip ->
+            def found = zip.entries().collect { it.name } as Set
+            ['fabric.mod.json', 'jammarr.png', 'assets/jammarr/lang/en_us.json',
+             'assets/jammarr/lang/en_US.lang', 'META-INF/LICENSE-Jammarr-CC0-1.0.txt',
+             'META-INF/LICENSE-LGPL-2.1-or-later.txt', 'META-INF/THIRD_PARTY_NOTICES.md',
+             'META-INF/jars/core-1.1.0.jar', 'META-INF/jars/jlayer-1.0.1.jar',
+             'META-INF/jars/jump3r-1.0.5.jar', 'stonytark/jammarr/Jammarr.class',
+             'stonytark/jammarr/client/LegacyClient.class',
+             'stonytark/jammarr/network/LegacyNetwork.class'].each { entry ->
+                if (!found.contains(entry)) throw new GradleException("Babric archive is missing ${entry}")
+            }
+            def metadata = new groovy.json.JsonSlurper().parseText(
+                    zip.getInputStream(zip.getEntry('fabric.mod.json')).getText('UTF-8'))
+            if (metadata.id != 'jammarr' || metadata.version != artifactVersion
+                    || metadata.depends.minecraft != '1.0.0-beta.7.3'
+                    || metadata.depends.java != '>=17'
+                    || metadata.depends.fabricloader != '>=0.16.9'
+                    || metadata.depends.stationapi != '>=2.0.0-alpha.6.2'
+                    || metadata.entrypoints.main != ['stonytark.jammarr.Jammarr']
+                    || metadata.entrypoints.client != ['stonytark.jammarr.client.LegacyClient']) {
+                throw new GradleException('Babric metadata does not identify the pinned target')
+            }
+            found.findAll { it.startsWith('stonytark/jammarr/') && it.endsWith('.class') }.each { entry ->
+                def stream = zip.getInputStream(zip.getEntry(entry))
+                byte[] header = new byte[8]
+                if (stream.read(header) != 8) throw new GradleException("Unable to inspect ${entry}")
+                stream.close()
+                int major = ((header[6] & 0xff) << 8) | (header[7] & 0xff)
+                if (major != 61) throw new GradleException("Babric archive contains non-Java-17 bytecode: ${entry}")
+            }
+        }
+    }
+}

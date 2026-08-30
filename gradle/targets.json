@@ -13,6 +13,13 @@
         "logProfile": "latest",
         "disableConfigurationCache": false
       },
+      "babric": {
+        "control": "console",
+        "commandMarkers": "legacy-response",
+        "audioProfile": "legacy-openal",
+        "logProfile": "legacy-babric",
+        "disableConfigurationCache": false
+      },
       "ornithe": {
         "control": "console",
         "commandMarkers": "legacy-response",
@@ -44,6 +51,33 @@
     }
   },
   "targets": [
+    {
+      "minecraft": "b1.7.3",
+      "java": {
+        "build": 17,
+        "runtime": 17,
+        "bytecode": 17
+      },
+      "loaders": [
+        {
+          "id": "babric",
+          "status": "preview",
+          "implemented": true,
+          "quiltCompatible": false,
+          "verificationTask": "verifyBabricBeta173",
+          "artifactProfile": "legacy-babric-java17",
+          "runtimeCapabilities": {
+            "control": "console",
+            "commandMarkers": "legacy-response",
+            "audioProfile": "legacy-openal",
+            "logProfile": "legacy-babric",
+            "disableConfigurationCache": false
+          },
+          "path": "platforms/b1.7.3/babric",
+          "artifact": "jammarr-1.1.0+mcb1.7.3-babric.jar"
+        }
+      ]
+    },
     {
       "minecraft": "1.6.4",
       "java": {

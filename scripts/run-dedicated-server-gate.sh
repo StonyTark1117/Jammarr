@@ -122,6 +122,10 @@ uses_legacy_ornithe16_log() {
   [[ ${target_log_profile[$1]} == "legacy-ornithe16" ]]
 }
 
+uses_legacy_babric_log() {
+  [[ ${target_log_profile[$1]} == "legacy-babric" ]]
+}
+
 mod_log_path() {
   local label=$1
   local run_dir=$2
@@ -399,6 +403,9 @@ optional_client_joined() {
   local client_log=$3
   local username=$4
   grep -Fq "$username joined the game" "$server_log" 2>/dev/null && return 0
+  uses_legacy_babric_log "$label" \
+    && grep -Eq "${username} \[/[^]]+\] logged in with entity id" "$server_log" 2>/dev/null \
+    && return 0
   uses_legacy_fml_log "$label" \
     && grep -Fq 'Server side modded connection established' "$server_log" 2>/dev/null \
     && grep -Fq 'Client side modded connection established' "$client_log" 2>/dev/null
@@ -466,6 +473,8 @@ run_optional_client() {
         if uses_legacy_fml_log "$label"; then
           grep -F 'Server side modded connection established' "$server_console" | tail -n 1
           grep -F 'Client side modded connection established' "$client_console" | tail -n 1
+        elif uses_legacy_babric_log "$label"; then
+          grep -E "${username} \[/[^]]+\] logged in with entity id" "$server_console" | tail -n 1
         else
           grep -F "$username joined the game" "$server_console" | tail -n 1
         fi
@@ -2225,6 +2234,15 @@ run_target() {
         || ! grep -Eq 'Stopping (the )?server' "$console_log" \
         || ! grep -q 'Saving players' "$console_log"; then
       echo "$label: logs do not prove Ornithe initialization and clean Minecraft shutdown" >&2
+      result=1
+    fi
+  elif uses_legacy_babric_log "$label"; then
+    # Beta 1.7.3 writes Jammarr/StationAPI through Log4j and vanilla lifecycle
+    # messages through JUL, so require both streams.
+    if ! grep -Eq 'Initializing Jammarr 1\.1\.0 for Babric/StationAPI Beta 1\.7\.3 protocol 6' "$latest_log" \
+        || ! grep -Eq 'Stopping server' "$console_log" \
+        || ! grep -q 'Saving chunks' "$console_log"; then
+      echo "$label: logs do not prove Babric initialization and clean Beta 1.7.3 shutdown" >&2
       result=1
     fi
   elif uses_legacy_fml_log "$label"; then

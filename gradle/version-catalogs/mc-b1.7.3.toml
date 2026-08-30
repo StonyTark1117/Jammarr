@@ -1,0 +1,9 @@
+[versions]
+minecraft = "b1.7.3"
+java = "17"
+biny = "b1.7.3+e1fe071"
+fabric-loader = "0.16.9"
+stationapi = "2.0.0-alpha.6.2"
+fabric-loom = "1.9.2"
+babric-loom = "1.9.2"
+gradle = "8.12.1"
