@@ -1,0 +1,812 @@
+{
+  "schemaVersion": 1,
+  "product": "Jammarr",
+  "productVersion": "1.1.0",
+  "protocolVersion": 6,
+  "targets": [
+    {
+      "minecraft": "1.7.10",
+      "java": {
+        "build": 26,
+        "runtime": 8,
+        "bytecode": 8
+      },
+      "loaders": [
+        {
+          "id": "forge",
+          "status": "stable",
+          "implemented": true,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.7.10/forge",
+          "artifact": "jammarr-1.1.0+mc1.7.10-forge.jar"
+        }
+      ]
+    },
+    {
+      "minecraft": "1.12.2",
+      "java": {
+        "build": 8,
+        "runtime": 8,
+        "bytecode": 8
+      },
+      "loaders": [
+        {
+          "id": "forge",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.12.2/forge",
+          "artifact": "jammarr-1.1.0+mc1.12.2-forge.jar"
+        }
+      ]
+    },
+    {
+      "minecraft": "1.16.5",
+      "java": {
+        "build": 8,
+        "runtime": 8,
+        "bytecode": 8
+      },
+      "loaders": [
+        {
+          "id": "fabric",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": true,
+          "path": "platforms/mc1.16.5/fabric",
+          "artifact": "jammarr-1.1.0+mc1.16.5-fabric.jar"
+        },
+        {
+          "id": "forge",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.16.5/forge",
+          "artifact": "jammarr-1.1.0+mc1.16.5-forge.jar"
+        }
+      ]
+    },
+    {
+      "minecraft": "1.18.2",
+      "java": {
+        "build": 17,
+        "runtime": 17,
+        "bytecode": 17
+      },
+      "loaders": [
+        {
+          "id": "fabric",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": true,
+          "path": "platforms/mc1.18.2/fabric",
+          "artifact": "jammarr-1.1.0+mc1.18.2-fabric.jar"
+        },
+        {
+          "id": "forge",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.18.2/forge",
+          "artifact": "jammarr-1.1.0+mc1.18.2-forge.jar"
+        }
+      ]
+    },
+    {
+      "minecraft": "1.19.2",
+      "java": {
+        "build": 17,
+        "runtime": 17,
+        "bytecode": 17
+      },
+      "loaders": [
+        {
+          "id": "fabric",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": true,
+          "path": "platforms/mc1.19.2/fabric",
+          "artifact": "jammarr-1.1.0+mc1.19.2-fabric.jar"
+        },
+        {
+          "id": "forge",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.19.2/forge",
+          "artifact": "jammarr-1.1.0+mc1.19.2-forge.jar"
+        }
+      ]
+    },
+    {
+      "minecraft": "1.20",
+      "java": {
+        "build": 21,
+        "runtime": 17,
+        "bytecode": 17
+      },
+      "loaders": [
+        {
+          "id": "fabric",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": true,
+          "path": "platforms/mc1.20/fabric",
+          "artifact": "jammarr-1.1.0+mc1.20-fabric.jar"
+        },
+        {
+          "id": "forge",
+          "status": "preview",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.20/forge",
+          "artifact": "jammarr-1.1.0+mc1.20-forge.jar"
+        }
+      ]
+    },
+    {
+      "minecraft": "1.20.1",
+      "java": {
+        "build": 21,
+        "runtime": 17,
+        "bytecode": 17
+      },
+      "loaders": [
+        {
+          "id": "fabric",
+          "status": "stable",
+          "implemented": true,
+          "quiltCompatible": true,
+          "path": "platforms/mc1.20.1/fabric",
+          "artifact": "jammarr-1.1.0+mc1.20.1-fabric.jar"
+        },
+        {
+          "id": "forge",
+          "status": "stable",
+          "implemented": true,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.20.1/forge",
+          "artifact": "jammarr-1.1.0+mc1.20.1-forge.jar"
+        },
+        {
+          "id": "neoforge",
+          "status": "stable",
+          "implemented": true,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.20.1/neoforge",
+          "artifact": "jammarr-1.1.0+mc1.20.1-neoforge.jar"
+        }
+      ]
+    },
+    {
+      "minecraft": "1.20.2",
+      "java": {
+        "build": 21,
+        "runtime": 17,
+        "bytecode": 17
+      },
+      "loaders": [
+        {
+          "id": "fabric",
+          "status": "stable",
+          "implemented": true,
+          "quiltCompatible": true,
+          "path": "platforms/mc1.20.2/fabric",
+          "artifact": "jammarr-1.1.0+mc1.20.2-fabric.jar"
+        },
+        {
+          "id": "forge",
+          "status": "stable",
+          "implemented": true,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.20.2/forge",
+          "artifact": "jammarr-1.1.0+mc1.20.2-forge.jar"
+        },
+        {
+          "id": "neoforge",
+          "status": "stable",
+          "implemented": true,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.20.2/neoforge",
+          "artifact": "jammarr-1.1.0+mc1.20.2-neoforge.jar"
+        }
+      ]
+    },
+    {
+      "minecraft": "1.20.3",
+      "java": {
+        "build": 21,
+        "runtime": 17,
+        "bytecode": 17
+      },
+      "loaders": [
+        {
+          "id": "fabric",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": true,
+          "path": "platforms/mc1.20.3/fabric",
+          "artifact": "jammarr-1.1.0+mc1.20.3-fabric.jar"
+        },
+        {
+          "id": "forge",
+          "status": "preview",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.20.3/forge",
+          "artifact": "jammarr-1.1.0+mc1.20.3-forge.jar"
+        },
+        {
+          "id": "neoforge",
+          "status": "preview",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.20.3/neoforge",
+          "artifact": "jammarr-1.1.0+mc1.20.3-neoforge.jar"
+        }
+      ]
+    },
+    {
+      "minecraft": "1.20.4",
+      "java": {
+        "build": 21,
+        "runtime": 17,
+        "bytecode": 17
+      },
+      "loaders": [
+        {
+          "id": "fabric",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": true,
+          "path": "platforms/mc1.20.4/fabric",
+          "artifact": "jammarr-1.1.0+mc1.20.4-fabric.jar"
+        },
+        {
+          "id": "forge",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.20.4/forge",
+          "artifact": "jammarr-1.1.0+mc1.20.4-forge.jar"
+        },
+        {
+          "id": "neoforge",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.20.4/neoforge",
+          "artifact": "jammarr-1.1.0+mc1.20.4-neoforge.jar"
+        }
+      ]
+    },
+    {
+      "minecraft": "1.20.5",
+      "java": {
+        "build": 21,
+        "runtime": 21,
+        "bytecode": 21
+      },
+      "loaders": [
+        {
+          "id": "fabric",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": true,
+          "path": "platforms/mc1.20.5/fabric",
+          "artifact": "jammarr-1.1.0+mc1.20.5-fabric.jar"
+        },
+        {
+          "id": "neoforge",
+          "status": "preview",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.20.5/neoforge",
+          "artifact": "jammarr-1.1.0+mc1.20.5-neoforge.jar"
+        }
+      ]
+    },
+    {
+      "minecraft": "1.20.6",
+      "java": {
+        "build": 21,
+        "runtime": 21,
+        "bytecode": 21
+      },
+      "loaders": [
+        {
+          "id": "fabric",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": true,
+          "path": "platforms/mc1.20.6/fabric",
+          "artifact": "jammarr-1.1.0+mc1.20.6-fabric.jar"
+        },
+        {
+          "id": "forge",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.20.6/forge",
+          "artifact": "jammarr-1.1.0+mc1.20.6-forge.jar"
+        },
+        {
+          "id": "neoforge",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.20.6/neoforge",
+          "artifact": "jammarr-1.1.0+mc1.20.6-neoforge.jar"
+        }
+      ]
+    },
+    {
+      "minecraft": "1.21",
+      "java": {
+        "build": 21,
+        "runtime": 21,
+        "bytecode": 21
+      },
+      "loaders": [
+        {
+          "id": "fabric",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": true,
+          "path": "platforms/mc1.21/fabric",
+          "artifact": "jammarr-1.1.0+mc1.21-fabric.jar"
+        },
+        {
+          "id": "forge",
+          "status": "preview",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.21/forge",
+          "artifact": "jammarr-1.1.0+mc1.21-forge.jar"
+        },
+        {
+          "id": "neoforge",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.21/neoforge",
+          "artifact": "jammarr-1.1.0+mc1.21-neoforge.jar"
+        }
+      ]
+    },
+    {
+      "minecraft": "1.21.1",
+      "java": {
+        "build": 21,
+        "runtime": 21,
+        "bytecode": 21
+      },
+      "loaders": [
+        {
+          "id": "fabric",
+          "status": "stable",
+          "implemented": true,
+          "quiltCompatible": true,
+          "path": "platforms/mc1.21.1/fabric",
+          "artifact": "jammarr-1.1.0+mc1.21.1-fabric.jar"
+        },
+        {
+          "id": "forge",
+          "status": "stable",
+          "implemented": true,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.21.1/forge",
+          "artifact": "jammarr-1.1.0+mc1.21.1-forge.jar"
+        },
+        {
+          "id": "neoforge",
+          "status": "stable",
+          "implemented": true,
+          "quiltCompatible": false,
+          "path": ".",
+          "artifact": "jammarr-1.1.0+mc1.21.1-neoforge.jar"
+        }
+      ]
+    },
+    {
+      "minecraft": "1.21.2",
+      "java": {
+        "build": 21,
+        "runtime": 21,
+        "bytecode": 21
+      },
+      "loaders": [
+        {
+          "id": "fabric",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": true,
+          "path": "platforms/mc1.21.2/fabric",
+          "artifact": "jammarr-1.1.0+mc1.21.2-fabric.jar"
+        },
+        {
+          "id": "neoforge",
+          "status": "preview",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.21.2/neoforge",
+          "artifact": "jammarr-1.1.0+mc1.21.2-neoforge.jar"
+        }
+      ]
+    },
+    {
+      "minecraft": "1.21.3",
+      "java": {
+        "build": 21,
+        "runtime": 21,
+        "bytecode": 21
+      },
+      "loaders": [
+        {
+          "id": "fabric",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": true,
+          "path": "platforms/mc1.21.3/fabric",
+          "artifact": "jammarr-1.1.0+mc1.21.3-fabric.jar"
+        },
+        {
+          "id": "forge",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.21.3/forge",
+          "artifact": "jammarr-1.1.0+mc1.21.3-forge.jar"
+        },
+        {
+          "id": "neoforge",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.21.3/neoforge",
+          "artifact": "jammarr-1.1.0+mc1.21.3-neoforge.jar"
+        }
+      ]
+    },
+    {
+      "minecraft": "1.21.4",
+      "java": {
+        "build": 21,
+        "runtime": 21,
+        "bytecode": 21
+      },
+      "loaders": [
+        {
+          "id": "fabric",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": true,
+          "path": "platforms/mc1.21.4/fabric",
+          "artifact": "jammarr-1.1.0+mc1.21.4-fabric.jar"
+        },
+        {
+          "id": "forge",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.21.4/forge",
+          "artifact": "jammarr-1.1.0+mc1.21.4-forge.jar"
+        },
+        {
+          "id": "neoforge",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.21.4/neoforge",
+          "artifact": "jammarr-1.1.0+mc1.21.4-neoforge.jar"
+        }
+      ]
+    },
+    {
+      "minecraft": "1.21.5",
+      "java": {
+        "build": 21,
+        "runtime": 21,
+        "bytecode": 21
+      },
+      "loaders": [
+        {
+          "id": "fabric",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": true,
+          "path": "platforms/mc1.21.5/fabric",
+          "artifact": "jammarr-1.1.0+mc1.21.5-fabric.jar"
+        },
+        {
+          "id": "forge",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.21.5/forge",
+          "artifact": "jammarr-1.1.0+mc1.21.5-forge.jar"
+        },
+        {
+          "id": "neoforge",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.21.5/neoforge",
+          "artifact": "jammarr-1.1.0+mc1.21.5-neoforge.jar"
+        }
+      ]
+    },
+    {
+      "minecraft": "1.21.6",
+      "java": {
+        "build": 21,
+        "runtime": 21,
+        "bytecode": 21
+      },
+      "loaders": [
+        {
+          "id": "fabric",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": true,
+          "path": "platforms/mc1.21.6/fabric",
+          "artifact": "jammarr-1.1.0+mc1.21.6-fabric.jar"
+        },
+        {
+          "id": "forge",
+          "status": "preview",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.21.6/forge",
+          "artifact": "jammarr-1.1.0+mc1.21.6-forge.jar"
+        },
+        {
+          "id": "neoforge",
+          "status": "preview",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.21.6/neoforge",
+          "artifact": "jammarr-1.1.0+mc1.21.6-neoforge.jar"
+        }
+      ]
+    },
+    {
+      "minecraft": "1.21.7",
+      "java": {
+        "build": 21,
+        "runtime": 21,
+        "bytecode": 21
+      },
+      "loaders": [
+        {
+          "id": "fabric",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": true,
+          "path": "platforms/mc1.21.7/fabric",
+          "artifact": "jammarr-1.1.0+mc1.21.7-fabric.jar"
+        },
+        {
+          "id": "forge",
+          "status": "preview",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.21.7/forge",
+          "artifact": "jammarr-1.1.0+mc1.21.7-forge.jar"
+        },
+        {
+          "id": "neoforge",
+          "status": "preview",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.21.7/neoforge",
+          "artifact": "jammarr-1.1.0+mc1.21.7-neoforge.jar"
+        }
+      ]
+    },
+    {
+      "minecraft": "1.21.8",
+      "java": {
+        "build": 21,
+        "runtime": 21,
+        "bytecode": 21
+      },
+      "loaders": [
+        {
+          "id": "fabric",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": true,
+          "path": "platforms/mc1.21.8/fabric",
+          "artifact": "jammarr-1.1.0+mc1.21.8-fabric.jar"
+        },
+        {
+          "id": "forge",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.21.8/forge",
+          "artifact": "jammarr-1.1.0+mc1.21.8-forge.jar"
+        },
+        {
+          "id": "neoforge",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.21.8/neoforge",
+          "artifact": "jammarr-1.1.0+mc1.21.8-neoforge.jar"
+        }
+      ]
+    },
+    {
+      "minecraft": "1.21.9",
+      "java": {
+        "build": 21,
+        "runtime": 21,
+        "bytecode": 21
+      },
+      "loaders": [
+        {
+          "id": "fabric",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": true,
+          "path": "platforms/mc1.21.9/fabric",
+          "artifact": "jammarr-1.1.0+mc1.21.9-fabric.jar"
+        },
+        {
+          "id": "forge",
+          "status": "preview",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.21.9/forge",
+          "artifact": "jammarr-1.1.0+mc1.21.9-forge.jar"
+        },
+        {
+          "id": "neoforge",
+          "status": "preview",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.21.9/neoforge",
+          "artifact": "jammarr-1.1.0+mc1.21.9-neoforge.jar"
+        }
+      ]
+    },
+    {
+      "minecraft": "1.21.10",
+      "java": {
+        "build": 21,
+        "runtime": 21,
+        "bytecode": 21
+      },
+      "loaders": [
+        {
+          "id": "fabric",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": true,
+          "path": "platforms/mc1.21.10/fabric",
+          "artifact": "jammarr-1.1.0+mc1.21.10-fabric.jar"
+        },
+        {
+          "id": "forge",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.21.10/forge",
+          "artifact": "jammarr-1.1.0+mc1.21.10-forge.jar"
+        },
+        {
+          "id": "neoforge",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.21.10/neoforge",
+          "artifact": "jammarr-1.1.0+mc1.21.10-neoforge.jar"
+        }
+      ]
+    },
+    {
+      "minecraft": "1.21.11",
+      "java": {
+        "build": 21,
+        "runtime": 21,
+        "bytecode": 21
+      },
+      "loaders": [
+        {
+          "id": "fabric",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": true,
+          "path": "platforms/mc1.21.11/fabric",
+          "artifact": "jammarr-1.1.0+mc1.21.11-fabric.jar"
+        },
+        {
+          "id": "forge",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.21.11/forge",
+          "artifact": "jammarr-1.1.0+mc1.21.11-forge.jar"
+        },
+        {
+          "id": "neoforge",
+          "status": "stable",
+          "implemented": false,
+          "quiltCompatible": false,
+          "path": "platforms/mc1.21.11/neoforge",
+          "artifact": "jammarr-1.1.0+mc1.21.11-neoforge.jar"
+        }
+      ]
+    },
+    {
+      "minecraft": "26.1.2",
+      "java": {
+        "build": 26,
+        "runtime": 25,
+        "bytecode": 25
+      },
+      "loaders": [
+        {
+          "id": "fabric",
+          "status": "stable",
+          "implemented": true,
+          "quiltCompatible": true,
+          "path": "platforms/mc26.1.2/fabric",
+          "artifact": "jammarr-1.1.0+mc26.1.2-fabric.jar"
+        },
+        {
+          "id": "forge",
+          "status": "stable",
+          "implemented": true,
+          "quiltCompatible": false,
+          "path": "platforms/mc26.1.2/forge",
+          "artifact": "jammarr-1.1.0+mc26.1.2-forge.jar"
+        },
+        {
+          "id": "neoforge",
+          "status": "stable",
+          "implemented": true,
+          "quiltCompatible": false,
+          "path": "platforms/mc26.1.2/neoforge",
+          "artifact": "jammarr-1.1.0+mc26.1.2-neoforge.jar"
+        }
+      ]
+    },
+    {
+      "minecraft": "26.2",
+      "java": {
+        "build": 26,
+        "runtime": 25,
+        "bytecode": 25
+      },
+      "loaders": [
+        {
+          "id": "fabric",
+          "status": "stable",
+          "implemented": true,
+          "quiltCompatible": true,
+          "path": "platforms/mc26.2/fabric",
+          "artifact": "jammarr-1.1.0+mc26.2-fabric.jar"
+        },
+        {
+          "id": "forge",
+          "status": "stable",
+          "implemented": true,
+          "quiltCompatible": false,
+          "path": "platforms/mc26.2/forge",
+          "artifact": "jammarr-1.1.0+mc26.2-forge.jar"
+        },
+        {
+          "id": "neoforge",
+          "status": "stable",
+          "implemented": true,
+          "quiltCompatible": false,
+          "path": "platforms/mc26.2/neoforge",
+          "artifact": "jammarr-1.1.0+mc26.2-neoforge.jar"
+        }
+      ]
+    }
+  ]
+}

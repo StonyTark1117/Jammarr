@@ -5,10 +5,37 @@ plugins {
 }
 
 import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
 import java.security.MessageDigest
 
 version = mod_version
 group = mod_group_id
+
+def targetManifestFile = layout.projectDirectory.file('gradle/targets.json')
+def targetManifest = new JsonSlurper().parse(targetManifestFile.asFile)
+if (targetManifest.schemaVersion != 1 || targetManifest.productVersion != mod_version
+        || targetManifest.protocolVersion != 6) {
+    throw new GradleException('gradle/targets.json does not match the active Jammarr version and protocol')
+}
+def plannedArtifacts = targetManifest.targets.collectMany { target ->
+    target.loaders.collect { loader ->
+        [minecraft: target.minecraft as String,
+         java: target.java.runtime as Integer,
+         buildJava: target.java.build as Integer,
+         bytecodeJava: target.java.bytecode as Integer,
+         loader: loader.id as String,
+         status: loader.status as String,
+         implemented: loader.implemented as Boolean,
+         quiltCompatible: loader.quiltCompatible as Boolean,
+         projectPath: loader.path as String,
+         filename: loader.artifact as String]
+    }
+}
+def implementedArtifacts = plannedArtifacts.findAll { it.implemented }
+if (targetManifest.targets.size() != 26 || plannedArtifacts.size() != 68
+        || plannedArtifacts.count { it.quiltCompatible } != 24 || implementedArtifacts.size() != 16) {
+    throw new GradleException('Jammarr target manifest does not contain the expected 26/68/24/16 matrix')
+}
 
 repositories {
     mavenCentral()
@@ -170,136 +197,45 @@ tasks.register('verifyRelease') {
     }
 }
 
-def verifyFabric1211 = tasks.register('verifyFabric1211', Exec) {
-    group = 'verification'
-    description = 'Runs the isolated Minecraft 1.21.1 Fabric release gate.'
-    workingDir(layout.projectDirectory.dir('platforms/mc1.21.1/fabric'))
-    commandLine('./gradlew', 'verifyRelease', ':core:test', '--no-daemon', '--max-workers=1')
-}
-
-def verifyForge1211 = tasks.register('verifyForge1211', Exec) {
-    group = 'verification'
-    description = 'Runs the isolated Minecraft 1.21.1 Forge release gate.'
-    workingDir(layout.projectDirectory.dir('platforms/mc1.21.1/forge'))
-    commandLine('./gradlew', 'verifyRelease', ':core:test', '--no-daemon', '--max-workers=1')
-    mustRunAfter(verifyFabric1211)
-}
-
-def verifyFabric1201 = tasks.register('verifyFabric1201', Exec) {
-    group = 'verification'
-    description = 'Runs the isolated Minecraft 1.20.1 Fabric release gate.'
-    workingDir(layout.projectDirectory.dir('platforms/mc1.20.1/fabric'))
-    commandLine('./gradlew', 'verifyRelease', ':core:test', '--no-daemon', '--max-workers=1')
-}
-
-def verifyForge1201 = tasks.register('verifyForge1201', Exec) {
-    group = 'verification'
-    description = 'Runs the isolated Minecraft 1.20.1 Forge release gate.'
-    workingDir(layout.projectDirectory.dir('platforms/mc1.20.1/forge'))
-    commandLine('./gradlew', 'verifyRelease', ':core:test', '--no-daemon', '--max-workers=1', '--no-configuration-cache')
-    mustRunAfter(verifyFabric1201)
-}
-
-def verifyNeoForge1201 = tasks.register('verifyNeoForge1201', Exec) {
-    group = 'verification'
-    description = 'Runs the isolated Minecraft 1.20.1 transitional NeoForge release gate.'
-    workingDir(layout.projectDirectory.dir('platforms/mc1.20.1/neoforge'))
-    commandLine('./gradlew', 'verifyRelease', ':core:test', '--no-daemon', '--max-workers=1', '--no-configuration-cache')
-    mustRunAfter(verifyForge1201)
-}
-
-def verifyFabric1202 = tasks.register('verifyFabric1202', Exec) {
-    group = 'verification'
-    description = 'Runs the isolated Minecraft 1.20.2 Fabric release gate.'
-    workingDir(layout.projectDirectory.dir('platforms/mc1.20.2/fabric'))
-    commandLine('./gradlew', 'verifyRelease', ':core:test', '--no-daemon', '--max-workers=1')
-}
-
-def verifyForge1202 = tasks.register('verifyForge1202', Exec) {
-    group = 'verification'
-    description = 'Runs the isolated Minecraft 1.20.2 Forge release gate.'
-    workingDir(layout.projectDirectory.dir('platforms/mc1.20.2/forge'))
-    commandLine('./gradlew', 'verifyRelease', ':core:test', '--no-daemon', '--max-workers=1', '--no-configuration-cache')
-    mustRunAfter(verifyFabric1202)
-}
-
-def verifyNeoForge1202 = tasks.register('verifyNeoForge1202', Exec) {
-    group = 'verification'
-    description = 'Runs the isolated Minecraft 1.20.2 NeoForge release gate.'
-    workingDir(layout.projectDirectory.dir('platforms/mc1.20.2/neoforge'))
-    commandLine('./gradlew', 'verifyRelease', ':core:test', '--no-daemon', '--max-workers=1', '--no-configuration-cache')
-    mustRunAfter(verifyForge1202)
-}
-
 def java26Home = providers.environmentVariable('JAMMARR_JAVA26_HOME')
         .orElse('/usr/lib/jvm/java-26-openjdk').get()
 def java26Path = "${java26Home}/bin:${System.getenv('PATH')}"
 
-def verifyFabric2612 = tasks.register('verifyFabric2612', Exec) {
-    group = 'verification'
-    description = 'Runs the isolated Java 25 Minecraft 26.1.2 Fabric release gate.'
-    workingDir(layout.projectDirectory.dir('platforms/mc26.1.2/fabric'))
-    environment 'JAVA_HOME', java26Home
-    environment 'PATH', java26Path
-    commandLine('./gradlew', 'verifyRelease', ':core:test', '--no-daemon', '--max-workers=1')
-}
-
-def verifyForge2612 = tasks.register('verifyForge2612', Exec) {
-    group = 'verification'
-    description = 'Runs the isolated Java 25 Minecraft 26.1.2 Forge release gate.'
-    workingDir(layout.projectDirectory.dir('platforms/mc26.1.2/forge'))
-    environment 'JAVA_HOME', java26Home
-    environment 'PATH', java26Path
-    commandLine('./gradlew', 'verifyRelease', ':core:test', '--no-daemon', '--max-workers=1')
-    mustRunAfter(verifyFabric2612)
-}
-
-def verifyNeoForge2612 = tasks.register('verifyNeoForge2612', Exec) {
-    group = 'verification'
-    description = 'Runs the isolated Java 25 Minecraft 26.1.2 NeoForge release gate.'
-    workingDir(layout.projectDirectory.dir('platforms/mc26.1.2/neoforge'))
-    environment 'JAVA_HOME', java26Home
-    environment 'PATH', java26Path
-    commandLine('./gradlew', 'verifyRelease', ':core:test', '--no-daemon', '--max-workers=1')
-    mustRunAfter(verifyForge2612)
-}
-
-def verifyFabric262 = tasks.register('verifyFabric262', Exec) {
-    group = 'verification'
-    description = 'Runs the isolated Java 25 Minecraft 26.2 Fabric release gate.'
-    workingDir(layout.projectDirectory.dir('platforms/mc26.2/fabric'))
-    environment 'JAVA_HOME', java26Home
-    environment 'PATH', java26Path
-    commandLine('./gradlew', 'verifyRelease', ':core:test', '--no-daemon', '--max-workers=1')
-}
-
-def verifyForge262 = tasks.register('verifyForge262', Exec) {
-    group = 'verification'
-    description = 'Runs the isolated Java 25 Minecraft 26.2 Forge release gate.'
-    workingDir(layout.projectDirectory.dir('platforms/mc26.2/forge'))
-    environment 'JAVA_HOME', java26Home
-    environment 'PATH', java26Path
-    commandLine('./gradlew', 'verifyRelease', ':core:test', '--no-daemon', '--max-workers=1')
-    mustRunAfter(verifyFabric262)
-}
-
-def verifyNeoForge262 = tasks.register('verifyNeoForge262', Exec) {
-    group = 'verification'
-    description = 'Runs the isolated Java 25 Minecraft 26.2 NeoForge release gate.'
-    workingDir(layout.projectDirectory.dir('platforms/mc26.2/neoforge'))
-    environment 'JAVA_HOME', java26Home
-    environment 'PATH', java26Path
-    commandLine('./gradlew', 'verifyRelease', ':core:test', '--no-daemon', '--max-workers=1')
-    mustRunAfter(verifyForge262)
-}
-
-def verifyLegacy1710 = tasks.register('verifyLegacy1710', Exec) {
-    group = 'verification'
-    description = 'Runs the isolated Java 8 Forge 1.7.10 release gate.'
-    workingDir(layout.projectDirectory.dir('platforms/mc1.7.10/forge'))
-    environment 'JAVA_HOME', java26Home
-    environment 'PATH', java26Path
-    commandLine('./gradlew', 'verifyRelease', '--no-daemon', '--max-workers=1')
+def versionTaskKey = { String minecraft -> minecraft.replace('.', '') }
+def loaderTaskName = { String loader -> loader == 'neoforge' ? 'NeoForge' : loader.capitalize() }
+Map<String, TaskProvider> verifyTargetTasks = [:]
+TaskProvider previousTargetTask = null
+implementedArtifacts.each { artifact ->
+    String versionKey = versionTaskKey(artifact.minecraft)
+    String taskName = artifact.minecraft == '1.7.10' && artifact.loader == 'forge'
+            ? 'verifyLegacy1710' : "verify${loaderTaskName(artifact.loader)}${versionKey}"
+    TaskProvider predecessor = previousTargetTask
+    TaskProvider registered
+    if (artifact.projectPath == '.') {
+        registered = tasks.register(taskName) {
+            group = 'verification'
+            description = "Runs the root Minecraft ${artifact.minecraft} ${artifact.loader} release gate from gradle/targets.json."
+            dependsOn(':core:test', tasks.named('test'), tasks.named('verifyRelease'))
+        }
+    } else {
+        registered = tasks.register(taskName, Exec) {
+            group = 'verification'
+            description = "Runs the isolated Minecraft ${artifact.minecraft} ${artifact.loader} release gate from gradle/targets.json."
+            workingDir(layout.projectDirectory.dir(artifact.projectPath))
+            if (artifact.buildJava >= 26) {
+                environment 'JAVA_HOME', java26Home
+                environment 'PATH', java26Path
+            }
+            List<String> arguments = ['./gradlew', 'verifyRelease']
+            if (artifact.minecraft != '1.7.10') arguments.add(':core:test')
+            arguments.addAll('--no-daemon', '--max-workers=1')
+            if (artifact.loader != 'fabric') arguments.add('--no-configuration-cache')
+            commandLine(arguments)
+        }
+    }
+    if (predecessor != null) registered.configure { mustRunAfter(predecessor) }
+    previousTargetTask = registered
+    verifyTargetTasks["${artifact.minecraft}:${artifact.loader}"] = registered
 }
 
 def verifyGameTests = tasks.register('verifyGameTests', Exec) {
@@ -309,61 +245,27 @@ def verifyGameTests = tasks.register('verifyGameTests', Exec) {
     commandLine('bash', 'scripts/run-gametest-gate.sh')
 }
 
-tasks.register('verify1211Family') {
-    group = 'verification'
-    description = 'Builds and verifies the NeoForge, Fabric, and Forge Minecraft 1.21.1 artifacts.'
-    dependsOn(':core:test', tasks.named('test'), tasks.named('verifyRelease'), verifyFabric1211, verifyForge1211)
-}
-
-tasks.register('verify1201Family') {
-    group = 'verification'
-    description = 'Builds and verifies the Fabric, Forge, and transitional NeoForge Minecraft 1.20.1 artifacts.'
-    dependsOn(verifyFabric1201, verifyForge1201, verifyNeoForge1201)
-}
-
-tasks.register('verify1202Family') {
-    group = 'verification'
-    description = 'Builds and verifies the Fabric, Forge, and NeoForge Minecraft 1.20.2 artifacts.'
-    dependsOn(verifyFabric1202, verifyForge1202, verifyNeoForge1202)
-}
-
-tasks.register('verify2612Family') {
-    group = 'verification'
-    description = 'Builds and verifies the Java 25 Fabric, Forge, and NeoForge Minecraft 26.1.2 artifacts.'
-    dependsOn(verifyFabric2612, verifyForge2612, verifyNeoForge2612)
-}
-
-tasks.register('verify262Family') {
-    group = 'verification'
-    description = 'Builds and verifies the Java 25 Fabric, Forge, and NeoForge Minecraft 26.2 artifacts.'
-    dependsOn(verifyFabric262, verifyForge262, verifyNeoForge262)
+List<TaskProvider> verifyFamilyTasks = []
+implementedArtifacts.groupBy { it.minecraft }.each { minecraft, artifacts ->
+    TaskProvider family = tasks.register("verify${versionTaskKey(minecraft)}Family") {
+        group = 'verification'
+        description = "Builds and verifies every implemented Minecraft ${minecraft} artifact from gradle/targets.json."
+        dependsOn(artifacts.collect { verifyTargetTasks["${minecraft}:${it.loader}"] })
+    }
+    verifyFamilyTasks.add(family)
 }
 
 tasks.register('verifyAllTargets') {
     group = 'verification'
     description = 'Builds and verifies every currently registered Jammarr target.'
-    dependsOn(tasks.named('verify1201Family'), tasks.named('verify1202Family'), tasks.named('verify1211Family'),
-            tasks.named('verify2612Family'), tasks.named('verify262Family'), verifyLegacy1710, verifyGameTests)
+    dependsOn(verifyFamilyTasks, verifyGameTests)
 }
 
-def canonicalArtifacts = [
-        [minecraft: '1.7.10', java: 8, loader: 'forge', path: 'platforms/mc1.7.10/forge/build/libs/jammarr-1.1.0+mc1.7.10-forge.jar'],
-        [minecraft: '1.20.1', java: 17, loader: 'fabric', path: 'platforms/mc1.20.1/fabric/build/libs/jammarr-1.1.0+mc1.20.1-fabric.jar'],
-        [minecraft: '1.20.1', java: 17, loader: 'forge', path: 'platforms/mc1.20.1/forge/build/libs/jammarr-1.1.0+mc1.20.1-forge.jar'],
-        [minecraft: '1.20.1', java: 17, loader: 'neoforge', path: 'platforms/mc1.20.1/neoforge/build/libs/jammarr-1.1.0+mc1.20.1-neoforge.jar'],
-        [minecraft: '1.20.2', java: 17, loader: 'fabric', path: 'platforms/mc1.20.2/fabric/build/libs/jammarr-1.1.0+mc1.20.2-fabric.jar'],
-        [minecraft: '1.20.2', java: 17, loader: 'forge', path: 'platforms/mc1.20.2/forge/build/libs/jammarr-1.1.0+mc1.20.2-forge.jar'],
-        [minecraft: '1.20.2', java: 17, loader: 'neoforge', path: 'platforms/mc1.20.2/neoforge/build/libs/jammarr-1.1.0+mc1.20.2-neoforge.jar'],
-        [minecraft: '1.21.1', java: 21, loader: 'fabric', path: 'platforms/mc1.21.1/fabric/build/libs/jammarr-1.1.0+mc1.21.1-fabric.jar'],
-        [minecraft: '1.21.1', java: 21, loader: 'forge', path: 'platforms/mc1.21.1/forge/build/libs/jammarr-1.1.0+mc1.21.1-forge.jar'],
-        [minecraft: '1.21.1', java: 21, loader: 'neoforge', path: 'build/libs/jammarr-1.1.0+mc1.21.1-neoforge.jar'],
-        [minecraft: '26.1.2', java: 25, loader: 'fabric', path: 'platforms/mc26.1.2/fabric/build/libs/jammarr-1.1.0+mc26.1.2-fabric.jar'],
-        [minecraft: '26.1.2', java: 25, loader: 'forge', path: 'platforms/mc26.1.2/forge/build/libs/jammarr-1.1.0+mc26.1.2-forge.jar'],
-        [minecraft: '26.1.2', java: 25, loader: 'neoforge', path: 'platforms/mc26.1.2/neoforge/build/libs/jammarr-1.1.0+mc26.1.2-neoforge.jar'],
-        [minecraft: '26.2', java: 25, loader: 'fabric', path: 'platforms/mc26.2/fabric/build/libs/jammarr-1.1.0+mc26.2-fabric.jar'],
-        [minecraft: '26.2', java: 25, loader: 'forge', path: 'platforms/mc26.2/forge/build/libs/jammarr-1.1.0+mc26.2-forge.jar'],
-        [minecraft: '26.2', java: 25, loader: 'neoforge', path: 'platforms/mc26.2/neoforge/build/libs/jammarr-1.1.0+mc26.2-neoforge.jar']
-]
+def canonicalArtifacts = implementedArtifacts.collect { artifact ->
+    String base = artifact.projectPath == '.' ? '' : "${artifact.projectPath}/"
+    [minecraft: artifact.minecraft, java: artifact.java, loader: artifact.loader,
+     path: "${base}build/libs/${artifact.filename}"]
+}
 
 def catalogVersions = { String minecraft ->
     File catalog = layout.projectDirectory.file("gradle/version-catalogs/mc-${minecraft}.toml").asFile
@@ -401,7 +303,8 @@ def canonicalArtifactSource = { artifact ->
 
 def indexRelease = tasks.register('indexReleaseArtifacts') {
     group = 'verification'
-    description = 'Indexes 16 prebuilt runtime JARs and writes the release manifest/checksums.'
+    description = "Indexes ${implementedArtifacts.size()} implemented runtime JARs and writes the release manifest/checksums."
+    inputs.file(targetManifestFile)
     notCompatibleWithConfigurationCache('Release indexing reads the independently built target files at execution time')
     inputs.files(canonicalArtifacts.collect { artifact -> canonicalArtifactSource(artifact) })
     outputs.dir(layout.buildDirectory.dir('releases'))
@@ -430,9 +333,11 @@ def indexRelease = tasks.register('indexReleaseArtifacts') {
                                   compatibleLoaders: compatibleLoaders,
                                   dependencies: dependencies, filename: expected, sha256: sha256(target)]
         }
-        if (manifestArtifacts.size() != 16) throw new GradleException("Expected 16 release artifacts, found ${manifestArtifacts.size()}")
+        if (manifestArtifacts.size() != implementedArtifacts.size()) {
+            throw new GradleException("Expected ${implementedArtifacts.size()} release artifacts, found ${manifestArtifacts.size()}")
+        }
         Map<String, Object> manifest = [schemaVersion: 2, product: 'Jammarr', modId: mod_id,
-                                        productVersion: mod_version, protocolVersion: 5,
+                                        productVersion: mod_version, protocolVersion: targetManifest.protocolVersion,
                                         artifacts: manifestArtifacts]
         new File(releaseDirectory, 'manifest.json').setText(JsonOutput.prettyPrint(JsonOutput.toJson(manifest)) + '\n', 'UTF-8')
         new File(releaseDirectory, 'SHA256SUMS').setText(manifestArtifacts.collect {
@@ -443,7 +348,7 @@ def indexRelease = tasks.register('indexReleaseArtifacts') {
 
 def assembleRelease = tasks.register('assembleReleaseArtifacts') {
     group = 'verification'
-    description = 'Builds all 16 runtime JARs, then indexes the release manifest/checksums.'
+    description = "Builds all ${implementedArtifacts.size()} implemented runtime JARs, then indexes the release manifest/checksums."
     dependsOn(tasks.named('verifyAllTargets'), indexRelease)
 }
 indexRelease.configure {
@@ -452,14 +357,14 @@ indexRelease.configure {
 
 tasks.register('releaseMatrixGate') {
     group = 'verification'
-    description = 'Builds, tests, inspects, and indexes all 16 supported Jammarr artifacts.'
+    description = "Builds, tests, inspects, and indexes all ${implementedArtifacts.size()} implemented Jammarr artifacts."
     dependsOn('inspectReleaseArtifacts', 'verifyDedicatedServers', 'verifyFabricLoaderMinimumRuntimes',
             'verifyQuiltModMenuRuntimes')
 }
 
 tasks.register('inspectReleaseArtifacts', Exec) {
     group = 'verification'
-    description = 'Inspects metadata, bytecode, key mappings, libraries, assets, notices, credentials, and checksums in all 16 release JARs.'
+    description = "Inspects metadata, bytecode, key mappings, libraries, assets, notices, credentials, and checksums in all ${implementedArtifacts.size()} release JARs."
     dependsOn(assembleRelease)
     workingDir(layout.projectDirectory)
     commandLine('python3', 'scripts/inspect-release-artifacts.py', layout.buildDirectory.dir('releases').get().asFile.absolutePath)
