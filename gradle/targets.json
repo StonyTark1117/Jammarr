@@ -13,6 +13,13 @@
         "logProfile": "latest",
         "disableConfigurationCache": false
       },
+      "ornithe": {
+        "control": "console",
+        "commandMarkers": "legacy-response",
+        "audioProfile": "legacy-openal",
+        "logProfile": "latest",
+        "disableConfigurationCache": false
+      },
       "quilt": {
         "control": "rcon",
         "commandMarkers": "modern",
@@ -149,6 +156,24 @@
           },
           "path": "platforms/mc1.8.9/fabric",
           "artifact": "jammarr-1.1.0+mc1.8.9-fabric.jar"
+        },
+        {
+          "id": "ornithe",
+          "status": "preview",
+          "implemented": true,
+          "quiltCompatible": false,
+          "verificationTask": "verifyOrnithe189",
+          "artifactProfile": "legacy-ornithe-java8",
+          "buildJava": 21,
+          "runtimeCapabilities": {
+            "control": "console",
+            "commandMarkers": "legacy-response",
+            "audioProfile": "legacy-openal",
+            "logProfile": "latest",
+            "disableConfigurationCache": false
+          },
+          "path": "platforms/mc1.8.9/ornithe",
+          "artifact": "jammarr-1.1.0+mc1.8.9-ornithe.jar"
         }
       ]
     },

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "jammarr",
+  "version": "${version}",
+  "name": "Jammarr",
+  "description": "Streams a shared, synchronized Plex music queue to capable clients.",
+  "authors": ["stonytark_mkii"],
+  "license": "CC0-1.0",
+  "icon": "jammarr.png",
+  "environment": "*",
+  "entrypoints": {
+    "init": ["stonytark.jammarr.Jammarr"],
+    "client-init": ["stonytark.jammarr.client.LegacyClient"]
+  },
+  "mixins": ["jammarr.ornithe.mixins.json"],
+  "depends": {
+    "fabricloader": ">=0.19.5",
+    "minecraft": "1.8.9",
+    "java": ">=8",
+    "osl-entrypoints": ">=0.6.1",
+    "osl-keybinds": ">=0.3.0",
+    "osl-lifecycle-events": ">=0.6.1",
+    "osl-networking": ">=0.10.0-alpha.3",
+    "osl-networking-impl": ">=0.2.0-alpha.5",
+    "osl-resource-loader": ">=0.8.0-alpha.5"
+  }
+}

@@ -261,6 +261,7 @@ def verify_remappable_keybinding(archive: zipfile.ZipFile, minecraft: str,
 
     legacy = artifact_profile.startswith("legacy-")
     legacy_fabric = artifact_profile == "legacy-fabric-java8"
+    legacy_ornithe = artifact_profile == "legacy-ornithe-java8"
     class_name = ("stonytark/jammarr/client/LegacyClient.class" if legacy or minecraft == "1.16.5"
                   else "stonytark/jammarr/client/JammarrClient.class")
     try:
@@ -279,6 +280,15 @@ def verify_remappable_keybinding(archive: zipfile.ZipFile, minecraft: str,
         consumes_binding = b"method_841" in client or b"wasPressed" in client
         if any(marker not in client for marker in required) or not mapped_keybinding or not consumes_binding:
             fail(f"{filename} does not register and consume a Legacy Fabric KeyBinding")
+        legacy_lang = archive.read("assets/jammarr/lang/en_US.lang")
+        if b"key.jammarr.open=" not in legacy_lang or b"key.categories.jammarr=" not in legacy_lang:
+            fail(f"{filename} is missing legacy Controls translations")
+        return
+
+    if legacy_ornithe:
+        required = (b"net/ornithemc/osl/keybinds/api/KeybindRegistry", b"register")
+        if any(marker not in client for marker in required):
+            fail(f"{filename} does not register the menu binding with OSL Keybinds")
         legacy_lang = archive.read("assets/jammarr/lang/en_US.lang")
         if b"key.jammarr.open=" not in legacy_lang or b"key.categories.jammarr=" not in legacy_lang:
             fail(f"{filename} is missing legacy Controls translations")
@@ -327,7 +337,7 @@ def verify_remappable_keybinding(archive: zipfile.ZipFile, minecraft: str,
 
 def verify_config_translations(archive: zipfile.ZipFile, minecraft: str,
                                loader: str, artifact_profile: str, filename: str) -> None:
-    if artifact_profile.startswith("legacy-") or loader == "fabric" or minecraft == "1.16.5":
+    if artifact_profile.startswith("legacy-") or loader in ("fabric", "ornithe") or minecraft == "1.16.5":
         return
     config = archive.read("stonytark/jammarr/config/JammarrConfig.class")
     keys = (
@@ -343,13 +353,15 @@ def verify_config_translations(archive: zipfile.ZipFile, minecraft: str,
 
 def verify_metadata(archive: zipfile.ZipFile, names: set[str], minecraft: str, loader: str,
                     java: int, artifact_profile: str, filename: str) -> None:
-    if loader == "fabric":
+    if loader in ("fabric", "ornithe"):
         metadata = json.loads(archive.read("fabric.mod.json"))
         if metadata.get("id") != "jammarr" or metadata.get("version") != PRODUCT_VERSION:
-            fail(f"{filename} has incorrect Fabric identity/version")
-        if metadata.get("environment") != "*" or not metadata.get("entrypoints", {}).get("client"):
+            fail(f"{filename} has incorrect Fabric-family identity/version")
+        entrypoints = metadata.get("entrypoints", {})
+        expected_client_entrypoint = "client-init" if loader == "ornithe" else "client"
+        if metadata.get("environment") != "*" or not entrypoints.get(expected_client_entrypoint):
             fail(f"{filename} is not declared for both client and server")
-        expected_minecraft = (minecraft if artifact_profile == "legacy-fabric-java8"
+        expected_minecraft = (minecraft if artifact_profile in ("legacy-fabric-java8", "legacy-ornithe-java8")
                               else f"={minecraft}" if minecraft == "1.20" else f"~{minecraft}")
         if metadata.get("depends", {}).get("minecraft") != expected_minecraft:
             fail(f"{filename} has incorrect Minecraft dependency")
@@ -358,6 +370,23 @@ def verify_metadata(archive: zipfile.ZipFile, names: set[str], minecraft: str, l
         if minecraft == "1.16.5":
             if metadata.get("depends", {}).get("fabric") != ">=0.42.0+1.16":
                 fail(f"{filename} has incorrect Fabric API compatibility metadata")
+        elif loader == "ornithe":
+            if metadata.get("depends", {}).get("fabricloader") != ">=0.19.5":
+                fail(f"{filename} has incorrect Ornithe Fabric Loader compatibility metadata")
+            if entrypoints.get("init") != ["stonytark.jammarr.Jammarr"] \
+                    or entrypoints.get("client-init") != ["stonytark.jammarr.client.LegacyClient"]:
+                fail(f"{filename} has incorrect Ornithe entrypoints")
+            required_osl = {
+                "osl-entrypoints": ">=0.6.1",
+                "osl-keybinds": ">=0.3.0",
+                "osl-lifecycle-events": ">=0.6.1",
+                "osl-networking": ">=0.10.0-alpha.3",
+                "osl-networking-impl": ">=0.2.0-alpha.5",
+                "osl-resource-loader": ">=0.8.0-alpha.5",
+            }
+            for dependency, constraint in required_osl.items():
+                if metadata.get("depends", {}).get(dependency) != constraint:
+                    fail(f"{filename} has incorrect {dependency} compatibility metadata")
         else:
             expected_fabric_loader = ">=0.18.3" if artifact_profile == "legacy-fabric-java8" else ">=0.19.2"
             if metadata.get("depends", {}).get("fabricloader") != expected_fabric_loader:
@@ -366,7 +395,10 @@ def verify_metadata(archive: zipfile.ZipFile, names: set[str], minecraft: str, l
                                             for name in names):
             fail(f"{filename} must not embed Quilt metadata, QSL, or Quilted Fabric API")
         expected_mixin = ("jammarr.legacy-fabric.mixins.json"
-                          if artifact_profile == "legacy-fabric-java8" else "jammarr.mixins.json")
+                          if artifact_profile == "legacy-fabric-java8"
+                          else "jammarr.ornithe.mixins.json"
+                          if artifact_profile == "legacy-ornithe-java8"
+                          else "jammarr.mixins.json")
         if minecraft != "1.16.5" and metadata.get("mixins") != [expected_mixin]:
             fail(f"{filename} does not declare the Jammarr Mixin config")
         if artifact_profile == "legacy-fabric-java8" \
@@ -431,9 +463,9 @@ def verify_jar(path: Path, minecraft: str, loader: str, java: int,
         missing = COMMON_ENTRIES - names
         if missing:
             fail(f"{filename} is missing required entries: {sorted(missing)}")
-        if loader == "fabric" and "fabric.mod.json" not in names:
-            fail(f"{filename} is missing Fabric metadata")
-        legacy_forge = artifact_profile.startswith("legacy-") and loader != "fabric"
+        if loader in ("fabric", "ornithe") and "fabric.mod.json" not in names:
+            fail(f"{filename} is missing Fabric-family metadata")
+        legacy_forge = artifact_profile.startswith("legacy-") and loader not in ("fabric", "ornithe")
         if legacy_forge and "mcmod.info" not in names:
             fail(f"{filename} is missing legacy Forge metadata")
 
@@ -493,7 +525,10 @@ def verify_jar(path: Path, minecraft: str, loader: str, java: int,
                 verify_direct_interface(archive, interface_name, implementation_name, filename)
         else:
             expected_mixin_name = ("jammarr.legacy-fabric.mixins.json"
-                                   if artifact_profile == "legacy-fabric-java8" else "jammarr.mixins.json")
+                                   if artifact_profile == "legacy-fabric-java8"
+                                   else "jammarr.ornithe.mixins.json"
+                                   if artifact_profile == "legacy-ornithe-java8"
+                                   else "jammarr.mixins.json")
             if minecraft != "1.16.5" and expected_mixin_name not in names:
                 fail(f"{filename} is missing Mixin metadata")
             mixin = ({"compatibilityLevel": "JAVA_8"} if minecraft == "1.16.5"
@@ -506,7 +541,7 @@ def verify_jar(path: Path, minecraft: str, loader: str, java: int,
                           else java)
             if mixin.get("compatibilityLevel") != f"JAVA_{mixin_java}":
                 fail(f"{filename} has incorrect Mixin Java compatibility")
-            nested_prefix = "META-INF/jars" if loader == "fabric" else "META-INF/jarjar"
+            nested_prefix = "META-INF/jars" if loader in ("fabric", "ornithe") else "META-INF/jarjar"
             core_candidates = sorted(name for name in names if name.startswith(f"{nested_prefix}/")
                                      and name.endswith("core-1.1.0.jar"))
             if len(core_candidates) != 1:
