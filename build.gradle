@@ -19,7 +19,7 @@ def plannedArtifacts = targetManifest.targets.collectMany { target ->
     target.loaders.collect { loader ->
         [minecraft: target.minecraft as String,
          java: target.java.runtime as Integer,
-         buildJava: target.java.build as Integer,
+         buildJava: (loader.buildJava ?: target.java.build) as Integer,
          bytecodeJava: target.java.bytecode as Integer,
          loader: loader.id as String,
          status: loader.status as String,
@@ -45,7 +45,12 @@ implementedArtifacts.each { artifact ->
 
 def java26Home = providers.environmentVariable('JAMMARR_JAVA26_HOME')
         .orElse('/usr/lib/jvm/java-26-openjdk').get()
-def java26Path = "${java26Home}/bin:${System.getenv('PATH')}"
+def javaHomes = [
+        8: providers.environmentVariable('JAMMARR_JAVA8_HOME').orElse('/usr/lib/jvm/java-8-openjdk').get(),
+        17: providers.environmentVariable('JAMMARR_JAVA17_HOME').orElse('/usr/lib/jvm/java-17-openjdk').get(),
+        21: providers.environmentVariable('JAMMARR_JAVA21_HOME').orElse('/usr/lib/jvm/java-21-openjdk').get(),
+        26: java26Home
+]
 
 def versionTaskKey = { String minecraft -> minecraft.replace('.', '') }
 def loaderTaskName = { String loader -> loader == 'neoforge' ? 'NeoForge' : loader.capitalize() }
@@ -68,12 +73,15 @@ implementedArtifacts.each { artifact ->
             group = 'verification'
             description = "Runs the isolated Minecraft ${artifact.minecraft} ${artifact.loader} release gate from gradle/targets.json."
             workingDir(layout.projectDirectory.dir(artifact.projectPath))
-            if (artifact.buildJava >= 26) {
-                environment 'JAVA_HOME', java26Home
-                environment 'PATH', java26Path
-            }
+            String buildJavaHome = javaHomes[artifact.buildJava]
+            if (buildJavaHome == null) throw new GradleException("No build JDK configured for Java ${artifact.buildJava}")
+            environment 'JAVA_HOME', buildJavaHome
+            environment 'PATH', "${buildJavaHome}/bin:${System.getenv('PATH')}"
             List<String> arguments = ['./gradlew', 'verifyRelease']
-            if (!(artifact.minecraft in ['1.7.10', '1.12.2'])) arguments.add(':core:test')
+            if (!(artifact.minecraft in ['1.7.10', '1.12.2'])
+                    && !(artifact.minecraft == '1.16.5' && artifact.loader == 'forge')) {
+                arguments.add(':core:test')
+            }
             arguments.addAll('--no-daemon', '--max-workers=1')
             if (artifact.loader != 'fabric') arguments.add('--no-configuration-cache')
             commandLine(arguments)

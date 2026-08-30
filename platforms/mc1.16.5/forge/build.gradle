@@ -1,0 +1,113 @@
+plugins {
+    id 'java'
+    alias(libs.plugins.forgegradle)
+}
+
+group = 'stonytark'
+version = '1.1.0'
+def artifactVersion = version.toString()
+def expectedReleaseName = "jammarr-${artifactVersion}+mc1.16.5-forge.jar"
+base { archivesName = "jammarr-${artifactVersion}+mc1.16.5-forge" }
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(8)
+    withSourcesJar()
+}
+
+minecraft {
+    mappings channel: 'official', version: libs.versions.minecraft.get()
+    runs {
+        configureEach {
+            workingDirectory project.file('run')
+            mods { jammarr { source sourceSets.main } }
+        }
+        client {
+            if (providers.gradleProperty('jammarrAcceptanceServer').isPresent()) {
+                workingDirectory file(providers.gradleProperty('jammarrAcceptanceGameDir').get())
+                property 'jammarr.acceptance.server', providers.gradleProperty('jammarrAcceptanceServer').get()
+                args '--username', providers.gradleProperty('jammarrAcceptanceUsername').get(),
+                        '--server', providers.gradleProperty('jammarrAcceptanceServer').get().split(':')[0],
+                        '--port', providers.gradleProperty('jammarrAcceptanceServer').get().split(':')[1]
+            }
+        }
+        server { args '--nogui' }
+    }
+}
+
+repositories { mavenCentral() }
+configurations {
+    embeddedLibraries
+    implementation.extendsFrom(embeddedLibraries)
+}
+dependencies {
+    minecraft "net.minecraftforge:forge:${libs.versions.minecraft.get()}-${libs.versions.forge.loader.get()}"
+    embeddedLibraries libs.jlayer
+    embeddedLibraries libs.jump3r
+    testImplementation platform(libs.junit.bom)
+    testImplementation libs.junit.jupiter
+    testRuntimeOnly libs.junit.launcher
+}
+dependencyLocking { lockAllConfigurations() }
+
+sourceSets {
+    main {
+        java.setSrcDirs([file('src/main/java'), file('../../../core/src/main/java')])
+        resources {
+            setSrcDirs([file('src/main/resources'), file('../../../src/main/resources')])
+            exclude 'jammarr.mixins.json'
+        }
+    }
+}
+sourceSets.test.java.srcDir file('../../../core/src/test/java')
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
+sourceSets.test.resources { srcDir file('../../../test-fixtures'); exclude 'java/**' }
+tasks.withType(Test).configureEach { useJUnitPlatform() }
+
+tasks.named('processResources') {
+    inputs.property 'version', artifactVersion
+    filesMatching('META-INF/mods.toml') { expand version: artifactVersion }
+}
+tasks.named('jar', Jar) {
+    archiveFileName = expectedReleaseName
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from { configurations.embeddedLibraries.collect { it.isDirectory() ? it : zipTree(it) } }
+    exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', 'META-INF/INDEX.LIST', 'module-info.class'
+    from('../../../THIRD_PARTY_NOTICES.md') { into('META-INF') }
+    from('../../../LICENSE') { into('META-INF'); rename { 'LICENSE-Jammarr-CC0-1.0.txt' } }
+    from('../../../LICENSE-LGPL-2.1-or-later.txt') { into('META-INF') }
+    finalizedBy('reobfJar')
+}
+
+def releaseArchive = tasks.named('jar').flatMap { it.archiveFile }
+tasks.register('verifyRelease') {
+    group = 'verification'
+    dependsOn(tasks.named('test'), tasks.named('jar'), tasks.named('reobfJar'))
+    doLast {
+        File archive = releaseArchive.get().asFile
+        if (archive.name != expectedReleaseName) throw new GradleException("Unexpected release filename: ${archive.name}")
+        new java.util.zip.ZipFile(archive).withCloseable { zip ->
+            Set<String> found = zip.entries().collect { it.name } as Set
+            ['META-INF/mods.toml', 'META-INF/LICENSE-Jammarr-CC0-1.0.txt',
+             'META-INF/LICENSE-LGPL-2.1-or-later.txt', 'META-INF/THIRD_PARTY_NOTICES.md',
+             'jammarr.png', 'assets/jammarr/lang/en_us.json', 'stonytark/jammarr/Jammarr.class',
+             'stonytark/jammarr/core/server/ChunkTransferPolicy.class',
+             'stonytark/jammarr/client/LegacyClient.class', 'stonytark/jammarr/network/LegacyNetwork.class',
+             'javazoom/jl/decoder/Decoder.class', 'de/sciss/jump3r/mp3/Lame.class'].each { entry ->
+                if (!found.contains(entry)) throw new GradleException("Release archive is missing ${entry}")
+            }
+            String metadata = zip.getInputStream(zip.getEntry('META-INF/mods.toml')).getText('UTF-8')
+            if (!metadata.contains('modId="jammarr"') || !metadata.contains('versionRange="[1.16.5,1.17)"')
+                    || !metadata.contains('displayTest="IGNORE_SERVER_VERSION"')) {
+                throw new GradleException('Forge metadata does not identify the optional-client 1.16.5 target')
+            }
+            found.findAll { it.startsWith('stonytark/jammarr/') && it.endsWith('.class') }.each { entry ->
+                InputStream stream = zip.getInputStream(zip.getEntry(entry))
+                byte[] header = new byte[8]
+                if (stream.read(header) != header.length) throw new GradleException("Cannot inspect ${entry}")
+                stream.close()
+                int major = ((header[6] & 0xff) << 8) | (header[7] & 0xff)
+                if (major != 52) throw new GradleException("Java 8 target contains class major ${major}: ${entry}")
+            }
+        }
+    }
+}

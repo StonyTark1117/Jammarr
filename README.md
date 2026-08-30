@@ -14,13 +14,14 @@ Jammarr may be installed on a dedicated server without requiring every player to
 | --- | ---: | :---: | :---: | :---: | :---: |
 | 1.7.10 | 8 | unavailable | unavailable | supported | unavailable |
 | 1.12.2 | 8 | unavailable | unavailable | supported | unavailable |
+| 1.16.5 | 8 | supported | supported | supported | unavailable |
 | 1.20.1 | 17 | supported | supported | supported | supported |
 | 1.20.2 | 17 | supported | supported | supported | supported |
 | 1.21.1 | 21 | supported | supported | supported | supported |
 | 26.1.2 | 25 | supported | supported | supported | supported |
 | 26.2 | 25 | supported | supported | supported | supported |
 
-Fabric, Quilt, and NeoForge are unavailable for Minecraft 1.7.10 and 1.12.2. Quilt is supported on every modern Fabric target using the matching `-fabric.jar`, Quilt Loader, and upstream Fabric API; no QSL, Quilted Fabric API, or separate `-quilt.jar` is required or published. Fabric-to-Quilt connections and other cross-loader or cross-Minecraft pairings are unsupported. Every 1.1.0 artifact uses protocol 6 and is named `jammarr-<mod-version>+mc<version>-<loader>.jar`; there is no cross-Minecraft or Forge-family universal JAR. Exact pinned dependencies are listed in the family catalogs under `gradle/version-catalogs/` and copied into the generated release manifest.
+Fabric, Quilt, and NeoForge are unavailable for Minecraft 1.7.10 and 1.12.2. NeoForge is also unavailable for 1.16.5. Quilt is supported on every Fabric target using the matching `-fabric.jar`, Quilt Loader, and upstream Fabric API; no QSL, Quilted Fabric API, or separate `-quilt.jar` is required or published. Fabric-to-Quilt connections and other cross-loader or cross-Minecraft pairings are unsupported. Every 1.1.0 artifact uses protocol 6 and is named `jammarr-<mod-version>+mc<version>-<loader>.jar`; there is no cross-Minecraft or Forge-family universal JAR. Exact pinned dependencies are listed in the family catalogs under `gradle/version-catalogs/` and copied into the generated release manifest.
 
 No external FFmpeg installation is required. Plex prepares an MP3 rendition; if a Plex version returns variable-bitrate data, Jammarr normalizes it in-process to the configured constant bitrate using its bundled pure-Java encoder.
 

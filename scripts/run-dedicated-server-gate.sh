@@ -42,6 +42,7 @@ active_world_existed=0
 
 java21_home=${JAMMARR_JAVA21_HOME:-/usr/lib/jvm/java-21-openjdk}
 java26_home=${JAMMARR_JAVA26_HOME:-/usr/lib/jvm/java-26-openjdk}
+java8_home=${JAMMARR_JAVA8_HOME:-/usr/lib/jvm/java-8-openjdk}
 delayed_hello_gate=${JAMMARR_DELAYED_HELLO_GATE:-false}
 delayed_hello_ms=${JAMMARR_DELAYED_HELLO_MS:-12000}
 hello_timeout_ms=${JAMMARR_GATE_HELLO_TIMEOUT_MS:-5000}
@@ -66,6 +67,9 @@ fi
 targets=(
   "1.7.10-forge|platforms/mc1.7.10/forge|$java26_home|25695"
   "1.12.2-forge|platforms/mc1.12.2/forge|$java26_home|25696"
+  "1.16.5-fabric|platforms/mc1.16.5/fabric|$java21_home|25697"
+  "1.16.5-quilt|platforms/mc1.16.5/fabric|$java21_home|25698"
+  "1.16.5-forge|platforms/mc1.16.5/forge|$java8_home|25699"
   "1.20.1-fabric|platforms/mc1.20.1/fabric|$java21_home|25571"
   "1.20.1-quilt|platforms/mc1.20.1/fabric|$java21_home|25648"
   "1.20.1-forge|platforms/mc1.20.1/forge|$java21_home|25572"
@@ -810,7 +814,7 @@ start_audio_client() {
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
   [[ "$role" == "leader" ]] && leader=true
   case "$label" in
-    1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge)
+    1.16.5-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge)
       cache_args+=(--no-configuration-cache)
       ;;
   esac
@@ -1740,7 +1744,7 @@ run_invalid_config_check_once() {
   [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
   case "$label" in
-    1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge)
+    1.16.5-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge)
       cache_args+=(--no-configuration-cache)
       ;;
   esac
@@ -1916,7 +1920,7 @@ run_target() {
     set_property "$run_dir/server.properties" rcon.password "$rcon_password"
   fi
   case "$label" in
-    1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge)
+    1.16.5-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge)
       cache_args+=(--no-configuration-cache)
       ;;
   esac

@@ -1,6 +1,19 @@
 // Quilt Loader's Maven POM intentionally omits libraries supplied by its installer profile.
 // Keep each test-only runtime classpath aligned with the selected loader's official profile.
 ext.jammarrQuiltRuntimeProfiles = [
+        '0.24.0': [
+                'net.fabricmc:tiny-mappings-parser:0.3.0+build.17',
+                'net.fabricmc:sponge-mixin:0.12.5+mixin.0.8.5',
+                'net.fabricmc:tiny-remapper:0.10.1',
+                'net.fabricmc:access-widener:2.1.0',
+                'org.quiltmc:quilt-json5:1.0.4+final',
+                'org.quiltmc:quilt-config:1.2.0',
+                'org.ow2.asm:asm:9.6',
+                'org.ow2.asm:asm-analysis:9.6',
+                'org.ow2.asm:asm-commons:9.6',
+                'org.ow2.asm:asm-tree:9.6',
+                'org.ow2.asm:asm-util:9.6'
+        ],
         '0.30.0': [
                 'net.fabricmc:sponge-mixin:0.17.2+mixin.0.8.7',
                 'org.quiltmc:quilt-json5:1.0.4+final',

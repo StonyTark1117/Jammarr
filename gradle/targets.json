@@ -51,7 +51,8 @@
         {
           "id": "fabric",
           "status": "stable",
-          "implemented": false,
+          "implemented": true,
+          "buildJava": 21,
           "quiltCompatible": true,
           "path": "platforms/mc1.16.5/fabric",
           "artifact": "jammarr-1.1.0+mc1.16.5-fabric.jar"
@@ -59,7 +60,7 @@
         {
           "id": "forge",
           "status": "stable",
-          "implemented": false,
+          "implemented": true,
           "quiltCompatible": false,
           "path": "platforms/mc1.16.5/forge",
           "artifact": "jammarr-1.1.0+mc1.16.5-forge.jar"

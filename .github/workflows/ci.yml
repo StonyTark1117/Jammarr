@@ -27,6 +27,18 @@ jobs:
             runtime: 1.12.2-forge
             quilt: ''
             game-tests: false
+          - name: 1.16.5-fabric
+            task: verifyFabric1165
+            artifact: platforms/mc1.16.5/fabric/build/libs/jammarr-1.1.0+mc1.16.5-fabric.jar
+            runtime: 1.16.5-fabric
+            quilt: 1.16.5-quilt
+            game-tests: false
+          - name: 1.16.5-forge
+            task: verifyForge1165
+            artifact: platforms/mc1.16.5/forge/build/libs/jammarr-1.1.0+mc1.16.5-forge.jar
+            runtime: 1.16.5-forge
+            quilt: ''
+            game-tests: false
           - name: 1.20.1-fabric
             task: verifyFabric1201
             artifact: platforms/mc1.20.1/fabric/build/libs/jammarr-1.1.0+mc1.20.1-fabric.jar
@@ -128,6 +140,13 @@ jobs:
           sudo apt-get install -y ffmpeg iproute2 libasound2-plugins libgl1-mesa-dri libopenal1 pulseaudio pulseaudio-utils x11-xserver-utils xvfb
           pulseaudio --start --exit-idle-time=-1
           xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' xrandr --query
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '8'
+          cache: gradle
+      - name: Record Java 8 home
+        run: echo "JAMMARR_JAVA8_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

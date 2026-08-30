@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "jammarr",
+  "version": "${version}",
+  "name": "Jammarr",
+  "description": "Streams a shared, synchronized Plex music queue to capable clients.",
+  "authors": ["stonytark_mkii"],
+  "license": "CC0-1.0",
+  "icon": "jammarr.png",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["stonytark.jammarr.Jammarr"],
+    "client": ["stonytark.jammarr.client.LegacyClient"]
+  },
+  "depends": {
+    "fabric": ">=0.42.0+1.16",
+    "minecraft": "~1.16.5",
+    "java": ">=8"
+  },
+  "suggests": {
+    "modmenu": "*"
+  }
+}
