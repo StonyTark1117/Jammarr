@@ -87,6 +87,14 @@ targets=(
   "1.20.2-quilt|platforms/mc1.20.2/fabric|$java21_home|25649"
   "1.20.2-forge|platforms/mc1.20.2/forge|$java21_home|25578"
   "1.20.2-neoforge|platforms/mc1.20.2/neoforge|$java21_home|25580"
+  "1.20.3-fabric|platforms/mc1.20.3/fabric|$java21_home|25711"
+  "1.20.3-quilt|platforms/mc1.20.3/fabric|$java21_home|25712"
+  "1.20.3-forge|platforms/mc1.20.3/forge|$java21_home|25713"
+  "1.20.3-neoforge|platforms/mc1.20.3/neoforge|$java21_home|25714"
+  "1.20.4-fabric|platforms/mc1.20.4/fabric|$java21_home|25715"
+  "1.20.4-quilt|platforms/mc1.20.4/fabric|$java21_home|25716"
+  "1.20.4-forge|platforms/mc1.20.4/forge|$java21_home|25717"
+  "1.20.4-neoforge|platforms/mc1.20.4/neoforge|$java21_home|25718"
   "1.21.1-fabric|platforms/mc1.21.1/fabric|$java21_home|25581"
   "1.21.1-quilt|platforms/mc1.21.1/fabric|$java21_home|25650"
   "1.21.1-forge|platforms/mc1.21.1/forge|$java21_home|25582"
@@ -384,7 +392,7 @@ run_optional_client() {
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS='-Djammarr.acceptance.enabled=true -Djammarr.acceptance.suppressClientHello=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
       LIBGL_ALWAYS_SOFTWARE=1 \
-      ./gradlew runClient --no-daemon --max-workers=1 --console=plain \
+      ./gradlew runClient --no-daemon --max-workers=2 --console=plain \
       "${runtime_args[@]}" \
       -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="127.0.0.1:${port}" \
@@ -455,7 +463,7 @@ run_delayed_hello_client() {
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS="-Djammarr.acceptance.enabled=true -Djammarr.acceptance.clientHelloDelayMs=${delayed_hello_ms} -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true" \
       LIBGL_ALWAYS_SOFTWARE=1 \
-      ./gradlew runClient --no-daemon --max-workers=1 --console=plain \
+      ./gradlew runClient --no-daemon --max-workers=2 --console=plain \
       "${runtime_args[@]}" \
       -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="127.0.0.1:${port}" \
@@ -559,7 +567,7 @@ run_acceptance_client_once() {
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS="$java_tool_options" \
       LIBGL_ALWAYS_SOFTWARE=1 \
-      ./gradlew runClient --no-daemon --max-workers=1 --console=plain \
+      ./gradlew runClient --no-daemon --max-workers=2 --console=plain \
       "${runtime_args[@]}" \
       -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="127.0.0.1:${port}" \
@@ -661,7 +669,7 @@ run_command_client() {
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS='-Djammarr.acceptance.enabled=true -Djammarr.acceptance.commandProbe=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
       LIBGL_ALWAYS_SOFTWARE=1 \
-      ./gradlew runClient --no-daemon --max-workers=1 --console=plain \
+      ./gradlew runClient --no-daemon --max-workers=2 --console=plain \
       "${runtime_args[@]}" \
       -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="127.0.0.1:${port}" \
@@ -823,7 +831,7 @@ start_audio_client() {
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
   [[ "$role" == "leader" ]] && leader=true
   case "$label" in
-    1.16.5-forge|1.18.2-forge|1.19.2-forge|1.20-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge)
+    1.16.5-forge|1.18.2-forge|1.19.2-forge|1.20-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge|1.20.3-forge|1.20.3-neoforge|1.20.4-forge|1.20.4-neoforge)
       cache_args+=(--no-configuration-cache)
       ;;
   esac
@@ -896,7 +904,7 @@ start_audio_client() {
       JAVA_TOOL_OPTIONS="-Djammarr.acceptance.enabled=true -Djammarr.acceptance.audioProbe=true -Djammarr.acceptance.audioLeader=$leader -Djammarr.acceptance.audioControlFile=$control_file -Djammarr.acceptance.pcmTraceDir=$client_dir/pcm-trace -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true" \
       ALSA_CONFIG_PATH="$client_dir/alsa.conf" ALSOFT_CONF="$client_dir/alsoft.conf" \
       ALSOFT_DRIVERS="$alsoft_drivers" PULSE_SINK="$pulse_sink" LIBGL_ALWAYS_SOFTWARE=1 \
-      ./gradlew runClient --no-daemon --max-workers=1 --console=plain "${cache_args[@]}" \
+      ./gradlew runClient --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
       "${runtime_args[@]}" \
       -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="127.0.0.1:${port}" \
@@ -1753,7 +1761,7 @@ run_invalid_config_check_once() {
   [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
   case "$label" in
-    1.16.5-forge|1.18.2-forge|1.19.2-forge|1.20-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge)
+    1.16.5-forge|1.18.2-forge|1.19.2-forge|1.20-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge|1.20.3-forge|1.20.3-neoforge|1.20.4-forge|1.20.4-neoforge)
       cache_args+=(--no-configuration-cache)
       ;;
   esac
@@ -1764,7 +1772,7 @@ run_invalid_config_check_once() {
     exec setsid env JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAMMARR_PLEX_TOKEN="$fake_plex_token" \
       JAVA_TOOL_OPTIONS="-Djammarr.acceptance.enabled=true -Djammarr.acceptance.audioProbe=true -Djammarr.acceptance.helloTimeoutMs=${hello_timeout_ms}" \
-      ./gradlew runServer --no-daemon --max-workers=1 --console=plain "${cache_args[@]}" \
+      ./gradlew runServer --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
       "${runtime_args[@]}" \
       < /dev/null > "$console_log" 2>&1
   ) &
@@ -1929,7 +1937,7 @@ run_target() {
     set_property "$run_dir/server.properties" rcon.password "$rcon_password"
   fi
   case "$label" in
-    1.16.5-forge|1.18.2-forge|1.19.2-forge|1.20-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge)
+    1.16.5-forge|1.18.2-forge|1.19.2-forge|1.20-forge|1.20.1-forge|1.20.1-neoforge|1.20.2-forge|1.20.2-neoforge|1.20.3-forge|1.20.3-neoforge|1.20.4-forge|1.20.4-neoforge)
       cache_args+=(--no-configuration-cache)
       ;;
   esac
@@ -1957,7 +1965,7 @@ run_target() {
     exec setsid env JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAMMARR_PLEX_TOKEN="$fake_plex_token" \
       JAVA_TOOL_OPTIONS="-Djammarr.acceptance.enabled=true -Djammarr.acceptance.audioProbe=true -Djammarr.acceptance.helloTimeoutMs=${hello_timeout_ms}" \
-      ./gradlew runServer --no-daemon --max-workers=1 --console=plain "${cache_args[@]}" \
+      ./gradlew runServer --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
       "${runtime_args[@]}" \
       < "$fifo" > "$console_log" 2>&1
   ) &

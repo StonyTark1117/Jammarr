@@ -1,0 +1,171 @@
+plugins {
+    id 'java'
+    alias(libs.plugins.forgegradle)
+}
+
+group = 'stonytark'
+version = '1.1.0'
+def artifactVersion = version.toString()
+def expectedReleaseName = "jammarr-${artifactVersion}+mc1.20.4-forge.jar"
+base { archivesName = "jammarr-${artifactVersion}+mc1.20.4-forge" }
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(libs.versions.java.get().toInteger())
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+    withSourcesJar()
+}
+
+minecraft {
+    mappings channel: 'official', version: libs.versions.minecraft.get()
+    copyIdeResources = true
+    runs {
+        configureEach {
+            workingDirectory project.file('run')
+            mods {
+                jammarr {
+                    source sourceSets.main
+                }
+            }
+        }
+        client {
+            args '--mixin.config', 'jammarr.mixins.json'
+            if (providers.gradleProperty('jammarrAcceptanceServer').isPresent()) {
+                workingDirectory file(providers.gradleProperty('jammarrAcceptanceGameDir').get())
+                args '--username', providers.gradleProperty('jammarrAcceptanceUsername').get(),
+                        '--quickPlayMultiplayer', providers.gradleProperty('jammarrAcceptanceServer').get()
+            }
+        }
+        server { args '--nogui' }
+    }
+}
+// Forge 49 scans each development classpath entry as a separate mod file, so
+// keep classes and metadata together just as they are in the distributable JAR.
+sourceSets.main.output.resourcesDir = sourceSets.main.java.classesDirectory.get().asFile
+
+repositories { mavenCentral() }
+
+jarJar.enable()
+
+dependencies {
+    minecraft "net.minecraftforge:forge:${libs.versions.minecraft.get()}-${libs.versions.forge.loader.get()}"
+    implementation project(':core')
+    jarJar(project(':core')) { dependency -> jarJar.ranged(dependency, '[1.1.0,1.1.1)') }
+    implementation libs.jlayer
+    minecraftLibrary libs.jlayer
+    jarJar(libs.jlayer) { dependency -> jarJar.ranged(dependency, '[1.0.1,1.0.2)') }
+    implementation libs.jump3r
+    minecraftLibrary libs.jump3r
+    jarJar(libs.jump3r) { dependency -> jarJar.ranged(dependency, '[1.0.5,1.0.6)') }
+    testImplementation platform(libs.junit.bom)
+    testImplementation libs.junit.jupiter
+    testRuntimeOnly libs.junit.launcher
+}
+
+dependencyLocking { lockAllConfigurations() }
+
+sourceSets {
+    main {
+        java {
+            setSrcDirs([file('../../../src/main/java'), file('../common/src/main'), file('src/main')])
+            exclude 'stonytark/jammarr/Jammarr.java'
+            exclude 'stonytark/jammarr/client/JammarrClient.java'
+            exclude 'stonytark/jammarr/client/JammarrClientConfigScreen.java'
+            exclude 'stonytark/jammarr/client/JammarrScreen.java'
+            exclude 'stonytark/jammarr/config/JammarrConfig.java'
+            exclude 'stonytark/jammarr/gametest/**'
+            exclude 'stonytark/jammarr/network/JammarrNetwork.java'
+            exclude 'stonytark/jammarr/network/JammarrPayloads.java'
+            exclude 'stonytark/jammarr/network/MinecraftWireInput.java'
+            exclude 'stonytark/jammarr/network/MinecraftWireOutput.java'
+            exclude 'stonytark/jammarr/server/JammarrCommands.java'
+            exclude 'stonytark/jammarr/server/JammarrServer.java'
+            exclude 'stonytark/jammarr/server/JammarrSavedData.java'
+        }
+        resources {
+            srcDir file('../../../src/main/resources')
+            exclude 'META-INF/neoforge.mods.toml'
+            exclude 'fabric.mod.json'
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
+sourceSets.test.java.srcDir(file('../../../test-fixtures/java/mc1.20'))
+sourceSets.test.resources { srcDir file('../../../test-fixtures'); exclude 'java/**' }
+tasks.withType(Test).configureEach { useJUnitPlatform() }
+
+tasks.named('processResources') {
+    inputs.property 'version', artifactVersion
+    filesMatching('META-INF/mods.toml') { expand version: artifactVersion }
+    filesMatching('jammarr.mixins.json') { filter { it.replace('"JAVA_21"', '"JAVA_17"') } }
+}
+
+tasks.named('jar', Jar) {
+    archiveClassifier = 'slim'
+    manifest.attributes('MixinConfigs': 'jammarr.mixins.json')
+    from('../../../THIRD_PARTY_NOTICES.md') { into('META-INF') }
+    from('../../../LICENSE') {
+        into('META-INF')
+        rename { 'LICENSE-Jammarr-CC0-1.0.txt' }
+    }
+    from('../../../LICENSE-LGPL-2.1-or-later.txt') { into('META-INF') }
+}
+
+tasks.named('jarJar') {
+    archiveFileName = expectedReleaseName
+    manifest.attributes('MixinConfigs': 'jammarr.mixins.json')
+    from('../../../THIRD_PARTY_NOTICES.md') { into('META-INF') }
+    from('../../../LICENSE') {
+        into('META-INF')
+        rename { 'LICENSE-Jammarr-CC0-1.0.txt' }
+    }
+    from('../../../LICENSE-LGPL-2.1-or-later.txt') { into('META-INF') }
+    finalizedBy('reobfJarJar')
+}
+
+tasks.named('build') { dependsOn(tasks.named('jarJar')) }
+
+def releaseArchive = tasks.named('jarJar').flatMap { it.archiveFile }
+def releaseEntries = ['META-INF/jarjar/core-1.1.0.jar', 'META-INF/jarjar/jlayer-1.0.1.jar',
+                      'META-INF/jarjar/jump3r-1.0.5.jar', 'META-INF/jarjar/metadata.json',
+                      'META-INF/LICENSE-Jammarr-CC0-1.0.txt', 'META-INF/LICENSE-LGPL-2.1-or-later.txt',
+                      'META-INF/THIRD_PARTY_NOTICES.md', 'META-INF/mods.toml', 'jammarr.mixins.json',
+                      'jammarr.png', 'pack.mcmeta', 'assets/jammarr/lang/en_us.json',
+                      'stonytark/jammarr/Jammarr.class', 'stonytark/jammarr/client/JammarrClient.class',
+                      'stonytark/jammarr/network/JammarrNetwork.class', 'stonytark/jammarr/network/JammarrPayloads.class']
+
+tasks.register('verifyRelease') {
+    group = 'verification'
+    dependsOn(tasks.named('build'), tasks.named('reobfJarJar'))
+    doLast {
+        def archive = releaseArchive.get().asFile
+        if (archive.name != expectedReleaseName) throw new GradleException("Unexpected release filename: ${archive.name}")
+        new java.util.zip.ZipFile(archive).withCloseable { zip ->
+            def found = zip.entries().collect { it.name } as Set
+            releaseEntries.each { entry ->
+                if (!found.contains(entry)) throw new GradleException("Release archive is missing ${entry}")
+            }
+            def metadata = zip.getInputStream(zip.getEntry('META-INF/mods.toml')).getText('UTF-8')
+            if (!metadata.contains('modId="jammarr"') || !metadata.contains('versionRange="[1.20.4,1.20.5)"')
+                    || !metadata.contains('versionRange="[49.2.8,50)"') || !metadata.contains('displayTest="IGNORE_SERVER_VERSION"')) {
+                throw new GradleException('Forge metadata does not enforce the expected mod, Minecraft, and loader versions')
+            }
+            if (!zip.getInputStream(zip.getEntry('jammarr.mixins.json')).getText('UTF-8').contains('"JAVA_17"')) {
+                throw new GradleException('Forge 1.20.4 mixin metadata does not target Java 17')
+            }
+            new java.util.zip.ZipInputStream(zip.getInputStream(zip.getEntry('META-INF/jarjar/core-1.1.0.jar'))).withCloseable { nested ->
+                boolean foundCoreClass = false
+                for (def entry = nested.nextEntry; entry != null; entry = nested.nextEntry) {
+                    if (entry.name == 'stonytark/jammarr/core/server/ChunkTransferPolicy.class') {
+                        byte[] header = nested.readNBytes(8)
+                        int major = ((header[6] & 0xff) << 8) | (header[7] & 0xff)
+                        if (major != 52) throw new GradleException("Shared core is not Java 8 bytecode: class major ${major}")
+                        foundCoreClass = true
+                    }
+                }
+                if (!foundCoreClass) throw new GradleException('Release archive does not contain the shared transport core')
+            }
+        }
+    }
+}

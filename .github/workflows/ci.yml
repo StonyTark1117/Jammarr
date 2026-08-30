@@ -111,6 +111,42 @@ jobs:
             runtime: 1.20.2-neoforge
             quilt: ''
             game-tests: false
+          - name: 1.20.3-fabric
+            task: verifyFabric1203
+            artifact: platforms/mc1.20.3/fabric/build/libs/jammarr-1.1.0+mc1.20.3-fabric.jar
+            runtime: 1.20.3-fabric
+            quilt: 1.20.3-quilt
+            game-tests: false
+          - name: 1.20.3-forge
+            task: verifyForge1203
+            artifact: platforms/mc1.20.3/forge/build/libs/jammarr-1.1.0+mc1.20.3-forge.jar
+            runtime: 1.20.3-forge
+            quilt: ''
+            game-tests: false
+          - name: 1.20.3-neoforge
+            task: verifyNeoForge1203
+            artifact: platforms/mc1.20.3/neoforge/build/libs/jammarr-1.1.0+mc1.20.3-neoforge.jar
+            runtime: 1.20.3-neoforge
+            quilt: ''
+            game-tests: false
+          - name: 1.20.4-fabric
+            task: verifyFabric1204
+            artifact: platforms/mc1.20.4/fabric/build/libs/jammarr-1.1.0+mc1.20.4-fabric.jar
+            runtime: 1.20.4-fabric
+            quilt: 1.20.4-quilt
+            game-tests: false
+          - name: 1.20.4-forge
+            task: verifyForge1204
+            artifact: platforms/mc1.20.4/forge/build/libs/jammarr-1.1.0+mc1.20.4-forge.jar
+            runtime: 1.20.4-forge
+            quilt: ''
+            game-tests: false
+          - name: 1.20.4-neoforge
+            task: verifyNeoForge1204
+            artifact: platforms/mc1.20.4/neoforge/build/libs/jammarr-1.1.0+mc1.20.4-neoforge.jar
+            runtime: 1.20.4-neoforge
+            quilt: ''
+            game-tests: false
           - name: 1.21.1-fabric
             task: verifyFabric1211
             artifact: platforms/mc1.21.1/fabric/build/libs/jammarr-1.1.0+mc1.21.1-fabric.jar

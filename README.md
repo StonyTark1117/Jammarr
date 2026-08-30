@@ -20,6 +20,8 @@ Jammarr may be installed on a dedicated server without requiring every player to
 | 1.20 | 17 | supported | supported | preview | unavailable |
 | 1.20.1 | 17 | supported | supported | supported | supported |
 | 1.20.2 | 17 | supported | supported | supported | supported |
+| 1.20.3 | 17 | supported | supported | preview | preview |
+| 1.20.4 | 17 | supported | supported | supported | supported |
 | 1.21.1 | 21 | supported | supported | supported | supported |
 | 26.1.2 | 25 | supported | supported | supported | supported |
 | 26.2 | 25 | supported | supported | supported | supported |
