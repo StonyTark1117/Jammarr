@@ -19,7 +19,10 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -80,6 +83,70 @@ class GlobalPlaybackCoordinatorTest {
         }
     }
 
+    @Test void backgroundCompletionCannotReenterRuntimeAfterCoordinatorClose() throws Exception {
+        JammarrSettings.installServer(new TestSettings());
+        TestRuntime runtime = new TestRuntime(temporary);
+        MemoryStore store = new MemoryStore();
+        BlockingPlex plex = new BlockingPlex();
+        GlobalPlaybackCoordinator<TestPlayer> coordinator =
+                new GlobalPlaybackCoordinator<TestPlayer>(runtime, store, plex);
+        try {
+            await(() -> coordinator.diagnostics().contains("Plex=ONLINE"));
+            coordinator.queue(runtime.listener,
+                    new ControlPackets.QueueRequest(StationModels.ItemKind.TRACK, "blocked-track"));
+            assertTrue(plex.transcodeStarted.await(3L, TimeUnit.SECONDS));
+
+            coordinator.close();
+            int executionsAfterClose = runtime.executions.get();
+            int packetsAfterClose = runtime.sent.size();
+            plex.releaseTranscode.countDown();
+            assertTrue(plex.transcodeFinished.await(3L, TimeUnit.SECONDS));
+            Thread.sleep(100L);
+
+            assertEquals(executionsAfterClose, runtime.executions.get());
+            assertEquals(packetsAfterClose, runtime.sent.size());
+        } finally {
+            plex.releaseTranscode.countDown();
+            coordinator.close();
+        }
+    }
+
+    @Test void obsoletePreparationCannotReactivateAReplacedCopyOfTheSameTrack() throws Exception {
+        JammarrSettings.installServer(new TestSettings());
+        TestRuntime runtime = new TestRuntime(temporary);
+        MemoryStore store = new MemoryStore();
+        BlockingFirstTranscodePlex plex = new BlockingFirstTranscodePlex();
+        GlobalPlaybackCoordinator<TestPlayer> coordinator =
+                new GlobalPlaybackCoordinator<TestPlayer>(runtime, store, plex);
+        try {
+            await(() -> coordinator.diagnostics().contains("Plex=ONLINE"));
+            ControlPackets.QueueRequest sameTrack =
+                    new ControlPackets.QueueRequest(StationModels.ItemKind.TRACK, "same-track");
+            coordinator.queue(runtime.listener, sameTrack);
+            assertTrue(plex.firstStarted.await(3L, TimeUnit.SECONDS));
+            coordinator.queue(runtime.listener, sameTrack);
+            await(() -> store.queue().size() == 1);
+
+            coordinator.control(runtime.operator,
+                    new ControlPackets.ControlRequest(ControlPackets.ControlAction.SKIP, -1, ""));
+            await(() -> {
+                TransportPackets.AudioManifest manifest =
+                        runtime.last(runtime.listener, TransportPackets.AudioManifest.class);
+                return manifest != null && manifest.totalChunks() > 0;
+            });
+            int manifestsBeforeOldCompletion = runtime.count(TransportPackets.AudioManifest.class);
+
+            plex.releaseFirst.countDown();
+            assertTrue(plex.firstFinished.await(3L, TimeUnit.SECONDS));
+            Thread.sleep(100L);
+            assertEquals(manifestsBeforeOldCompletion,
+                    runtime.count(TransportPackets.AudioManifest.class));
+        } finally {
+            plex.releaseFirst.countDown();
+            coordinator.close();
+        }
+    }
+
     private static void await(BooleanSupplier condition) throws InterruptedException {
         long deadline = System.currentTimeMillis() + 3_000L;
         while (!condition.getAsBoolean() && System.currentTimeMillis() < deadline) Thread.sleep(10L);
@@ -100,13 +167,14 @@ class GlobalPlaybackCoordinatorTest {
         private final TestPlayer operator = new TestPlayer("operator", true);
         private final TestPlayer listener = new TestPlayer("listener", false);
         private final List<Sent> sent = new CopyOnWriteArrayList<Sent>();
+        private final AtomicInteger executions = new AtomicInteger();
         private TestRuntime(Path temporary) { cache = temporary.resolve("cache"); }
         @Override public UUID playerId(TestPlayer player) { return player.id; }
         @Override public boolean isOperator(TestPlayer player, int permissionLevel) { return player.operator; }
         @Override public List<TestPlayer> players() { return java.util.Arrays.asList(operator, listener); }
         @Override public int playerCount() { return 2; }
         @Override public Path cacheDirectory() { return cache; }
-        @Override public void execute(Runnable action) { action.run(); }
+        @Override public void execute(Runnable action) { executions.incrementAndGet(); action.run(); }
         @Override public void send(TestPlayer player, JammarrMessage message) { sent.add(new Sent(player, message)); }
         @Override public void chat(TestPlayer player, String message) {}
         @Override public CoreLogger logger() { return CoreLogger.NO_OP; }
@@ -116,6 +184,11 @@ class GlobalPlaybackCoordinatorTest {
                 if (value.player == player && type.isInstance(value.message)) return type.cast(value.message);
             }
             return null;
+        }
+        private int count(Class<?> type) {
+            int count = 0;
+            for (Sent value : sent) if (type.isInstance(value.message)) count++;
+            return count;
         }
     }
 
@@ -161,7 +234,7 @@ class GlobalPlaybackCoordinatorTest {
         @Override public void markChanged() { dirtyCount++; }
     }
 
-    private static final class FakePlex implements PlexGateway {
+    private static class FakePlex implements PlexGateway {
         @Override public void validate() {}
         @Override public PlexService.SonicStatus sonicStatus() {
             return new PlexService.SonicStatus(StationModels.SonicCapability.READY, "Sonic analysis ready");
@@ -189,6 +262,45 @@ class GlobalPlaybackCoordinatorTest {
         @Override public List<QueueTrack> randomTracks(int limit, Set<String> excluded) { return Collections.emptyList(); }
         @Override public List<QueueTrack> metadataFallback(List<StationModels.StationSeed> seeds, int limit, Set<String> excluded) { return Collections.emptyList(); }
         private static QueueTrack track(String key) { return new QueueTrack(key, "Song", "Artist", "Album", 2_000L); }
+    }
+
+    private static final class BlockingPlex extends FakePlex {
+        private final CountDownLatch transcodeStarted = new CountDownLatch(1);
+        private final CountDownLatch releaseTranscode = new CountDownLatch(1);
+        private final CountDownLatch transcodeFinished = new CountDownLatch(1);
+
+        @Override public void transcode(QueueTrack track, Path output, int bitrate) throws java.io.IOException {
+            transcodeStarted.countDown();
+            boolean released = false;
+            while (!released) {
+                try { released = releaseTranscode.await(3L, TimeUnit.SECONDS); }
+                catch (InterruptedException ignored) { Thread.interrupted(); }
+            }
+            try { super.transcode(track, output, bitrate); }
+            finally { transcodeFinished.countDown(); }
+        }
+    }
+
+    private static final class BlockingFirstTranscodePlex extends FakePlex {
+        private final AtomicInteger transcodes = new AtomicInteger();
+        private final CountDownLatch firstStarted = new CountDownLatch(1);
+        private final CountDownLatch releaseFirst = new CountDownLatch(1);
+        private final CountDownLatch firstFinished = new CountDownLatch(1);
+
+        @Override public void transcode(QueueTrack track, Path output, int bitrate) throws java.io.IOException {
+            if (transcodes.getAndIncrement() != 0) {
+                super.transcode(track, output, bitrate);
+                return;
+            }
+            firstStarted.countDown();
+            boolean released = false;
+            while (!released) {
+                try { released = releaseFirst.await(3L, TimeUnit.SECONDS); }
+                catch (InterruptedException ignored) { Thread.interrupted(); }
+            }
+            try { super.transcode(track, output, bitrate); }
+            finally { firstFinished.countDown(); }
+        }
     }
 
     private static final class TestSettings implements JammarrSettings.ServerValues {

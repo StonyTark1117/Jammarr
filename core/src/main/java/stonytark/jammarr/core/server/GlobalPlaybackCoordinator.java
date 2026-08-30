@@ -25,6 +25,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
 /** Java 8, Minecraft-independent server-authoritative playback coordinator. */
@@ -52,6 +53,9 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
     private final AtomicBoolean prefetching = new AtomicBoolean();
     private final AtomicBoolean validating = new AtomicBoolean();
     private final AtomicBoolean generating = new AtomicBoolean();
+    private final AtomicBoolean closed = new AtomicBoolean();
+    private final AtomicLong playbackGeneration = new AtomicLong();
+    private final AtomicLong mutationGeneration = new AtomicLong();
     private final SlidingWindowRateLimiter browseLimits = new SlidingWindowRateLimiter();
     private final SlidingWindowRateLimiter queueLimits = new SlidingWindowRateLimiter();
     private final SlidingWindowRateLimiter stationLimits = new SlidingWindowRateLimiter();
@@ -124,7 +128,7 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
                 try { plex.validate(); return plex.sonicStatus(); }
                 catch (Exception error) { throw new RuntimeException(error); }
             }
-        }).whenComplete((status, error) -> runtime.execute(new Runnable() {
+        }).whenComplete((status, error) -> completeOnServer(new Runnable() {
             @Override public void run() {
                 validating.set(false);
                 nextPlexValidation = System.currentTimeMillis() + PLEX_REVALIDATE_MS;
@@ -158,6 +162,7 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
     }
 
     public void tick() {
+        if (closed.get()) return;
         egress.drain(MAX_EGRESS_CHUNKS_PER_TICK, MAX_EGRESS_BYTES_PER_TICK,
                 new FairEgressScheduler.Sender<P, JammarrMessage>() {
                     @Override public void send(P player, JammarrMessage message) {
@@ -217,7 +222,7 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
                 try { return plex.browse(request.kind(), query, page, PAGE_SIZE); }
                 catch (Exception error) { throw new RuntimeException(error); }
             }
-        }).whenComplete((result, error) -> runtime.execute(new Runnable() {
+        }).whenComplete((result, error) -> completeOnServer(new Runnable() {
             @Override public void run() {
                 if (error != null) {
                     if (workQueueFull(error)) {
@@ -242,13 +247,19 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
             sendError(player, StatePackets.ErrorCode.QUEUE_FULL, "The global manual queue is full");
             return;
         }
+        final long generation = mutationGeneration.get();
         io.supply(new Supplier<List<QueueTrack>>() {
             @Override public List<QueueTrack> get() {
                 try { return plex.expand(request.kind(), request.key(), available); }
                 catch (Exception error) { throw new RuntimeException(error); }
             }
-        }).whenComplete((tracks, error) -> runtime.execute(new Runnable() {
+        }).whenComplete((tracks, error) -> completeOnServer(new Runnable() {
             @Override public void run() {
+                if (generation != mutationGeneration.get()) {
+                    sendError(player, StatePackets.ErrorCode.INVALID_REQUEST,
+                            "That queue request was cancelled because playback was reset");
+                    return;
+                }
                 if (error != null) {
                     if (workQueueFull(error)) {
                         sendError(player, StatePackets.ErrorCode.RATE_LIMITED,
@@ -294,6 +305,7 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
             case RESUME: resumeInternal(); break;
             case SKIP: finishCurrent(); break;
             case CLEAR:
+                mutationGeneration.incrementAndGet();
                 generated.clear(); prefetched = null; suspendedGeneration = -1L;
                 saved.clearAll(); stopAudio(); generationMessage = ""; chat(player, "Jammarr playback cleared");
                 break;
@@ -361,6 +373,7 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
             sendError(player, StatePackets.ErrorCode.INVALID_REQUEST, sonicMessage); return;
         }
         if (StationControlPolicy.replacesCurrentPlayback(request.action())) {
+            mutationGeneration.incrementAndGet();
             saved.queue().clear();
             saved.current(null, StatePackets.PlaybackOrigin.NONE, "");
             stopAudio(); restorePositionMs = 0L; restorePaused = false;
@@ -385,7 +398,7 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
                 try { return stationGenerator.generate(requested, Collections.<QueueTrack>emptyList(), sonicCapability, false); }
                 catch (Exception error) { throw new RuntimeException(error); }
             }
-        }).whenComplete((batch, error) -> runtime.execute(new Runnable() {
+        }).whenComplete((batch, error) -> completeOnServer(new Runnable() {
             @Override public void run() {
                 if (error != null) {
                     sendError(player, workQueueFull(error) ? StatePackets.ErrorCode.RATE_LIMITED
@@ -539,6 +552,7 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
         if (track == null) { requestGeneration(); return; }
         String sourceName = origin == StatePackets.PlaybackOrigin.MANUAL
                 ? "Manual request" : activeDefinition().name();
+        playbackGeneration.incrementAndGet();
         saved.current(track, origin, sourceName);
         saved.update(0L, false); restorePositionMs = 0L; restorePaused = false;
         prepareCurrent(); requestGeneration();
@@ -553,10 +567,12 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
         }
         final int bitrate = JammarrSettings.audioBitrateKbps();
         final Set<Path> pinned = pinnedPaths(cache.target(track.key(), bitrate));
+        final long generation = playbackGeneration.get();
         io.supply(new Supplier<PreparedAsset>() {
             @Override public PreparedAsset get() { return prepare(track, bitrate, pinned); }
-        }).whenComplete((prepared, error) -> runtime.execute(new Runnable() {
+        }).whenComplete((prepared, error) -> completeOnServer(new Runnable() {
             @Override public void run() {
+                if (generation != playbackGeneration.get()) return;
                 preparing.set(false);
                 if (saved.current() == null || !saved.current().key().equals(track.key())) return;
                 if (error != null) {
@@ -629,7 +645,7 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
                         JammarrSettings.stationMetadataFallbackEnabled()); }
                 catch (Exception error) { throw new RuntimeException(error); }
             }
-        }).whenComplete((batch, error) -> runtime.execute(new Runnable() {
+        }).whenComplete((batch, error) -> completeOnServer(new Runnable() {
             @Override public void run() {
                 generating.set(false);
                 if (activeDefinition().generation() != generation
@@ -672,7 +688,7 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
         final Set<Path> pinned = pinnedPaths(cache.target(track.key(), bitrate));
         io.supply(new Supplier<PreparedAsset>() {
             @Override public PreparedAsset get() { return prepare(track, bitrate, pinned); }
-        }).whenComplete((prepared, error) -> runtime.execute(new Runnable() {
+        }).whenComplete((prepared, error) -> completeOnServer(new Runnable() {
             @Override public void run() {
                 prefetching.set(false);
                 QueueTrack expected = nextTrack();
@@ -732,6 +748,8 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
     }
 
     private void stopAudio() {
+        playbackGeneration.incrementAndGet();
+        preparing.set(false);
         asset = null; sessionId = null; timeline.stop(); transfers.clear(); egress.clear();
         for (P player : runtime.players()) send(player, emptyManifest());
     }
@@ -1008,6 +1026,15 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
         return value;
     }
 
+    private void completeOnServer(final Runnable action) {
+        if (closed.get()) return;
+        runtime.execute(new Runnable() {
+            @Override public void run() {
+                if (!closed.get()) action.run();
+            }
+        });
+    }
+
     private static final class PreparedAsset {
         private final QueueTrack track;
         private final AudioAsset asset;
@@ -1022,6 +1049,8 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
     }
 
     @Override public void close() {
+        if (!closed.compareAndSet(false, true)) return;
+        mutationGeneration.incrementAndGet();
         saved.update(positionMs(), timeline.paused());
         stopAudio();
         io.close();
