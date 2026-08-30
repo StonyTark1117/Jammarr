@@ -1,0 +1,178 @@
+plugins {
+    id 'java-library'
+    id 'net.neoforged.moddev' version '2.0.143'
+}
+
+version = mod_version
+group = mod_group_id
+def artifactVersion = version.toString()
+def expectedReleaseName = "jammarr-${artifactVersion}+mc1.21.8-neoforge.jar"
+
+base { archivesName = "jammarr-${artifactVersion}+mc1.21.8-neoforge" }
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+    withSourcesJar()
+}
+
+repositories { mavenCentral() }
+
+neoForge {
+    version = project.neo_version
+    runs {
+        client {
+            client()
+            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+            if (providers.gradleProperty('jammarrAcceptanceServer').isPresent()) {
+                gameDirectory = file(providers.gradleProperty('jammarrAcceptanceGameDir').get())
+                programArguments.addAll '--username', providers.gradleProperty('jammarrAcceptanceUsername').get(),
+                        '--quickPlayMultiplayer', providers.gradleProperty('jammarrAcceptanceServer').get()
+            }
+        }
+        server {
+            server()
+            programArgument '--nogui'
+            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+        }
+        gameTestServer {
+            type = 'gameTestServer'
+            gameDirectory = layout.buildDirectory.dir('run-gametest').get().asFile
+            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+        }
+        configureEach { logLevel = org.slf4j.event.Level.INFO }
+    }
+    mods { jammarr { sourceSet(sourceSets.main) } }
+    unitTest {
+        enable()
+        testedMod = mods.jammarr
+    }
+}
+
+def emptyGameTestInput = layout.projectDirectory.file('../../../gradle/empty-gametest.nbt.b64')
+def emptyGameTestOutput = layout.buildDirectory.dir('generated/gametestResources')
+def generateGameTestTemplate = tasks.register('generateGameTestTemplate') {
+    inputs.file(emptyGameTestInput)
+    outputs.dir(emptyGameTestOutput)
+    doLast {
+        File output = new File(outputs.files.singleFile, 'data/jammarr/structure/empty.nbt')
+        output.parentFile.mkdirs()
+        output.bytes = java.util.Base64.getDecoder().decode(inputs.files.singleFile.text.trim())
+    }
+}
+
+dependencies {
+    jarJar(implementation(project(':core')))
+    additionalRuntimeClasspath(project(':core'))
+    neoForgeTestLibraries(project(':core'))
+    jarJar(implementation('javazoom:jlayer:1.0.1'))
+    jarJar(implementation('de.sciss:jump3r:1.0.5'))
+    additionalRuntimeClasspath('javazoom:jlayer:1.0.1')
+    additionalRuntimeClasspath('de.sciss:jump3r:1.0.5')
+    testImplementation(platform('org.junit:junit-bom:5.10.2'))
+    testImplementation('org.junit.jupiter:junit-jupiter')
+    testRuntimeOnly('org.junit.platform:junit-platform-launcher')
+}
+
+dependencyLocking { lockAllConfigurations() }
+
+sourceSets {
+    main {
+        java {
+            setSrcDirs([file('../../../src/main/java'), file('../common/src/main'), file('src/main')])
+            // Modern NeoForge uses Minecraft's data-driven GameTest registration;
+            // keep the shared JUnit coverage while the legacy annotation fixture is incompatible.
+            exclude 'stonytark/jammarr/gametest/**'
+            exclude 'stonytark/jammarr/network/JammarrNetwork.java'
+            exclude 'stonytark/jammarr/server/JammarrSavedData.java'
+            exclude 'stonytark/jammarr/server/QueueTrackCodec.java'
+            exclude 'stonytark/jammarr/server/StationDefinition.java'
+        }
+        resources {
+            srcDir(file('../../../src/main/resources'))
+            srcDir(generateGameTestTemplate)
+        }
+    }
+    test {
+        java {
+            setSrcDirs([file('../../../test-fixtures/java/mc1.21.6')])
+        }
+        resources {
+            srcDir(file('../../../test-fixtures'))
+            exclude 'java/**'
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+    inputs.property('jammarrLiveTestEnabled', providers.environmentVariable('JAMMARR_LIVE_TEST').orElse('false'))
+    outputs.upToDateWhen { System.getenv('JAMMARR_LIVE_TEST') != 'true' }
+}
+
+def generateModMetadata = tasks.register('generateModMetadata', ProcessResources) {
+    def values = [minecraft_version: minecraft_version, minecraft_version_range: minecraft_version_range,
+                  neo_version: neo_version, neo_version_range: neo_version_range,
+                  loader_version_range: loader_version_range, mod_id: mod_id, mod_name: mod_name,
+                  mod_license: mod_license, mod_version: mod_version, mod_authors: mod_authors,
+                  mod_description: mod_description]
+    inputs.properties(values)
+    expand(values)
+    from('../../../src/main/templates')
+    into(layout.buildDirectory.dir('generated/sources/modMetadata'))
+}
+sourceSets.main.resources.srcDir(generateModMetadata)
+neoForge.ideSyncTask(generateModMetadata)
+
+tasks.named('jar', Jar) {
+    archiveFileName = expectedReleaseName
+    from('../../../THIRD_PARTY_NOTICES.md') { into('META-INF') }
+    from('../../../LICENSE') { into('META-INF'); rename { 'LICENSE-Jammarr-CC0-1.0.txt' } }
+    from('../../../LICENSE-LGPL-2.1-or-later.txt') { into('META-INF') }
+}
+
+def verifyAudioTimingAnalyzer = tasks.register('verifyAudioTimingAnalyzer', Exec) {
+    group = 'verification'
+    commandLine('python3', layout.projectDirectory.file('../../../scripts/test-audio-timing-analyzer.py').asFile)
+}
+
+def releaseArchive = tasks.named('jar', Jar).flatMap { it.archiveFile }
+def coreJarEntry = "META-INF/jarjar/stonytark.core-${artifactVersion}.jar".toString()
+def releaseEntries = [coreJarEntry, 'META-INF/jarjar/jlayer-1.0.1.jar', 'META-INF/jarjar/jump3r-1.0.5.jar',
+                      'META-INF/LICENSE-Jammarr-CC0-1.0.txt', 'META-INF/LICENSE-LGPL-2.1-or-later.txt',
+                      'META-INF/THIRD_PARTY_NOTICES.md', 'META-INF/neoforge.mods.toml',
+                      'assets/jammarr/lang/en_us.json', 'jammarr.mixins.json', 'jammarr.png']
+
+tasks.register('verifyRelease') {
+    group = 'verification'
+    dependsOn(tasks.named('test'), tasks.named('jar'), verifyAudioTimingAnalyzer)
+    doLast {
+        File archive = releaseArchive.get().asFile
+        if (archive.name != expectedReleaseName) throw new GradleException("Unexpected release filename: ${archive.name}")
+        new java.util.zip.ZipFile(archive).withCloseable { zip ->
+            Set found = zip.entries().collect { it.name } as Set
+            releaseEntries.each { entry ->
+                if (!found.contains(entry)) throw new GradleException("Release archive is missing ${entry}")
+            }
+            String metadata = zip.getInputStream(zip.getEntry('META-INF/neoforge.mods.toml')).getText('UTF-8')
+            if (!metadata.contains('modId = "jammarr"') || !metadata.contains('versionRange = "[1.21.8,1.21.9)"')
+                    || !metadata.contains('versionRange = "[21.8.54,21.9)"')) {
+                throw new GradleException('NeoForge metadata does not enforce the expected mod, Minecraft, and loader versions')
+            }
+            new java.util.zip.ZipInputStream(zip.getInputStream(zip.getEntry(coreJarEntry))).withCloseable { nested ->
+                boolean foundCore = false
+                for (def entry = nested.nextEntry; entry != null; entry = nested.nextEntry) {
+                    if (entry.name == 'stonytark/jammarr/core/server/ChunkTransferPolicy.class') {
+                        byte[] header = nested.readNBytes(8)
+                        int major = ((header[6] & 0xff) << 8) | (header[7] & 0xff)
+                        if (major != 52) throw new GradleException("Shared core is not Java 8 bytecode: class major ${major}")
+                        foundCore = true
+                    }
+                }
+                if (!foundCore) throw new GradleException('Release archive does not contain the shared transport core')
+            }
+        }
+    }
+}
