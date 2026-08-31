@@ -72,6 +72,7 @@ class TargetMatrixTests(unittest.TestCase):
         self.assertEqual([entry["name"] for entry in runtimes],
                          ["1.20.1-fabric", "1.20.1-quilt", "1.20.1-forge"])
         self.assertEqual([entry["port"] for entry in runtimes], [26000, 26001, 26002])
+        self.assertEqual([entry["runtimeJava"] for entry in runtimes], [17, 17, 17])
         self.assertEqual(runtimes[-1]["control"], "console")
         self.assertEqual(runtimes[-1]["commandMarkers"], "legacy-response")
         self.assertTrue(runtimes[-1]["disableConfigurationCache"])

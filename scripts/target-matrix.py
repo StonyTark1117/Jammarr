@@ -139,6 +139,7 @@ def runtimes(manifest: dict[str, Any]) -> list[dict[str, Any]]:
                     "runtime": label,
                     "path": artifact["path"],
                     "buildJava": artifact["buildJava"],
+                    "runtimeJava": artifact["runtimeJava"],
                     "port": port,
                     "quiltModMenu": runtime_loader == "quilt",
                     "minimumFabricLoader": runtime_loader == "fabric",
