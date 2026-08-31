@@ -16,6 +16,7 @@
 - Make global clear operations remove persisted repeat-suppression history on every saved-data implementation, matching the shared store contract and preventing cleared or restart-reset servers from retaining old playback history.
 - Deep-certify the final Forge 1.7.10 artifact with twenty cold-client cycles, forty audible sound reloads, all six deterministic impairment profiles, the 30-minute playback fixture, LiteLoader and no-mod client coverage, and a second production boot that reloads schema-4 state; final live-Plex acceptance remains pending.
 - Order resource processing before Java compilation in every Forge-family module that intentionally shares its classes/resources output, preventing clean or non-incremental builds from erasing compiled classes before tests and packaging.
+- Add a production Forge 1.7.10 UI regression probe for issue #5 that clicks the real search field and proves typing, backspace, retyping, focus, and cursor state survive repeated screen rebuilds.
 
 ## 1.0.2 - 2026-08-28
 

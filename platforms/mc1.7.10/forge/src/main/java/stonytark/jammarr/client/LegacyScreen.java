@@ -355,6 +355,35 @@ final class LegacyScreen extends GuiScreen {
         }
     }
 
+    void acceptanceVerifySearchEditing() {
+        view = View.SEARCH;
+        searchQuery = "";
+        searchEditState = null;
+        initGui();
+        int left = Math.max(8, (width - 760) / 2);
+        mouseClicked(left + 2, 67, 0);
+        String expected = "Gate";
+        for (int index = 0; index < expected.length(); index++) {
+            keyTyped(expected.charAt(index), 0);
+            stateChanged();
+            assertAcceptanceSearch(expected.substring(0, index + 1));
+        }
+        keyTyped('\b', Keyboard.KEY_BACK);
+        stateChanged();
+        assertAcceptanceSearch("Gat");
+        keyTyped('e', 0);
+        stateChanged();
+        assertAcceptanceSearch(expected);
+        Jammarr.LOGGER.info("Acceptance legacy search edit survived click, typing, backspace, and screen rebuilds");
+    }
+
+    private void assertAcceptanceSearch(String expected) {
+        if (search == null || !expected.equals(search.getText()) || !search.isFocused()
+                || search.getCursorPosition() != expected.length()) {
+            throw new IllegalStateException("Legacy search edit state was lost during a screen rebuild");
+        }
+    }
+
     void acceptanceCancelBrowse() { cancelPendingBrowse("cancellation"); initGui(); }
 
     void acceptanceExpireBrowse() {

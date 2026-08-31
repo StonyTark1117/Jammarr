@@ -615,6 +615,7 @@ run_client_companion() {
       || ! grep -Fq 'Acceptance audio manifest:' "$client_console" \
       || ! grep -Fq 'Acceptance audio state: PLAYING' "$client_console" \
       || ! grep -Fq 'Acceptance legacy Jammarr screen remained open across client ticks' "$client_console" \
+      || ! grep -Fq 'Acceptance legacy search edit survived click, typing, backspace, and screen rebuilds' "$client_console" \
       || ! grep -Fq 'Acceptance legacy Jammarr config screen remained open across client ticks' "$client_console"; do
     if client_bootstrap_failed "$client_console" \
         || grep -Eq 'ExceptionInInitializerError|Unreported exception thrown|#@!@# Game crashed!|Description: Unexpected error' "$client_console" \
@@ -640,6 +641,7 @@ run_client_companion() {
         grep -F 'Acceptance audio manifest:' "$client_console" | tail -n 1
         grep -F 'Acceptance audio state: PLAYING' "$client_console" | tail -n 1
         grep -F 'Acceptance legacy Jammarr screen remained open across client ticks' "$client_console" | tail -n 1
+        grep -F 'Acceptance legacy search edit survived click, typing, backspace, and screen rebuilds' "$client_console" | tail -n 1
         grep -F 'Acceptance legacy Jammarr config screen remained open across client ticks' "$client_console" | tail -n 1
         printf '%s\n' 'Production client companion remained connected for 10 seconds after acceptance.'
       } > "$evidence"
@@ -965,9 +967,10 @@ run_command_client() {
       deadline=$((SECONDS + 60))
       while (( result == 0 )) \
           && { ! grep -Fq 'Acceptance legacy Jammarr screen remained open across client ticks' "$client_console" \
+            || ! grep -Fq 'Acceptance legacy search edit survived click, typing, backspace, and screen rebuilds' "$client_console" \
             || ! grep -Fq 'Acceptance legacy Jammarr config screen remained open across client ticks' "$client_console"; }; do
         if ! group_alive "$pid" || (( SECONDS >= deadline )); then
-          echo "$label: legacy Jammarr player/config screens did not remain open across client ticks; see $client_console" >&2
+          echo "$label: legacy Jammarr player/config/search-edit UI gate did not complete; see $client_console" >&2
           result=1
           break
         fi
@@ -1048,6 +1051,7 @@ run_command_client() {
         "$client_console" || true
       grep -E 'Acceptance Jammarr (config )?screen remained open across rendered frames' "$client_console" || true
       grep -E 'Acceptance legacy Jammarr (config )?screen remained open across client ticks' "$client_console" || true
+      grep -F 'Acceptance legacy search edit survived click, typing, backspace, and screen rebuilds' "$client_console" || true
       cat "$diagnostics"
     } > "$evidence"
   fi

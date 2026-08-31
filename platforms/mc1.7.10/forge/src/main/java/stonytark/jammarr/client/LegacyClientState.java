@@ -40,6 +40,7 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
     private boolean acceptanceAudioQueued;
     private boolean acceptanceScreenOpened;
     private boolean acceptanceScreenLogged;
+    private boolean acceptanceSearchEditLogged;
     private int acceptanceScreenTicks;
     private boolean acceptanceConfigScreenOpened;
     private boolean acceptanceConfigScreenLogged;
@@ -165,7 +166,8 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
         serverHelloReceived = false; audioNegotiated = false;
         operatorProbeSent = false; lastTimeSync = 0L;
         acceptanceAudioQueued = false; lastAcceptanceAudioState = "";
-        acceptanceScreenOpened = false; acceptanceScreenLogged = false; acceptanceScreenTicks = 0;
+        acceptanceScreenOpened = false; acceptanceScreenLogged = false; acceptanceSearchEditLogged = false;
+        acceptanceScreenTicks = 0;
         acceptanceConfigScreenOpened = false; acceptanceConfigScreenLogged = false; acceptanceConfigScreenTicks = 0;
         acceptanceControl.reset();
         acceptanceDeathLogged = false;
@@ -224,6 +226,12 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
             if (++acceptanceScreenTicks < 2) return;
             acceptanceScreenLogged = true;
             Jammarr.LOGGER.info("Acceptance legacy Jammarr screen remained open across client ticks");
+            return;
+        }
+        if (!acceptanceSearchEditLogged) {
+            if (!(minecraft.currentScreen instanceof LegacyScreen)) return;
+            ((LegacyScreen) minecraft.currentScreen).acceptanceVerifySearchEditing();
+            acceptanceSearchEditLogged = true;
             return;
         }
         if (!acceptanceConfigScreenOpened) {
