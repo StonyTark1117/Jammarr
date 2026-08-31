@@ -492,7 +492,223 @@
         "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-api/1.13.2+1.6.4/legacy-fabric-api-1.13.2+1.6.4.jar",
         "sha256": "79f9763b9139f42aed31bf8f0677aeddf2de6e1bcb56cc0a813667efc9bcffcf",
         "ownedPrefixes": [
-          "legacy-fabric-api-"
+          "legacy-fabric-api-1.13.2+1.6.4"
+        ]
+      },
+      {
+        "id": "legacy-fabric-api-base",
+        "filename": "legacy-fabric-api-base-1.2.2+1.7.10+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-api-base/1.2.2+1.7.10+0b2a4bcd8772/legacy-fabric-api-base-1.2.2+1.7.10+0b2a4bcd8772.jar",
+        "sha256": "929df9ef8fb5027626f91d3f7d5143a83123b937ad3e51de401a84dfab78e155",
+        "ownedPrefixes": [
+          "legacy-fabric-api-base-1.2.2+1.7.10+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-api-base-common",
+        "filename": "legacy-fabric-api-base-common-1.2.2+055e36ba8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-api-base-common/1.2.2+055e36ba8772/legacy-fabric-api-base-common-1.2.2+055e36ba8772.jar",
+        "sha256": "fc1837022b27b01a70925f7c093ce34022923ea216f7cc939371563063daa0c9",
+        "ownedPrefixes": [
+          "legacy-fabric-api-base-common-1.2.2+055e36ba8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-command-api-v1",
+        "filename": "legacy-fabric-command-api-v1-1.1.1+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-command-api-v1/1.1.1+0b2a4bcd8772/legacy-fabric-command-api-v1-1.1.1+0b2a4bcd8772.jar",
+        "sha256": "2434b72b2fe218fa2ad21eaf624c5f38dc3549029174a3f3774beccb9145abdb",
+        "ownedPrefixes": [
+          "legacy-fabric-command-api-v1-1.1.1+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-command-api-v2",
+        "filename": "legacy-fabric-command-api-v2-1.1.2+1.6.4+78fd813a8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-command-api-v2/1.1.2+1.6.4+78fd813a8772/legacy-fabric-command-api-v2-1.1.2+1.6.4+78fd813a8772.jar",
+        "sha256": "385d7800f8fe4a78f4d60696c6393646c370df8b91ef8d3ac509d22ce2513a44",
+        "ownedPrefixes": [
+          "legacy-fabric-command-api-v2-1.1.2+1.6.4+78fd813a8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-crash-report-info-v1",
+        "filename": "legacy-fabric-crash-report-info-v1-1.0.1+1.8.9+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-crash-report-info-v1/1.0.1+1.8.9+0b2a4bcd8772/legacy-fabric-crash-report-info-v1-1.0.1+1.8.9+0b2a4bcd8772.jar",
+        "sha256": "4b7f0c7f9ab1d80ceb96027ba7e1f44412c7f30134af76a8e4251def7a595e87",
+        "ownedPrefixes": [
+          "legacy-fabric-crash-report-info-v1-1.0.1+1.8.9+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-entity-events-v1",
+        "filename": "legacy-fabric-entity-events-v1-1.0.1+1.8.9+78fd813a8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-entity-events-v1/1.0.1+1.8.9+78fd813a8772/legacy-fabric-entity-events-v1-1.0.1+1.8.9+78fd813a8772.jar",
+        "sha256": "10330133dd25b17e3ccbc890da4fa84b2103e5e6cafb7440f5ef9e31632b7c41",
+        "ownedPrefixes": [
+          "legacy-fabric-entity-events-v1-1.0.1+1.8.9+78fd813a8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-entity-events-v1-common",
+        "filename": "legacy-fabric-entity-events-v1-common-1.0.1+78fd813a8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-entity-events-v1-common/1.0.1+78fd813a8772/legacy-fabric-entity-events-v1-common-1.0.1+78fd813a8772.jar",
+        "sha256": "3004bae5be78eb52d83035153c1c5b3a5891acadbf45d02b372ac349e6faac56",
+        "ownedPrefixes": [
+          "legacy-fabric-entity-events-v1-common-1.0.1+78fd813a8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-gamerule-api-v1",
+        "filename": "legacy-fabric-gamerule-api-v1-1.0.1+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-gamerule-api-v1/1.0.1+0b2a4bcd8772/legacy-fabric-gamerule-api-v1-1.0.1+0b2a4bcd8772.jar",
+        "sha256": "210b76022c901bd9202e922e8772ceee33422a4635a958e719417ee3d93a6bf2",
+        "ownedPrefixes": [
+          "legacy-fabric-gamerule-api-v1-1.0.1+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-item-groups-v1",
+        "filename": "legacy-fabric-item-groups-v1-2.2.0+1.6.4+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-item-groups-v1/2.2.0+1.6.4+0b2a4bcd8772/legacy-fabric-item-groups-v1-2.2.0+1.6.4+0b2a4bcd8772.jar",
+        "sha256": "279e988c252c9412b7b6e0973477370334b9bf28596e7d2d19198a908a783df4",
+        "ownedPrefixes": [
+          "legacy-fabric-item-groups-v1-2.2.0+1.6.4+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-item-groups-v1-common",
+        "filename": "legacy-fabric-item-groups-v1-common-2.2.0+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-item-groups-v1-common/2.2.0+0b2a4bcd8772/legacy-fabric-item-groups-v1-common-2.2.0+0b2a4bcd8772.jar",
+        "sha256": "b1c2ff768ebed19145871d2e14b68bed584e0e5dffc5829b1d59e53432ce1aa7",
+        "ownedPrefixes": [
+          "legacy-fabric-item-groups-v1-common-2.2.0+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-item-groups-v1-common-1.8.9",
+        "filename": "legacy-fabric-item-groups-v1-common-1.8.9-2.2.0+1.8.9+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-item-groups-v1-common-1.8.9/2.2.0+1.8.9+0b2a4bcd8772/legacy-fabric-item-groups-v1-common-1.8.9-2.2.0+1.8.9+0b2a4bcd8772.jar",
+        "sha256": "08ddee3b7d252f9a70038b336e14d6b1e895f0e3b992d3741b007f8170b29b38",
+        "ownedPrefixes": [
+          "legacy-fabric-item-groups-v1-common-1.8.9-2.2.0+1.8.9+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-keybindings-api-v1",
+        "filename": "legacy-fabric-keybindings-api-v1-1.2.0+1.6.4+8045105b8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-keybindings-api-v1/1.2.0+1.6.4+8045105b8772/legacy-fabric-keybindings-api-v1-1.2.0+1.6.4+8045105b8772.jar",
+        "sha256": "db143067a5407bb5ff47af28c5fc706cbbc38020bf5e99fca4085a110192cd5e",
+        "ownedPrefixes": [
+          "legacy-fabric-keybindings-api-v1-1.2.0+1.6.4+8045105b8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-keybindings-api-v1-common",
+        "filename": "legacy-fabric-keybindings-api-v1-common-1.2.0+8045105b8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-keybindings-api-v1-common/1.2.0+8045105b8772/legacy-fabric-keybindings-api-v1-common-1.2.0+8045105b8772.jar",
+        "sha256": "6bf1191bbe327ecb75dc045e6f52a4661fbd1b727cc0657897d28c31e6c401d2",
+        "ownedPrefixes": [
+          "legacy-fabric-keybindings-api-v1-common-1.2.0+8045105b8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-keybindings-api-v1-common-1.5.2",
+        "filename": "legacy-fabric-keybindings-api-v1-common-1.5.2-1.2.0+1.5.2+8045105b8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-keybindings-api-v1-common-1.5.2/1.2.0+1.5.2+8045105b8772/legacy-fabric-keybindings-api-v1-common-1.5.2-1.2.0+1.5.2+8045105b8772.jar",
+        "sha256": "2ac6fac027eec78efefdb7fac0825263843d7781aae2e34941e77d8890e8a6ae",
+        "ownedPrefixes": [
+          "legacy-fabric-keybindings-api-v1-common-1.5.2-1.2.0+1.5.2+8045105b8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-lifecycle-events-v1",
+        "filename": "legacy-fabric-lifecycle-events-v1-1.2.0+1.6.4+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-lifecycle-events-v1/1.2.0+1.6.4+0b2a4bcd8772/legacy-fabric-lifecycle-events-v1-1.2.0+1.6.4+0b2a4bcd8772.jar",
+        "sha256": "15f3248552f7e680ddb2dd8fc473bbec6e6ee1a37aeec9526d3205b05e5dc830",
+        "ownedPrefixes": [
+          "legacy-fabric-lifecycle-events-v1-1.2.0+1.6.4+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-lifecycle-events-v1-common",
+        "filename": "legacy-fabric-lifecycle-events-v1-common-1.2.0+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-lifecycle-events-v1-common/1.2.0+0b2a4bcd8772/legacy-fabric-lifecycle-events-v1-common-1.2.0+0b2a4bcd8772.jar",
+        "sha256": "1c82dc0ccc2f9d53f3242d869d0a9779f3eb66212c92da04145c666c9d5dba7b",
+        "ownedPrefixes": [
+          "legacy-fabric-lifecycle-events-v1-common-1.2.0+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-lifecycle-events-v1-common-1.8.9",
+        "filename": "legacy-fabric-lifecycle-events-v1-common-1.8.9-1.2.0+1.8.9+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-lifecycle-events-v1-common-1.8.9/1.2.0+1.8.9+0b2a4bcd8772/legacy-fabric-lifecycle-events-v1-common-1.8.9-1.2.0+1.8.9+0b2a4bcd8772.jar",
+        "sha256": "10c464e0916c866a2ec48899949c940fd7fc66852bdb8ae803e58fe84b47059b",
+        "ownedPrefixes": [
+          "legacy-fabric-lifecycle-events-v1-common-1.8.9-1.2.0+1.8.9+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-permissions-api-v1",
+        "filename": "legacy-fabric-permissions-api-v1-1.1.2+1.6.4+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-permissions-api-v1/1.1.2+1.6.4+0b2a4bcd8772/legacy-fabric-permissions-api-v1-1.1.2+1.6.4+0b2a4bcd8772.jar",
+        "sha256": "dade419cd1571d0b8aa9d7e75096444ffb8ea70923da7e3532d62c2fe75c0bf8",
+        "ownedPrefixes": [
+          "legacy-fabric-permissions-api-v1-1.1.2+1.6.4+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-permissions-api-v1-common",
+        "filename": "legacy-fabric-permissions-api-v1-common-1.1.2+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-permissions-api-v1-common/1.1.2+0b2a4bcd8772/legacy-fabric-permissions-api-v1-common-1.1.2+0b2a4bcd8772.jar",
+        "sha256": "1e53db54fb45fa78041d6540882c42e2cdc352e3f1fb6fc2b244a27fb90aa747",
+        "ownedPrefixes": [
+          "legacy-fabric-permissions-api-v1-common-1.1.2+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-rendering-api-v1",
+        "filename": "legacy-fabric-rendering-api-v1-1.0.1+1.7.10+78fd813a8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-rendering-api-v1/1.0.1+1.7.10+78fd813a8772/legacy-fabric-rendering-api-v1-1.0.1+1.7.10+78fd813a8772.jar",
+        "sha256": "5f96b800b0a6c97ae71b9faaf96e40a907db5c8dc266741ba9087bd72b654ab3",
+        "ownedPrefixes": [
+          "legacy-fabric-rendering-api-v1-1.0.1+1.7.10+78fd813a8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-rendering-api-v1-common",
+        "filename": "legacy-fabric-rendering-api-v1-common-1.0.1+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-rendering-api-v1-common/1.0.1+0b2a4bcd8772/legacy-fabric-rendering-api-v1-common-1.0.1+0b2a4bcd8772.jar",
+        "sha256": "3a7f511393eecb977f4ece2f5cd852021035c5d1aa5ef030ea4e694575ae6a70",
+        "ownedPrefixes": [
+          "legacy-fabric-rendering-api-v1-common-1.0.1+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-resource-loader-v1",
+        "filename": "legacy-fabric-resource-loader-v1-2.3.1+1.6.4+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-resource-loader-v1/2.3.1+1.6.4+0b2a4bcd8772/legacy-fabric-resource-loader-v1-2.3.1+1.6.4+0b2a4bcd8772.jar",
+        "sha256": "23ee68349cca2124a798ec7f663531929c6dfcdc482dd68c203e166514fb30b8",
+        "ownedPrefixes": [
+          "legacy-fabric-resource-loader-v1-2.3.1+1.6.4+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-resource-loader-v1-common",
+        "filename": "legacy-fabric-resource-loader-v1-common-2.3.1+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-resource-loader-v1-common/2.3.1+0b2a4bcd8772/legacy-fabric-resource-loader-v1-common-2.3.1+0b2a4bcd8772.jar",
+        "sha256": "11df2e66c7da523cb93afca5a349e5249366e3884002e8cb235408a2a3b7472c",
+        "ownedPrefixes": [
+          "legacy-fabric-resource-loader-v1-common-2.3.1+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-logger-api-v1",
+        "filename": "legacy-fabric-logger-api-v1-1.0.5+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-logger-api-v1/1.0.5+0b2a4bcd8772/legacy-fabric-logger-api-v1-1.0.5+0b2a4bcd8772.jar",
+        "sha256": "5dacc0c298fb19b967f91e444932dd596d7bcbf8a449a6ba2b0d32cd1ab736a6",
+        "ownedPrefixes": [
+          "legacy-fabric-logger-api-v1-1.0.5+0b2a4bcd8772"
         ]
       }
     ],
@@ -586,7 +802,394 @@
         "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-api/1.13.2+1.8.9/legacy-fabric-api-1.13.2+1.8.9.jar",
         "sha256": "8351d0f9224aeaf5ede03392843d81c203c0a39ae054148b41927f9981954d07",
         "ownedPrefixes": [
-          "legacy-fabric-api-"
+          "legacy-fabric-api-1.13.2+1.8.9"
+        ]
+      },
+      {
+        "id": "legacy-fabric-api-base",
+        "filename": "legacy-fabric-api-base-1.2.2+1.8.9+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-api-base/1.2.2+1.8.9+0b2a4bcd8772/legacy-fabric-api-base-1.2.2+1.8.9+0b2a4bcd8772.jar",
+        "sha256": "8929a12a52c1b4ff5ef879deceb032d01317a5c9ae982bf3e94ccea45aee4e71",
+        "ownedPrefixes": [
+          "legacy-fabric-api-base-1.2.2+1.8.9+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-api-base-common",
+        "filename": "legacy-fabric-api-base-common-1.2.2+055e36ba8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-api-base-common/1.2.2+055e36ba8772/legacy-fabric-api-base-common-1.2.2+055e36ba8772.jar",
+        "sha256": "fc1837022b27b01a70925f7c093ce34022923ea216f7cc939371563063daa0c9",
+        "ownedPrefixes": [
+          "legacy-fabric-api-base-common-1.2.2+055e36ba8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-biome-api-v1",
+        "filename": "legacy-fabric-biome-api-v1-1.0.1+1.8.9+78fd813a8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-biome-api-v1/1.0.1+1.8.9+78fd813a8772/legacy-fabric-biome-api-v1-1.0.1+1.8.9+78fd813a8772.jar",
+        "sha256": "04339eeb7f7410e70f37a4cd06d846d0e03b3eafae653e0dc53ba47a538ef65b",
+        "ownedPrefixes": [
+          "legacy-fabric-biome-api-v1-1.0.1+1.8.9+78fd813a8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-biome-api-v1-common",
+        "filename": "legacy-fabric-biome-api-v1-common-1.0.1+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-biome-api-v1-common/1.0.1+0b2a4bcd8772/legacy-fabric-biome-api-v1-common-1.0.1+0b2a4bcd8772.jar",
+        "sha256": "2d5293f552ed1a44a9a64164cf75f8522f8db6c24604e9e8cf87ae812ba69f9a",
+        "ownedPrefixes": [
+          "legacy-fabric-biome-api-v1-common-1.0.1+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-block-api-v1",
+        "filename": "legacy-fabric-block-api-v1-1.0.1+1.12.2+78fd813a8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-block-api-v1/1.0.1+1.12.2+78fd813a8772/legacy-fabric-block-api-v1-1.0.1+1.12.2+78fd813a8772.jar",
+        "sha256": "f10f12dd1c11f86dbde33bef9a7e42d7f8ff5f71865dfff49d99fcd0373cba2b",
+        "ownedPrefixes": [
+          "legacy-fabric-block-api-v1-1.0.1+1.12.2+78fd813a8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-block-api-v1-common",
+        "filename": "legacy-fabric-block-api-v1-common-1.0.1+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-block-api-v1-common/1.0.1+0b2a4bcd8772/legacy-fabric-block-api-v1-common-1.0.1+0b2a4bcd8772.jar",
+        "sha256": "9cd513940f9da84d724183f2403cd6a513c42d4da77c9aff0545a0a9e9b308c8",
+        "ownedPrefixes": [
+          "legacy-fabric-block-api-v1-common-1.0.1+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-block-entity-api-v1",
+        "filename": "legacy-fabric-block-entity-api-v1-1.0.1+1.8.9+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-block-entity-api-v1/1.0.1+1.8.9+0b2a4bcd8772/legacy-fabric-block-entity-api-v1-1.0.1+1.8.9+0b2a4bcd8772.jar",
+        "sha256": "84066a4b1bc9c4040a98ea4378aafdeb82e0633248a1a6e9fa27a5c78a7b45b9",
+        "ownedPrefixes": [
+          "legacy-fabric-block-entity-api-v1-1.0.1+1.8.9+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-block-entity-api-v1-common",
+        "filename": "legacy-fabric-block-entity-api-v1-common-1.0.1+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-block-entity-api-v1-common/1.0.1+0b2a4bcd8772/legacy-fabric-block-entity-api-v1-common-1.0.1+0b2a4bcd8772.jar",
+        "sha256": "a4896ec6a63dd1f3221b46f292adbc315598c4987c9b4b4a87e8754e09c59b09",
+        "ownedPrefixes": [
+          "legacy-fabric-block-entity-api-v1-common-1.0.1+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-command-api-v1",
+        "filename": "legacy-fabric-command-api-v1-1.1.1+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-command-api-v1/1.1.1+0b2a4bcd8772/legacy-fabric-command-api-v1-1.1.1+0b2a4bcd8772.jar",
+        "sha256": "2434b72b2fe218fa2ad21eaf624c5f38dc3549029174a3f3774beccb9145abdb",
+        "ownedPrefixes": [
+          "legacy-fabric-command-api-v1-1.1.1+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-command-api-v2",
+        "filename": "legacy-fabric-command-api-v2-1.1.2+1.8.9+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-command-api-v2/1.1.2+1.8.9+0b2a4bcd8772/legacy-fabric-command-api-v2-1.1.2+1.8.9+0b2a4bcd8772.jar",
+        "sha256": "00a67c8ef716b18f2ec53a52c2355869cbd1fcfe68f24415b8dfc8934fbfd431",
+        "ownedPrefixes": [
+          "legacy-fabric-command-api-v2-1.1.2+1.8.9+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-command-api-v2-common",
+        "filename": "legacy-fabric-command-api-v2-common-1.1.2+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-command-api-v2-common/1.1.2+0b2a4bcd8772/legacy-fabric-command-api-v2-common-1.1.2+0b2a4bcd8772.jar",
+        "sha256": "484e6724c86225afe74a9c7ae69b60f84a0fd93ba5d2554cfa2a14b9e0320490",
+        "ownedPrefixes": [
+          "legacy-fabric-command-api-v2-common-1.1.2+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-crash-report-info-v1",
+        "filename": "legacy-fabric-crash-report-info-v1-1.0.1+1.8.9+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-crash-report-info-v1/1.0.1+1.8.9+0b2a4bcd8772/legacy-fabric-crash-report-info-v1-1.0.1+1.8.9+0b2a4bcd8772.jar",
+        "sha256": "4b7f0c7f9ab1d80ceb96027ba7e1f44412c7f30134af76a8e4251def7a595e87",
+        "ownedPrefixes": [
+          "legacy-fabric-crash-report-info-v1-1.0.1+1.8.9+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-effect-api-v1",
+        "filename": "legacy-fabric-effect-api-v1-1.0.1+1.8.9+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-effect-api-v1/1.0.1+1.8.9+0b2a4bcd8772/legacy-fabric-effect-api-v1-1.0.1+1.8.9+0b2a4bcd8772.jar",
+        "sha256": "3823071e258c7b6a4d6eb3a3084776f4bf4286e49b6aee3e54c6cad99d1ca13d",
+        "ownedPrefixes": [
+          "legacy-fabric-effect-api-v1-1.0.1+1.8.9+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-effect-api-v1-common",
+        "filename": "legacy-fabric-effect-api-v1-common-1.0.1+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-effect-api-v1-common/1.0.1+0b2a4bcd8772/legacy-fabric-effect-api-v1-common-1.0.1+0b2a4bcd8772.jar",
+        "sha256": "b2f956be571e7f367da09527155960b97ab1ee3e88319da21801b6046d77268b",
+        "ownedPrefixes": [
+          "legacy-fabric-effect-api-v1-common-1.0.1+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-enchantment-api-v1",
+        "filename": "legacy-fabric-enchantment-api-v1-1.0.1+1.8.9+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-enchantment-api-v1/1.0.1+1.8.9+0b2a4bcd8772/legacy-fabric-enchantment-api-v1-1.0.1+1.8.9+0b2a4bcd8772.jar",
+        "sha256": "4e443fbf28cbeb2afaa751c492bdfd9819e6a586ee4a14490e6eb2598390c88d",
+        "ownedPrefixes": [
+          "legacy-fabric-enchantment-api-v1-1.0.1+1.8.9+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-enchantment-api-v1-common",
+        "filename": "legacy-fabric-enchantment-api-v1-common-1.0.1+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-enchantment-api-v1-common/1.0.1+0b2a4bcd8772/legacy-fabric-enchantment-api-v1-common-1.0.1+0b2a4bcd8772.jar",
+        "sha256": "24e6c080461d8bb44eb183c3c81924000f3f6e05a65ceb33ba394c15b439cb68",
+        "ownedPrefixes": [
+          "legacy-fabric-enchantment-api-v1-common-1.0.1+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-entity-api-v1",
+        "filename": "legacy-fabric-entity-api-v1-1.0.1+1.8.9+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-entity-api-v1/1.0.1+1.8.9+0b2a4bcd8772/legacy-fabric-entity-api-v1-1.0.1+1.8.9+0b2a4bcd8772.jar",
+        "sha256": "b82614d0e1a0d7557870217282a76af2c4e68bd0ac551b9d698319641fadc3d7",
+        "ownedPrefixes": [
+          "legacy-fabric-entity-api-v1-1.0.1+1.8.9+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-entity-api-v1-common",
+        "filename": "legacy-fabric-entity-api-v1-common-1.0.1+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-entity-api-v1-common/1.0.1+0b2a4bcd8772/legacy-fabric-entity-api-v1-common-1.0.1+0b2a4bcd8772.jar",
+        "sha256": "f5a19ddec00387de5489dc5670cee85bc7598008620afc8fd1647e2c3cd6082a",
+        "ownedPrefixes": [
+          "legacy-fabric-entity-api-v1-common-1.0.1+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-entity-events-v1",
+        "filename": "legacy-fabric-entity-events-v1-1.0.1+1.8.9+78fd813a8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-entity-events-v1/1.0.1+1.8.9+78fd813a8772/legacy-fabric-entity-events-v1-1.0.1+1.8.9+78fd813a8772.jar",
+        "sha256": "10330133dd25b17e3ccbc890da4fa84b2103e5e6cafb7440f5ef9e31632b7c41",
+        "ownedPrefixes": [
+          "legacy-fabric-entity-events-v1-1.0.1+1.8.9+78fd813a8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-entity-events-v1-common",
+        "filename": "legacy-fabric-entity-events-v1-common-1.0.1+78fd813a8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-entity-events-v1-common/1.0.1+78fd813a8772/legacy-fabric-entity-events-v1-common-1.0.1+78fd813a8772.jar",
+        "sha256": "3004bae5be78eb52d83035153c1c5b3a5891acadbf45d02b372ac349e6faac56",
+        "ownedPrefixes": [
+          "legacy-fabric-entity-events-v1-common-1.0.1+78fd813a8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-gamerule-api-v1",
+        "filename": "legacy-fabric-gamerule-api-v1-1.0.1+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-gamerule-api-v1/1.0.1+0b2a4bcd8772/legacy-fabric-gamerule-api-v1-1.0.1+0b2a4bcd8772.jar",
+        "sha256": "210b76022c901bd9202e922e8772ceee33422a4635a958e719417ee3d93a6bf2",
+        "ownedPrefixes": [
+          "legacy-fabric-gamerule-api-v1-1.0.1+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-item-api-v1",
+        "filename": "legacy-fabric-item-api-v1-1.0.1+1.12.2+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-item-api-v1/1.0.1+1.12.2+0b2a4bcd8772/legacy-fabric-item-api-v1-1.0.1+1.12.2+0b2a4bcd8772.jar",
+        "sha256": "9526caeaf415110aade231150ee68c97a66abce7bc74141a91ded66781db60d5",
+        "ownedPrefixes": [
+          "legacy-fabric-item-api-v1-1.0.1+1.12.2+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-item-api-v1-common",
+        "filename": "legacy-fabric-item-api-v1-common-1.0.1+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-item-api-v1-common/1.0.1+0b2a4bcd8772/legacy-fabric-item-api-v1-common-1.0.1+0b2a4bcd8772.jar",
+        "sha256": "a49d6ecb8f23e76faefb8a0a9018793298a73b3069bb37e9eb7ae5d2be05c335",
+        "ownedPrefixes": [
+          "legacy-fabric-item-api-v1-common-1.0.1+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-item-groups-v1",
+        "filename": "legacy-fabric-item-groups-v1-2.2.0+1.8.9+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-item-groups-v1/2.2.0+1.8.9+0b2a4bcd8772/legacy-fabric-item-groups-v1-2.2.0+1.8.9+0b2a4bcd8772.jar",
+        "sha256": "242f17401eb09f74582b98e0a2c31a49b3cc853e2694c445a028e8e81c13b415",
+        "ownedPrefixes": [
+          "legacy-fabric-item-groups-v1-2.2.0+1.8.9+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-item-groups-v1-common",
+        "filename": "legacy-fabric-item-groups-v1-common-2.2.0+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-item-groups-v1-common/2.2.0+0b2a4bcd8772/legacy-fabric-item-groups-v1-common-2.2.0+0b2a4bcd8772.jar",
+        "sha256": "b1c2ff768ebed19145871d2e14b68bed584e0e5dffc5829b1d59e53432ce1aa7",
+        "ownedPrefixes": [
+          "legacy-fabric-item-groups-v1-common-2.2.0+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-item-groups-v1-common-1.8.9",
+        "filename": "legacy-fabric-item-groups-v1-common-1.8.9-2.2.0+1.8.9+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-item-groups-v1-common-1.8.9/2.2.0+1.8.9+0b2a4bcd8772/legacy-fabric-item-groups-v1-common-1.8.9-2.2.0+1.8.9+0b2a4bcd8772.jar",
+        "sha256": "08ddee3b7d252f9a70038b336e14d6b1e895f0e3b992d3741b007f8170b29b38",
+        "ownedPrefixes": [
+          "legacy-fabric-item-groups-v1-common-1.8.9-2.2.0+1.8.9+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-keybindings-api-v1",
+        "filename": "legacy-fabric-keybindings-api-v1-1.2.0+1.8.9+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-keybindings-api-v1/1.2.0+1.8.9+0b2a4bcd8772/legacy-fabric-keybindings-api-v1-1.2.0+1.8.9+0b2a4bcd8772.jar",
+        "sha256": "04fe8108c42a7ded68836487632630aad3206911b85e7e328d447b6e75d76bf2",
+        "ownedPrefixes": [
+          "legacy-fabric-keybindings-api-v1-1.2.0+1.8.9+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-keybindings-api-v1-common",
+        "filename": "legacy-fabric-keybindings-api-v1-common-1.2.0+8045105b8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-keybindings-api-v1-common/1.2.0+8045105b8772/legacy-fabric-keybindings-api-v1-common-1.2.0+8045105b8772.jar",
+        "sha256": "6bf1191bbe327ecb75dc045e6f52a4661fbd1b727cc0657897d28c31e6c401d2",
+        "ownedPrefixes": [
+          "legacy-fabric-keybindings-api-v1-common-1.2.0+8045105b8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-lifecycle-events-v1",
+        "filename": "legacy-fabric-lifecycle-events-v1-1.2.0+1.8.9+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-lifecycle-events-v1/1.2.0+1.8.9+0b2a4bcd8772/legacy-fabric-lifecycle-events-v1-1.2.0+1.8.9+0b2a4bcd8772.jar",
+        "sha256": "d44ffa5a4db77dd1d54c91573203ef88d432017a05b03aede8107b74dcac0c18",
+        "ownedPrefixes": [
+          "legacy-fabric-lifecycle-events-v1-1.2.0+1.8.9+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-lifecycle-events-v1-common",
+        "filename": "legacy-fabric-lifecycle-events-v1-common-1.2.0+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-lifecycle-events-v1-common/1.2.0+0b2a4bcd8772/legacy-fabric-lifecycle-events-v1-common-1.2.0+0b2a4bcd8772.jar",
+        "sha256": "1c82dc0ccc2f9d53f3242d869d0a9779f3eb66212c92da04145c666c9d5dba7b",
+        "ownedPrefixes": [
+          "legacy-fabric-lifecycle-events-v1-common-1.2.0+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-lifecycle-events-v1-common-1.8.9",
+        "filename": "legacy-fabric-lifecycle-events-v1-common-1.8.9-1.2.0+1.8.9+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-lifecycle-events-v1-common-1.8.9/1.2.0+1.8.9+0b2a4bcd8772/legacy-fabric-lifecycle-events-v1-common-1.8.9-1.2.0+1.8.9+0b2a4bcd8772.jar",
+        "sha256": "10c464e0916c866a2ec48899949c940fd7fc66852bdb8ae803e58fe84b47059b",
+        "ownedPrefixes": [
+          "legacy-fabric-lifecycle-events-v1-common-1.8.9-1.2.0+1.8.9+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-networking-api-v1",
+        "filename": "legacy-fabric-networking-api-v1-2.1.1+1.8.9+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-networking-api-v1/2.1.1+1.8.9+0b2a4bcd8772/legacy-fabric-networking-api-v1-2.1.1+1.8.9+0b2a4bcd8772.jar",
+        "sha256": "69d47d7f1e36a19a0b76fe9ee1503757554ec90626fbffe72e67823dcc165818",
+        "ownedPrefixes": [
+          "legacy-fabric-networking-api-v1-2.1.1+1.8.9+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-networking-api-v1-common",
+        "filename": "legacy-fabric-networking-api-v1-common-2.1.1+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-networking-api-v1-common/2.1.1+0b2a4bcd8772/legacy-fabric-networking-api-v1-common-2.1.1+0b2a4bcd8772.jar",
+        "sha256": "02779f9ad88b37f2ead4e17285b4b0ed855aa5482b909ab5281018a35fe04afe",
+        "ownedPrefixes": [
+          "legacy-fabric-networking-api-v1-common-2.1.1+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-permissions-api-v1",
+        "filename": "legacy-fabric-permissions-api-v1-1.1.2+1.8.9+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-permissions-api-v1/1.1.2+1.8.9+0b2a4bcd8772/legacy-fabric-permissions-api-v1-1.1.2+1.8.9+0b2a4bcd8772.jar",
+        "sha256": "e869a94af0468c4103f4200b9dfb0acb480616b9904159483de1eeda53c15d6e",
+        "ownedPrefixes": [
+          "legacy-fabric-permissions-api-v1-1.1.2+1.8.9+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-permissions-api-v1-common",
+        "filename": "legacy-fabric-permissions-api-v1-common-1.1.2+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-permissions-api-v1-common/1.1.2+0b2a4bcd8772/legacy-fabric-permissions-api-v1-common-1.1.2+0b2a4bcd8772.jar",
+        "sha256": "1e53db54fb45fa78041d6540882c42e2cdc352e3f1fb6fc2b244a27fb90aa747",
+        "ownedPrefixes": [
+          "legacy-fabric-permissions-api-v1-common-1.1.2+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-registry-sync-api-v1-common",
+        "filename": "legacy-fabric-registry-sync-api-v1-common-3.0.1+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-registry-sync-api-v1-common/3.0.1+0b2a4bcd8772/legacy-fabric-registry-sync-api-v1-common-3.0.1+0b2a4bcd8772.jar",
+        "sha256": "2de1be1c956f08f53467d4a7a10e514d888cbd062008c5c8eb135d998aad21c7",
+        "ownedPrefixes": [
+          "legacy-fabric-registry-sync-api-v1-common-3.0.1+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-registry-sync-api-v2",
+        "filename": "legacy-fabric-registry-sync-api-v2-1.0.1+1.8.9+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-registry-sync-api-v2/1.0.1+1.8.9+0b2a4bcd8772/legacy-fabric-registry-sync-api-v2-1.0.1+1.8.9+0b2a4bcd8772.jar",
+        "sha256": "38a20a68dc53f8e3a96ea5001393efed91a6ecd9ac5ac6deed857f7b7ee7ea7f",
+        "ownedPrefixes": [
+          "legacy-fabric-registry-sync-api-v2-1.0.1+1.8.9+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-registry-sync-api-v2-common",
+        "filename": "legacy-fabric-registry-sync-api-v2-common-1.0.1+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-registry-sync-api-v2-common/1.0.1+0b2a4bcd8772/legacy-fabric-registry-sync-api-v2-common-1.0.1+0b2a4bcd8772.jar",
+        "sha256": "ae5d30c1be2233d66e5faf7ea9306b284fff2daf038a3e3ec4f2efff59f1a002",
+        "ownedPrefixes": [
+          "legacy-fabric-registry-sync-api-v2-common-1.0.1+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-rendering-api-v1",
+        "filename": "legacy-fabric-rendering-api-v1-1.0.1+1.8.9+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-rendering-api-v1/1.0.1+1.8.9+0b2a4bcd8772/legacy-fabric-rendering-api-v1-1.0.1+1.8.9+0b2a4bcd8772.jar",
+        "sha256": "bb5210a3e384f63c4cb52a38a86f498e76c6412dd4897e15908d6ea4dc27eb1b",
+        "ownedPrefixes": [
+          "legacy-fabric-rendering-api-v1-1.0.1+1.8.9+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-rendering-api-v1-common",
+        "filename": "legacy-fabric-rendering-api-v1-common-1.0.1+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-rendering-api-v1-common/1.0.1+0b2a4bcd8772/legacy-fabric-rendering-api-v1-common-1.0.1+0b2a4bcd8772.jar",
+        "sha256": "3a7f511393eecb977f4ece2f5cd852021035c5d1aa5ef030ea4e694575ae6a70",
+        "ownedPrefixes": [
+          "legacy-fabric-rendering-api-v1-common-1.0.1+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-resource-loader-v1",
+        "filename": "legacy-fabric-resource-loader-v1-2.3.1+1.8.9+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-resource-loader-v1/2.3.1+1.8.9+0b2a4bcd8772/legacy-fabric-resource-loader-v1-2.3.1+1.8.9+0b2a4bcd8772.jar",
+        "sha256": "c828ccb404ede80cfc27ab499655bb8aa2d54fdbdf4919df91aded8057d2594c",
+        "ownedPrefixes": [
+          "legacy-fabric-resource-loader-v1-2.3.1+1.8.9+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-resource-loader-v1-common",
+        "filename": "legacy-fabric-resource-loader-v1-common-2.3.1+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-resource-loader-v1-common/2.3.1+0b2a4bcd8772/legacy-fabric-resource-loader-v1-common-2.3.1+0b2a4bcd8772.jar",
+        "sha256": "11df2e66c7da523cb93afca5a349e5249366e3884002e8cb235408a2a3b7472c",
+        "ownedPrefixes": [
+          "legacy-fabric-resource-loader-v1-common-2.3.1+0b2a4bcd8772"
+        ]
+      },
+      {
+        "id": "legacy-fabric-logger-api-v1",
+        "filename": "legacy-fabric-logger-api-v1-1.0.5+0b2a4bcd8772.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-logger-api-v1/1.0.5+0b2a4bcd8772/legacy-fabric-logger-api-v1-1.0.5+0b2a4bcd8772.jar",
+        "sha256": "5dacc0c298fb19b967f91e444932dd596d7bcbf8a449a6ba2b0d32cd1ab736a6",
+        "ownedPrefixes": [
+          "legacy-fabric-logger-api-v1-1.0.5+0b2a4bcd8772"
         ]
       }
     ],

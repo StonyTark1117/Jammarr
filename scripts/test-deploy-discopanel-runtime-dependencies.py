@@ -37,11 +37,11 @@ class DiscPanelRuntimeDependencyTests(unittest.TestCase):
         self.assertEqual(len(manifest["runtimes"]), 53)
         self.assertEqual(
             sum(len(dependencies) for dependencies in manifest["runtimes"].values()),
-            75,
+            142,
         )
         for runtime, count in {
-            "1.6.4-fabric": 1,
-            "1.8.9-fabric": 1,
+            "1.6.4-fabric": 25,
+            "1.8.9-fabric": 44,
             "1.6.4-ornithe": 9,
             "1.8.9-ornithe": 15,
             "1.21.11-quilt": 1,
@@ -50,6 +50,19 @@ class DiscPanelRuntimeDependencyTests(unittest.TestCase):
             self.assertEqual(
                 len(dependency_deployment.load_dependencies(path, runtime)), count
             )
+
+    def test_legacy_fabric_manifest_includes_transitive_command_module(self) -> None:
+        dependencies = dependency_deployment.load_dependencies(
+            Path("gradle/discopanel-runtime-dependencies.json"), "1.6.4-fabric"
+        )
+        by_id = {dependency.dependency_id: dependency for dependency in dependencies}
+        self.assertIn("legacy-fabric-api", by_id)
+        self.assertIn("legacy-fabric-command-api-v1", by_id)
+        self.assertTrue(
+            by_id["legacy-fabric-command-api-v1"].filename.startswith(
+                "legacy-fabric-command-api-v1-1.1.1+"
+            )
+        )
 
     def test_dependency_ownership_is_case_insensitive_and_not_jammarr(self) -> None:
         dependency = dependency_deployment.Dependency(

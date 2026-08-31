@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
@@ -80,6 +81,18 @@ def cached_jar(
     return matches[0]
 
 
+def cached_pom(cache: Path, group: str, artifact: str, version: str) -> Path:
+    directory = cache / group / artifact / version
+    filename = f"{artifact}-{version}.pom"
+    matches = [path for path in directory.glob(f"*/{filename}") if path.is_file()]
+    if not matches:
+        raise SystemExit(f"Gradle cache is missing POM for {group}:{artifact}:{version}")
+    contents = {path.read_bytes() for path in matches}
+    if len(contents) != 1:
+        raise SystemExit(f"Gradle cache contains differing POMs for {filename}")
+    return matches[0]
+
+
 def dependency(
     cache: Path,
     *,
@@ -102,6 +115,50 @@ def dependency(
         "sha256": sha256(source),
         "ownedPrefixes": [owned_prefix.lower()],
     }
+
+
+def legacy_fabric_dependencies(
+    cache: Path, minecraft: str, version: str
+) -> list[dict[str, Any]]:
+    group = "net.legacyfabric.legacy-fabric-api"
+    aggregate = "legacy-fabric-api"
+    pom = cached_pom(cache, group, aggregate, version)
+    root = ET.parse(pom).getroot()
+    namespace = {"m": "http://maven.apache.org/POM/4.0.0"}
+    coordinates: list[tuple[str, str]] = []
+    for element in root.findall("m:dependencies/m:dependency", namespace):
+        dependency_group = element.findtext("m:groupId", namespaces=namespace) or ""
+        artifact = element.findtext("m:artifactId", namespaces=namespace) or ""
+        dependency_version = element.findtext("m:version", namespaces=namespace) or ""
+        scope = element.findtext("m:scope", namespaces=namespace) or "compile"
+        if (
+            dependency_group != group
+            or not artifact.startswith("legacy-fabric-")
+            or not dependency_version
+            or scope != "compile"
+        ):
+            raise SystemExit(
+                f"unexpected Legacy Fabric API dependency for {minecraft}: "
+                f"{dependency_group}:{artifact}:{dependency_version}:{scope}"
+            )
+        coordinates.append((artifact, dependency_version))
+    if not coordinates or len(set(coordinates)) != len(coordinates):
+        raise SystemExit(
+            f"Legacy Fabric API {version} has missing or duplicate module coordinates"
+        )
+    resolved = [(aggregate, version), *coordinates]
+    return [
+        dependency(
+            cache,
+            dependency_id=artifact,
+            repository="legacy-fabric",
+            group=group,
+            artifact=artifact,
+            version=dependency_version,
+            owned_prefix=f"{artifact}-{dependency_version}",
+        )
+        for artifact, dependency_version in resolved
+    ]
 
 
 def generate(release_manifest: Path, cache: Path) -> dict[str, Any]:
@@ -142,17 +199,9 @@ def generate(release_manifest: Path, cache: Path) -> dict[str, Any]:
 
     for minecraft in ("1.6.4", "1.8.9"):
         version = f"1.13.2+{minecraft}"
-        runtimes[f"{minecraft}-fabric"] = [
-            dependency(
-                cache,
-                dependency_id="legacy-fabric-api",
-                repository="legacy-fabric",
-                group="net.legacyfabric.legacy-fabric-api",
-                artifact="legacy-fabric-api",
-                version=version,
-                owned_prefix="legacy-fabric-api-",
-            )
-        ]
+        runtimes[f"{minecraft}-fabric"] = legacy_fabric_dependencies(
+            cache, minecraft, version
+        )
 
     for runtime, modules in ORNITHE_MODULES.items():
         runtimes[runtime] = [
