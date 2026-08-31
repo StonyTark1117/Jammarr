@@ -39,6 +39,8 @@ public final class JammarrScreen extends Screen {
     private JammarrPayloads.BrowseKind pendingKind;
     private int pendingPage, rowOffset;
     private long clearArmedUntil, startNowArmedUntil;
+    private boolean acceptanceHoverHelpRendered;
+    private int acceptanceHoverX = -1, acceptanceHoverY = -1;
 
     public JammarrScreen(JammarrClientState state) {
         super(stonytark.jammarr.compat.MinecraftCompat.translatable("jammarr.screen.title")); this.state = state;
@@ -298,7 +300,9 @@ public final class JammarrScreen extends Screen {
     @Override public boolean keyPressed(int key, int scanCode, int modifiers) { if (key == 257 && search != null && search.isFocused()) { request(0); return true; } return super.keyPressed(key, scanCode, modifiers); }
     @Override public boolean mouseScrolled(double mouseX, double mouseY, double scrollY) { if (scrollY != 0 && view.browseKind != null && state.browse().kind() == view.browseKind) { rowOffset = Math.max(0, rowOffset + (scrollY < 0 ? 1 : -1)); rebuildWidgets(); return true; } return super.mouseScrolled(mouseX, mouseY, scrollY); }
     @Override public void render(PoseStack graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics); super.render(graphics, mouseX, mouseY, partialTick); drawCenteredString(graphics, font, title, width / 2, 12, 0xFFFFFF);
+        int renderedMouseX = acceptanceHoverX >= 0 ? acceptanceHoverX : mouseX;
+        int renderedMouseY = acceptanceHoverY >= 0 ? acceptanceHoverY : mouseY;
+        renderBackground(graphics); super.render(graphics, renderedMouseX, renderedMouseY, partialTick); drawCenteredString(graphics, font, title, width / 2, 12, 0xFFFFFF);
         JammarrPayloads.PlaybackState playing = state.playback(); String now = statusLabel(playing) + (playing.title().isBlank() ? "" : ": " + playing.title() + (playing.artist().isBlank() ? "" : " — " + playing.artist())) + "  " + time(playing.positionMs()) + "/" + time(playing.durationMs());
         drawCenteredString(graphics, font, trim(now, width - 20), width / 2, 25, statusColor(playing.status()));
         String notice = screenNotice.isBlank() ? (state.notice().isBlank() ? playing.statusMessage() : state.notice()) : screenNotice;
@@ -307,8 +311,25 @@ public final class JammarrScreen extends Screen {
         if (requestPending) drawCenteredString(graphics, font, stonytark.jammarr.compat.MinecraftCompat.translatable("jammarr.screen.searching"), width / 2, height / 2, 0xA0D8FF);
         else if (queuePending) drawCenteredString(graphics, font, stonytark.jammarr.compat.MinecraftCompat.translatable("jammarr.screen.queuing"), width / 2, height / 2, 0xA0D8FF);
         else if (playing.status() == JammarrPayloads.PlaybackStatus.PLEX_OFFLINE && notice.isBlank()) drawCenteredString(graphics, font, stonytark.jammarr.compat.MinecraftCompat.translatable("jammarr.screen.plex_unavailable"), width / 2, height / 2, 0xFF7777);
-        tooltips.entrySet().stream().filter(entry -> entry.getKey().isMouseOver(mouseX, mouseY)).findFirst()
-                .ifPresent(entry -> renderTooltip(graphics, entry.getValue(), mouseX, mouseY));
+        tooltips.entrySet().stream().filter(entry -> entry.getKey().isMouseOver(renderedMouseX, renderedMouseY)).findFirst()
+                .ifPresent(entry -> {
+                    acceptanceHoverHelpRendered = true;
+                    renderTooltip(graphics, entry.getValue(), renderedMouseX, renderedMouseY);
+                });
+    }
+
+    boolean acceptanceVerifyHoverHelp() {
+        if (acceptanceHoverHelpRendered) return true;
+        if (minecraft == null || tooltips.isEmpty()) {
+            throw new IllegalStateException("1.18.2 screen has no hover-help target");
+        }
+        AbstractWidget target = tooltips.keySet().stream()
+                .filter(widget -> widget.active && widget.visible)
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("1.18.2 screen has no active hover-help target"));
+        acceptanceHoverX = target.x + Math.max(1, target.getWidth() / 2);
+        acceptanceHoverY = target.y + Math.max(1, target.getHeight() / 2);
+        return false;
     }
 
     private <T extends AbstractWidget> T described(T widget, String description) { tooltips.put(widget, stonytark.jammarr.compat.MinecraftCompat.literal(description)); return widget; }

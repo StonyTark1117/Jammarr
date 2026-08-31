@@ -34,6 +34,8 @@ public final class JammarrClientState {
     private boolean acceptanceScreenProbeSent;
     private boolean acceptanceScreenVerified;
     private int acceptanceScreenTicks;
+    private boolean acceptanceHoverHelpVerified;
+    private int acceptanceHoverHelpTicks;
     private boolean acceptanceConfigScreenVerified;
     private int acceptanceConfigScreenTicks;
     private boolean acceptanceAudioQueued;
@@ -228,7 +230,15 @@ public final class JammarrClientState {
         }
         try {
             connection.getClass().getMethod("sendChat", String.class).invoke(connection, "/" + command);
+            return;
         } catch (ReflectiveOperationException error) {
+            // Minecraft 1.18.2 keeps the legacy chat entry point on LocalPlayer.
+        }
+        try {
+            Object player = Minecraft.getInstance().player;
+            if (player == null) throw new IllegalStateException("Acceptance client has no local player");
+            player.getClass().getMethod("chat", String.class).invoke(player, "/" + command);
+        } catch (ReflectiveOperationException | IllegalStateException error) {
             Jammarr.LOGGER.warn("Acceptance client could not issue /{} on this Minecraft version", command, error);
         }
     }
@@ -241,6 +251,26 @@ public final class JammarrClientState {
                 return;
             }
             if (++acceptanceScreenTicks < 20) return;
+            if (!acceptanceHoverHelpVerified) {
+                try {
+                    java.lang.reflect.Method probe = minecraft.screen.getClass()
+                            .getDeclaredMethod("acceptanceVerifyHoverHelp");
+                    probe.setAccessible(true);
+                    if (!Boolean.TRUE.equals(probe.invoke(minecraft.screen))) {
+                        if (++acceptanceHoverHelpTicks >= 120) {
+                            throw new IllegalStateException("Hover help did not render within 120 client ticks");
+                        }
+                        return;
+                    }
+                    acceptanceHoverHelpVerified = true;
+                    Jammarr.LOGGER.info("Acceptance hover help rendered on a real control");
+                    return;
+                } catch (NoSuchMethodException ignored) {
+                    acceptanceHoverHelpVerified = true;
+                } catch (ReflectiveOperationException error) {
+                    throw new IllegalStateException("Unable to execute the hover-help acceptance probe", error);
+                }
+            }
             acceptanceScreenVerified = true;
             Jammarr.LOGGER.info("Acceptance Jammarr screen remained open across rendered frames");
             minecraft.setScreen(new JammarrClientConfigScreen(minecraft.screen));

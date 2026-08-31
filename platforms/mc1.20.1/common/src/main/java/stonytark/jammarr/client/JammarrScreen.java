@@ -2,6 +2,7 @@ package stonytark.jammarr.client;
 
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractSliderButton;
+import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.Tooltip;
@@ -11,7 +12,9 @@ import stonytark.jammarr.core.platform.JammarrSettings;
 import stonytark.jammarr.network.JammarrPayloads;
 import stonytark.jammarr.network.JammarrNetwork;
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 
 public final class JammarrScreen extends Screen {
     private enum View {
@@ -27,6 +30,7 @@ public final class JammarrScreen extends Screen {
     private final JammarrClientState state;
     private final List<JammarrPayloads.StationSeed> mixSeeds = new ArrayList<>();
     private final List<JammarrPayloads.StationSeed> adventureWaypoints = new ArrayList<>();
+    private final Map<AbstractWidget, Component> acceptanceTooltips = new IdentityHashMap<>();
     private View view = View.NOW;
     private Button searchTab;
     private EditBox search;
@@ -35,6 +39,8 @@ public final class JammarrScreen extends Screen {
     private JammarrPayloads.BrowseKind pendingKind;
     private int pendingPage, rowOffset;
     private long clearArmedUntil, startNowArmedUntil;
+    private boolean acceptanceHoverHelpRendered;
+    private int acceptanceHoverX = -1, acceptanceHoverY = -1;
 
     public JammarrScreen(JammarrClientState state) {
         super(Component.translatable("jammarr.screen.title")); this.state = state;
@@ -42,7 +48,7 @@ public final class JammarrScreen extends Screen {
     }
 
     @Override protected void init() {
-        clearWidgets(); int panelWidth = Math.min(760, width - 16), left = (width - panelWidth) / 2;
+        clearWidgets(); acceptanceTooltips.clear(); int panelWidth = Math.min(760, width - 16), left = (width - panelWidth) / 2;
         int tabWidth = Math.max(1, panelWidth / View.values().length), tabX = left;
         for (int i = 0; i < View.values().length; i++) {
             View candidate = View.values()[i]; int actualWidth = i == View.values().length - 1 ? left + panelWidth - tabX : tabWidth;
@@ -203,7 +209,7 @@ public final class JammarrScreen extends Screen {
         if (item.kind() == JammarrPayloads.ItemKind.TRACK) addAction("A", "Add as Adventure waypoint", x, y, b -> addAdventure(item));
     }
     private void addAction(String label, String tooltip, int x, int y, Button.OnPress press) {
-        Button value = Button.builder(Component.literal(label), press).bounds(x, y, 28, 20).build(); value.setTooltip(Tooltip.create(Component.literal(tooltip))); addRenderableWidget(value);
+        Button value = Button.builder(Component.literal(label), press).bounds(x, y, 28, 20).build(); described(value, tooltip); addRenderableWidget(value);
     }
 
     private void addBottomControls(int left, int panelWidth) {
@@ -289,7 +295,9 @@ public final class JammarrScreen extends Screen {
     @Override public boolean keyPressed(int key, int scanCode, int modifiers) { if (key == 257 && search != null && search.isFocused()) { request(0); return true; } return super.keyPressed(key, scanCode, modifiers); }
     @Override public boolean mouseScrolled(double mouseX, double mouseY, double scrollY) { if (scrollY != 0 && view.browseKind != null && state.browse().kind() == view.browseKind) { rowOffset = Math.max(0, rowOffset + (scrollY < 0 ? 1 : -1)); rebuildWidgets(); return true; } return super.mouseScrolled(mouseX, mouseY, scrollY); }
     @Override public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics); super.render(graphics, mouseX, mouseY, partialTick); graphics.drawCenteredString(font, title, width / 2, 12, 0xFFFFFF);
+        int renderedMouseX = acceptanceHoverX >= 0 ? acceptanceHoverX : mouseX;
+        int renderedMouseY = acceptanceHoverY >= 0 ? acceptanceHoverY : mouseY;
+        renderBackground(graphics); super.render(graphics, renderedMouseX, renderedMouseY, partialTick); graphics.drawCenteredString(font, title, width / 2, 12, 0xFFFFFF);
         JammarrPayloads.PlaybackState playing = state.playback(); String now = statusLabel(playing) + (playing.title().isBlank() ? "" : ": " + playing.title() + (playing.artist().isBlank() ? "" : " — " + playing.artist())) + "  " + time(playing.positionMs()) + "/" + time(playing.durationMs());
         graphics.drawCenteredString(font, trim(now, width - 20), width / 2, 25, statusColor(playing.status()));
         String notice = screenNotice.isBlank() ? (state.notice().isBlank() ? playing.statusMessage() : state.notice()) : screenNotice;
@@ -298,9 +306,31 @@ public final class JammarrScreen extends Screen {
         if (requestPending) graphics.drawCenteredString(font, Component.translatable("jammarr.screen.searching"), width / 2, height / 2, 0xA0D8FF);
         else if (queuePending) graphics.drawCenteredString(font, Component.translatable("jammarr.screen.queuing"), width / 2, height / 2, 0xA0D8FF);
         else if (playing.status() == JammarrPayloads.PlaybackStatus.PLEX_OFFLINE && notice.isBlank()) graphics.drawCenteredString(font, Component.translatable("jammarr.screen.plex_unavailable"), width / 2, height / 2, 0xFF7777);
+        if (acceptanceTooltips.keySet().stream().anyMatch(widget -> widget.isMouseOver(renderedMouseX, renderedMouseY))) {
+            acceptanceHoverHelpRendered = true;
+        }
     }
 
-    private Button described(Button button, String description) { button.setTooltip(Tooltip.create(Component.literal(description))); return button; }
+    boolean acceptanceVerifyHoverHelp() {
+        if (acceptanceHoverHelpRendered) return true;
+        if (minecraft == null || acceptanceTooltips.isEmpty()) {
+            throw new IllegalStateException("1.20.1 screen has no hover-help target");
+        }
+        AbstractWidget target = acceptanceTooltips.keySet().stream()
+                .filter(widget -> widget.active && widget.visible)
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("1.20.1 screen has no active hover-help target"));
+        acceptanceHoverX = target.getX() + Math.max(1, target.getWidth() / 2);
+        acceptanceHoverY = target.getY() + Math.max(1, target.getHeight() / 2);
+        return false;
+    }
+
+    private Button described(Button button, String description) {
+        Component tooltip = Component.literal(description);
+        button.setTooltip(Tooltip.create(tooltip));
+        acceptanceTooltips.put(button, tooltip);
+        return button;
+    }
     private static String tabTooltip(View view) { return switch (view) {
         case NOW -> "Show current shared playback and its source";
         case SEARCH -> "Find tracks, albums, artists, and playlists in the selected music library";

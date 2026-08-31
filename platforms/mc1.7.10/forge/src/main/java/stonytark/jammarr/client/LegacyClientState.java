@@ -40,6 +40,8 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
     private boolean acceptanceAudioQueued;
     private boolean acceptanceScreenOpened;
     private boolean acceptanceScreenLogged;
+    private boolean acceptanceHoverHelpLogged;
+    private int acceptanceHoverHelpTicks;
     private boolean acceptanceSearchEditLogged;
     private int acceptanceScreenTicks;
     private boolean acceptanceConfigScreenOpened;
@@ -226,6 +228,16 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
             if (++acceptanceScreenTicks < 2) return;
             acceptanceScreenLogged = true;
             Jammarr.LOGGER.info("Acceptance legacy Jammarr screen remained open across client ticks");
+            return;
+        }
+        if (!acceptanceHoverHelpLogged) {
+            if (!(minecraft.currentScreen instanceof LegacyScreen)) return;
+            if (((LegacyScreen) minecraft.currentScreen).acceptanceVerifyHoverHelp()) {
+                acceptanceHoverHelpLogged = true;
+                Jammarr.LOGGER.info("Acceptance legacy hover help rendered on a real control");
+            } else if (++acceptanceHoverHelpTicks >= 120) {
+                throw new IllegalStateException("Legacy hover help did not render within 120 client ticks");
+            }
             return;
         }
         if (!acceptanceSearchEditLogged) {

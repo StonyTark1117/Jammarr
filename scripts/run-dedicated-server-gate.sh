@@ -128,6 +128,10 @@ uses_legacy_command_markers() {
   [[ ${target_command_markers[$1]} == "legacy-response" ]]
 }
 
+requires_hover_help_probe() {
+  [[ $1 == "1.7.10-forge" || $1 == "1.18.2-fabric" || $1 == "1.20.1-fabric" ]]
+}
+
 uses_legacy_audio_profile() {
   [[ ${target_audio_profile[$1]} == "legacy-openal" ]]
 }
@@ -967,6 +971,7 @@ run_command_client() {
       deadline=$((SECONDS + 60))
       while (( result == 0 )) \
           && { ! grep -Fq 'Acceptance legacy Jammarr screen remained open across client ticks' "$client_console" \
+            || { requires_hover_help_probe "$label" && ! grep -Fq 'Acceptance legacy hover help rendered on a real control' "$client_console"; } \
             || ! grep -Fq 'Acceptance legacy search edit survived click, typing, backspace, and screen rebuilds' "$client_console" \
             || ! grep -Fq 'Acceptance legacy Jammarr config screen remained open across client ticks' "$client_console"; }; do
         if ! group_alive "$pid" || (( SECONDS >= deadline )); then
@@ -1021,6 +1026,7 @@ run_command_client() {
         deadline=$((SECONDS + 60))
         while ! grep -Fq 'Acceptance Jammarr screen remained open across rendered frames' \
             "$client_console" 2>/dev/null \
+            || { requires_hover_help_probe "$label" && ! grep -Fq 'Acceptance hover help rendered on a real control' "$client_console" 2>/dev/null; } \
             || ! grep -Fq 'Acceptance Jammarr config screen remained open across rendered frames' \
             "$client_console" 2>/dev/null; do
           if ! group_alive "$pid" || (( SECONDS >= deadline )); then
@@ -1051,6 +1057,7 @@ run_command_client() {
         "$client_console" || true
       grep -E 'Acceptance Jammarr (config )?screen remained open across rendered frames' "$client_console" || true
       grep -E 'Acceptance legacy Jammarr (config )?screen remained open across client ticks' "$client_console" || true
+      grep -E 'Acceptance (legacy )?hover help rendered on a real control' "$client_console" || true
       grep -F 'Acceptance legacy search edit survived click, typing, backspace, and screen rebuilds' "$client_console" || true
       cat "$diagnostics"
     } > "$evidence"

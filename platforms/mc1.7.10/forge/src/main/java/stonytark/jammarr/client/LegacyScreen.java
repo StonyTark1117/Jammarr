@@ -4,6 +4,7 @@ import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.GuiTextField;
 import org.lwjgl.input.Keyboard;
+import org.lwjgl.input.Mouse;
 import stonytark.jammarr.Jammarr;
 import stonytark.jammarr.core.client.PendingBrowseRequest;
 import stonytark.jammarr.core.model.StationModels;
@@ -50,6 +51,7 @@ final class LegacyScreen extends GuiScreen {
     private final PendingBrowseRequest pendingBrowse = new PendingBrowseRequest();
     private long clearArmedUntil;
     private long startNowArmedUntil;
+    private boolean acceptanceHoverHelpRendered;
 
     LegacyScreen(LegacyClientState state) {
         this.state = state;
@@ -377,6 +379,21 @@ final class LegacyScreen extends GuiScreen {
         Jammarr.LOGGER.info("Acceptance legacy search edit survived click, typing, backspace, and screen rebuilds");
     }
 
+    boolean acceptanceVerifyHoverHelp() {
+        if (acceptanceHoverHelpRendered) return true;
+        for (Object item : buttonList) {
+            GuiButton button = (GuiButton)item;
+            if (tooltip(button.id) == null) continue;
+            int guiX = button.xPosition + Math.max(1, button.width / 2);
+            int guiY = button.yPosition + Math.max(1, button.height / 2);
+            int displayX = guiX * mc.displayWidth / Math.max(1, width);
+            int displayY = mc.displayHeight - guiY * mc.displayHeight / Math.max(1, height);
+            Mouse.setCursorPosition(displayX, displayY);
+            return false;
+        }
+        throw new IllegalStateException("Legacy screen has no hover-help target");
+    }
+
     private void assertAcceptanceSearch(String expected) {
         if (search == null || !expected.equals(search.getText()) || !search.isFocused()
                 || search.getCursorPosition() != expected.length()) {
@@ -453,6 +470,7 @@ final class LegacyScreen extends GuiScreen {
             String tooltip = tooltip(button.id);
             if (tooltip != null && mouseX >= button.xPosition && mouseX < button.xPosition + button.width
                     && mouseY >= button.yPosition && mouseY < button.yPosition + button.height) {
+                acceptanceHoverHelpRendered = true;
                 drawHoveringText(Collections.singletonList(tooltip), mouseX, mouseY, fontRendererObj);
                 break;
             }
