@@ -180,7 +180,7 @@ def run(args: argparse.Namespace) -> int:
                 )
                 key = "accepted" if args.apply else "preflighted"
                 summary[key].append(target.runtime)
-            except BaseException as error:
+            except Exception as error:
                 summary["failures"].append(
                     {"runtime": target.runtime, "errorType": type(error).__name__, "error": str(error)}
                 )

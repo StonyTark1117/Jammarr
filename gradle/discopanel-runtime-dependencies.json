@@ -5,8 +5,8 @@
       {
         "id": "fabric-api",
         "filename": "fabric-api-0.42.0+1.16.jar",
-        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.42.0+1.16/fabric-api-0.42.0+1.16.jar",
-        "sha256": "046d07bc088477a8e3511fb7d5f8d4e02b51e97769e4e5f2d7d48047806d4862",
+        "url": "https://cdn.modrinth.com/data/P7dR8mSH/versions/0.42.0%2B1.16/fabric-api-0.42.0%2B1.16.jar",
+        "sha256": "3df8dd503f35aa0ac9fab8ad9f9a369fdfd0b1ab544af19a3d626d948fb4586c",
         "ownedPrefixes": [
           "fabric-api-"
         ]
@@ -16,8 +16,8 @@
       {
         "id": "fabric-api",
         "filename": "fabric-api-0.42.0+1.16.jar",
-        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.42.0+1.16/fabric-api-0.42.0+1.16.jar",
-        "sha256": "046d07bc088477a8e3511fb7d5f8d4e02b51e97769e4e5f2d7d48047806d4862",
+        "url": "https://cdn.modrinth.com/data/P7dR8mSH/versions/0.42.0%2B1.16/fabric-api-0.42.0%2B1.16.jar",
+        "sha256": "3df8dd503f35aa0ac9fab8ad9f9a369fdfd0b1ab544af19a3d626d948fb4586c",
         "ownedPrefixes": [
           "fabric-api-"
         ]
@@ -27,8 +27,8 @@
       {
         "id": "fabric-api",
         "filename": "fabric-api-0.77.0+1.18.2.jar",
-        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.77.0+1.18.2/fabric-api-0.77.0+1.18.2.jar",
-        "sha256": "131c74c0409a004f5227781700de190e97630e0fe0a85dc9a3a88af2bbc5a38c",
+        "url": "https://cdn.modrinth.com/data/P7dR8mSH/versions/qk28POfr/fabric-api-0.77.0%2B1.18.2.jar",
+        "sha256": "6f822fb5aa481b4a6c1cfb8612bbfecc62a58e69d2c792f61a0eafa580e75999",
         "ownedPrefixes": [
           "fabric-api-"
         ]
@@ -38,8 +38,8 @@
       {
         "id": "fabric-api",
         "filename": "fabric-api-0.77.0+1.18.2.jar",
-        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.77.0+1.18.2/fabric-api-0.77.0+1.18.2.jar",
-        "sha256": "131c74c0409a004f5227781700de190e97630e0fe0a85dc9a3a88af2bbc5a38c",
+        "url": "https://cdn.modrinth.com/data/P7dR8mSH/versions/qk28POfr/fabric-api-0.77.0%2B1.18.2.jar",
+        "sha256": "6f822fb5aa481b4a6c1cfb8612bbfecc62a58e69d2c792f61a0eafa580e75999",
         "ownedPrefixes": [
           "fabric-api-"
         ]

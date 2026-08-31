@@ -5,11 +5,14 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sys
 import tempfile
 import unittest
+from argparse import Namespace
 from dataclasses import dataclass
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPT = Path(__file__).with_name("run-discopanel-server-smoke-matrix.py")
@@ -93,6 +96,58 @@ class DiscPanelServerSmokeMatrixTests(unittest.TestCase):
             evidence["sha256"] = "b" * 64
             path.write_text(json.dumps(evidence), "utf-8")
             self.assertFalse(matrix.accepted_evidence(path, "1.1.0", target))
+
+    def test_keyboard_interrupt_is_not_swallowed_by_continue_on_error(self) -> None:
+        target = Target("a", "A")
+        panel = Panel(
+            [
+                {
+                    "name": "A",
+                    "status": matrix.reconciler.STATUS_STOPPED,
+                    "autoStart": False,
+                }
+            ]
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            args = Namespace(
+                runtime=[],
+                manifest=root / "targets.json",
+                release_dir=root / "releases",
+                project_properties=root / "gradle.properties",
+                expected_version="1.1.0",
+                url="http://invalid.test",
+                token_env="TEST_DISCOPANEL_TOKEN",
+                request_timeout=1,
+                start_timeout=1,
+                stop_timeout=1,
+                poll_interval=0,
+                log_tail=1,
+                evidence_dir=root / "evidence",
+                matrix_evidence=root / "matrix.json",
+                apply=True,
+                confirm_version="1.1.0",
+                resume=False,
+                continue_on_error=True,
+            )
+            patches = (
+                mock.patch.dict(os.environ, {args.token_env: "secret"}),
+                mock.patch.object(matrix.deployment, "verified_release_artifacts", return_value=[]),
+                mock.patch.object(matrix.deployment, "deployment_targets", return_value=[target]),
+                mock.patch.object(
+                    matrix.reconciler,
+                    "desired_profiles",
+                    return_value=[Namespace(runtime="a")],
+                ),
+                mock.patch.object(matrix.reconciler, "DiscPanel", return_value=panel),
+                mock.patch.object(matrix.smoke, "run_target", side_effect=KeyboardInterrupt()),
+            )
+            with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+                with self.assertRaises(KeyboardInterrupt):
+                    matrix.run(args)
+            evidence = json.loads(args.matrix_evidence.read_text("utf-8"))
+            self.assertTrue(evidence["allProfilesStopped"])
+            self.assertEqual(evidence["failures"], [])
 
 
 if __name__ == "__main__":

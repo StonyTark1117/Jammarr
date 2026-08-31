@@ -89,6 +89,14 @@ CUSTOM_RUNTIME_CONFIG = {
         },
     },
 }
+NATIVE_RUNTIME_ENVIRONMENT = {
+    # Quilt Installer 0.8.2 and newer refuse to run on Java 8 even when the
+    # selected Minecraft/loader pair remains Java-8 compatible. Keep the
+    # production server gate aligned with the tested 1.16.5 loader profile.
+    "1.16.5-quilt": {
+        "QUILT_INSTALLER_VERSION": "0.7.0",
+    },
+}
 ORNITHE_INSTALLER_URL = (
     "https://maven.ornithemc.net/releases/net/ornithemc/ornithe-installer/"
     "0.15.0/ornithe-installer-0.15.0.jar"
@@ -119,12 +127,13 @@ MANAGED_DESCRIPTION = (
     "Jammarr test runtime managed from gradle/targets.json; "
     "artifact state is tracked separately by DiscPanel ModService."
 )
-MANAGED_CUSTOM_ENV_KEYS = {
+MANAGED_RUNTIME_ENV_KEYS = {
     "CUSTOM_JAR_EXEC",
     "CUSTOM_SERVER",
     "FABRIC_LAUNCHER",
     "FABRIC_LAUNCHER_URL",
     "TYPE",
+    "QUILT_INSTALLER_VERSION",
 }
 
 
@@ -148,6 +157,11 @@ def desired_profiles(manifest_path: Path) -> list[Profile]:
     for runtime in target_matrix.runtimes(manifest):
         minecraft, loader = runtime["name"].rsplit("-", 1)
         custom = CUSTOM_RUNTIME_CONFIG.get(runtime["name"])
+        environment = (
+            custom["environment"]
+            if custom
+            else NATIVE_RUNTIME_ENVIRONMENT.get(runtime["name"], {})
+        )
         java = int(runtime["runtimeJava"])
         if java not in {8, 17, 21, 25}:
             raise SystemExit(
@@ -163,7 +177,7 @@ def desired_profiles(manifest_path: Path) -> list[Profile]:
                 docker_image=f"java{java}",
                 panel_loader="MOD_LOADER_FABRIC" if custom else LOADER_ENUM.get(loader, ""),
                 provisioning=str(custom["provisioning"]) if custom else "native",
-                environment=tuple(sorted(custom["environment"].items())) if custom else (),
+                environment=tuple(sorted(environment.items())),
                 launcher_sha256=str(custom.get("launcherSha256", "")) if custom else "",
             )
         )
@@ -272,7 +286,7 @@ class DiscPanel:
     def update_server(self, profile: Profile, server: dict[str, Any]) -> dict[str, Any]:
         overrides = json.loads(json.dumps(server.get("dockerOverrides") or {}))
         environment = dict(overrides.get("environment") or {})
-        for key in MANAGED_CUSTOM_ENV_KEYS:
+        for key in MANAGED_RUNTIME_ENV_KEYS:
             environment.pop(key, None)
         environment.update(dict(profile.environment))
         overrides["environment"] = environment
@@ -515,7 +529,7 @@ def drift(profile: Profile, server: dict[str, Any]) -> list[str]:
     for key, value in profile.environment:
         if environment.get(key) != value:
             differences.append(f"docker environment {key} is not the pinned value")
-    for key in MANAGED_CUSTOM_ENV_KEYS - expected_environment.keys():
+    for key in MANAGED_RUNTIME_ENV_KEYS - expected_environment.keys():
         if key in environment:
             differences.append(f"docker environment {key} is unexpectedly managed")
     return differences
@@ -907,6 +921,7 @@ def reconcile(args: argparse.Namespace) -> int:
     missing_native: list[Profile] = []
     missing_custom: list[Profile] = []
     incomplete_custom: list[tuple[Profile, str]] = []
+    repairable_native: list[tuple[Profile, dict[str, Any]]] = []
     repairable_custom: list[tuple[Profile, dict[str, Any]]] = []
     drifted: list[tuple[Profile, list[str]]] = []
     for profile in profiles:
@@ -918,12 +933,17 @@ def reconcile(args: argparse.Namespace) -> int:
             server = panel.get_server(str(server["id"]))
         differences = drift(profile, server)
         if differences:
+            environment_only_drift = is_stopped(server) and all(
+                item.startswith("docker environment ") for item in differences
+            )
             repairable_differences = all(
                 item.startswith("docker environment ")
                 or item.startswith("modLoader='MOD_LOADER_VANILLA' expected 'MOD_LOADER_FABRIC'")
                 for item in differences
             )
-            if (
+            if profile.provisioning == "native" and environment_only_drift:
+                repairable_native.append((profile, server))
+            elif (
                 profile.provisioning != "native"
                 and is_stopped(server)
                 and repairable_differences
@@ -942,6 +962,7 @@ def reconcile(args: argparse.Namespace) -> int:
         f"DiscPanel Jammarr matrix: desired={len(profiles)} present={len(present)} "
         f"missing_native={len(missing_native)} missing_custom={len(missing_custom)} "
         f"incomplete_custom={len(incomplete_custom)} "
+        f"repairable_native={len(repairable_native)} "
         f"repairable_custom={len(repairable_custom)} drifted={len(drifted)}"
     )
     for profile, differences in drifted:
@@ -952,6 +973,8 @@ def reconcile(args: argparse.Namespace) -> int:
         print(f"INCOMPLETE custom bootstrap required: {profile.runtime}")
     for profile, _ in repairable_custom:
         print(f"REPAIRABLE custom environment: {profile.runtime}")
+    for profile, _ in repairable_native:
+        print(f"REPAIRABLE native environment: {profile.runtime}")
 
     if args.json:
         print(json.dumps({
@@ -960,6 +983,7 @@ def reconcile(args: argparse.Namespace) -> int:
             "missingNative": [profile.runtime for profile in missing_native],
             "missingCustom": [profile.runtime for profile in missing_custom],
             "incompleteCustom": [profile.runtime for profile, _ in incomplete_custom],
+            "repairableNative": [profile.runtime for profile, _ in repairable_native],
             "repairableCustom": [profile.runtime for profile, _ in repairable_custom],
             "drifted": {profile.runtime: differences for profile, differences in drifted},
         }, indent=2, sort_keys=True))
@@ -1000,7 +1024,22 @@ def reconcile(args: argparse.Namespace) -> int:
             print(f"WOULD_UPLOAD_BOOTSTRAP {profile.runtime}")
         for profile, _ in repairable_custom:
             print(f"WOULD_REPAIR_CUSTOM {profile.runtime}")
+        for profile, _ in repairable_native:
+            print(f"WOULD_REPAIR_NATIVE {profile.runtime}")
         return 0
+
+    if args.apply_native:
+        for profile, server in repairable_native:
+            print(f"REPAIR_NATIVE {profile.runtime}", flush=True)
+            panel.update_server(profile, server)
+            updated = panel.get_server(str(server["id"]))
+            differences = drift(profile, updated)
+            if differences:
+                raise RuntimeError(
+                    f"DiscPanel native repair drifted for {profile.runtime}: "
+                    f"{'; '.join(differences)}"
+                )
+            print(f"REPAIRED_NATIVE {profile.runtime}", flush=True)
 
     if args.apply_custom:
         for profile, server in repairable_custom:
@@ -1092,7 +1131,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--apply-native",
         action="store_true",
-        help="create missing native-loader servers, sequentially, stopped, and without mods",
+        help=(
+            "create missing native-loader servers and repair stopped managed "
+            "runtime environment pins, without uploading mods"
+        ),
     )
     parser.add_argument(
         "--apply-custom",

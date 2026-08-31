@@ -8,6 +8,8 @@ import json
 import sys
 import tempfile
 import unittest
+import zipfile
+from unittest import mock
 from pathlib import Path
 
 
@@ -49,6 +51,39 @@ class DiscPanelRuntimeDependencyTests(unittest.TestCase):
         }.items():
             self.assertEqual(
                 len(dependency_deployment.load_dependencies(path, runtime)), count
+            )
+
+    def test_legacy_modern_fabric_api_uses_published_distribution(self) -> None:
+        path = Path("gradle/discopanel-runtime-dependencies.json")
+        for runtime, digest in {
+            "1.16.5-fabric": "3df8dd503f35aa0ac9fab8ad9f9a369fdfd0b1ab544af19a3d626d948fb4586c",
+            "1.18.2-quilt": "6f822fb5aa481b4a6c1cfb8612bbfecc62a58e69d2c792f61a0eafa580e75999",
+        }.items():
+            dependency = dependency_deployment.load_dependencies(path, runtime)[0]
+            self.assertIn("cdn.modrinth.com/data/P7dR8mSH/", dependency.url)
+            self.assertEqual(dependency.sha256, digest)
+
+    def test_fabric_api_archive_rejects_metadata_only_coordinate(self) -> None:
+        dependency = dependency_deployment.Dependency(
+            "fabric-api",
+            "fabric-api.jar",
+            "https://example.invalid/fabric-api.jar",
+            "0" * 64,
+            ("fabric-api-",),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            metadata_only = Path(temporary) / "metadata-only.jar"
+            with zipfile.ZipFile(metadata_only, "w") as archive:
+                archive.writestr("fabric.mod.json", "{}")
+            with self.assertRaisesRegex(RuntimeError, "metadata-only"):
+                dependency_deployment.validate_dependency_archive(
+                    dependency, metadata_only
+                )
+            distribution = Path(temporary) / "distribution.jar"
+            with zipfile.ZipFile(distribution, "w") as archive:
+                archive.writestr("META-INF/jars/fabric-networking.jar", b"jar")
+            dependency_deployment.validate_dependency_archive(
+                dependency, distribution
             )
 
     def test_legacy_fabric_manifest_uses_official_nested_bundle(self) -> None:
@@ -127,6 +162,51 @@ class DiscPanelRuntimeDependencyTests(unittest.TestCase):
         self.assertTrue(exact["enabled"])
         self.assertFalse(old["enabled"])
         self.assertEqual(panel.assert_path, "mods/api-1.jar")
+
+    def test_same_filename_refresh_preserves_active_mod_record(self) -> None:
+        payload = b"published distribution"
+        dependency = dependency_deployment.Dependency(
+            "fabric-api",
+            "fabric-api.jar",
+            "https://example.invalid/fabric-api.jar",
+            dependency_deployment.hashlib.sha256(payload).hexdigest(),
+            ("fabric-api",),
+        )
+        active = {"id": "existing", "fileName": "fabric-api.jar", "enabled": True}
+
+        class Panel:
+            def __init__(self) -> None:
+                self.content = b""
+
+            def get_server(self, server_id: str) -> dict[str, str]:
+                return {
+                    "id": server_id,
+                    "status": dependency_deployment.reconciler.STATUS_STOPPED,
+                }
+
+            def update_file(self, server_id: str, path: str, content: bytes) -> None:
+                self.path = path
+                self.content = content
+
+            def call(self, service: str, method: str, payload: dict) -> dict:
+                self.assert_method = method
+                return {"mods": [active]}
+
+        panel = Panel()
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / dependency.filename
+            source.write_bytes(payload)
+            with mock.patch.object(
+                dependency_deployment.deployment,
+                "remote_mod_digest",
+                return_value=dependency.sha256,
+            ):
+                dependency_deployment.refresh_existing_dependency(
+                    panel, {"id": "server"}, dependency, source
+                )
+        self.assertEqual(panel.path, "mods/fabric-api.jar")
+        self.assertEqual(panel.content, payload)
+        self.assertEqual(panel.assert_method, "ListMods")
 
     def test_dependency_ownership_is_case_insensitive_and_not_jammarr(self) -> None:
         dependency = dependency_deployment.Dependency(

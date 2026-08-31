@@ -2,9 +2,10 @@
 """Generate the checksum-pinned DiscPanel runtime dependency manifest.
 
 The versions come from the final release manifest or the exact Ornithe module
-set resolved by the isolated target builds. Artifact bytes must already exist
-in Gradle's module cache; the generated manifest records public Maven URLs and
-SHA-256 digests without copying dependencies into the Jammarr release bundle.
+set resolved by the isolated target builds. Maven artifacts must already exist
+in Gradle's module cache; known metadata-only Fabric API coordinates are
+replaced with checksum-pinned public mod distributions. The generated manifest
+does not copy dependencies into the Jammarr release bundle.
 """
 
 from __future__ import annotations
@@ -22,6 +23,25 @@ REPOSITORIES = {
     "glass": "https://maven.glass-launcher.net/releases",
     "legacy-fabric": "https://maven.legacyfabric.net",
     "ornithe": "https://maven.ornithemc.net/releases",
+}
+
+FABRIC_API_DISTRIBUTIONS = {
+    # These Maven coordinates contain only fabric.mod.json and a dependency
+    # POM. Production servers need the official nested-module distribution.
+    "0.42.0+1.16": {
+        "url": (
+            "https://cdn.modrinth.com/data/P7dR8mSH/versions/"
+            "0.42.0%2B1.16/fabric-api-0.42.0%2B1.16.jar"
+        ),
+        "sha256": "3df8dd503f35aa0ac9fab8ad9f9a369fdfd0b1ab544af19a3d626d948fb4586c",
+    },
+    "0.77.0+1.18.2": {
+        "url": (
+            "https://cdn.modrinth.com/data/P7dR8mSH/versions/"
+            "qk28POfr/fabric-api-0.77.0%2B1.18.2.jar"
+        ),
+        "sha256": "6f822fb5aa481b4a6c1cfb8612bbfecc62a58e69d2c792f61a0eafa580e75999",
+    },
 }
 
 LEGACY_FABRIC_BUNDLE = {
@@ -139,6 +159,27 @@ def dependency(
         "sha256": sha256(source),
         "ownedPrefixes": [owned_prefix.lower()],
     }
+
+
+def fabric_api_dependency(cache: Path, version: str) -> dict[str, Any]:
+    distribution = FABRIC_API_DISTRIBUTIONS.get(version)
+    if distribution:
+        return {
+            "id": "fabric-api",
+            "filename": f"fabric-api-{version}.jar",
+            "url": distribution["url"],
+            "sha256": distribution["sha256"],
+            "ownedPrefixes": ["fabric-api-"],
+        }
+    return dependency(
+        cache,
+        dependency_id="fabric-api",
+        repository="fabric",
+        group="net.fabricmc.fabric-api",
+        artifact="fabric-api",
+        version=version,
+        owned_prefix="fabric-api-",
+    )
 
 
 def legacy_fabric_module_coordinates(
@@ -295,15 +336,7 @@ def generate(release_manifest: Path, cache: Path) -> dict[str, Any]:
         version = str((artifact.get("dependencies") or {}).get("fabric-api", ""))
         if not version:
             continue
-        external = dependency(
-            cache,
-            dependency_id="fabric-api",
-            repository="fabric",
-            group="net.fabricmc.fabric-api",
-            artifact="fabric-api",
-            version=version,
-            owned_prefix="fabric-api-",
-        )
+        external = fabric_api_dependency(cache, version)
         runtimes[f"{minecraft}-fabric"] = [external]
         if "quilt" in (artifact.get("compatibleLoaders") or []):
             runtimes[f"{minecraft}-quilt"] = [external]

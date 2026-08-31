@@ -15,6 +15,7 @@ import json
 import os
 import sys
 import urllib.request
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -99,6 +100,7 @@ def download_dependency(
     directory.mkdir(parents=True, exist_ok=True)
     target = directory / dependency.filename
     if target.is_file() and deployment.file_sha256(target) == dependency.sha256:
+        validate_dependency_archive(dependency, target)
         return target
     partial = target.with_suffix(target.suffix + ".partial")
     partial.unlink(missing_ok=True)
@@ -125,7 +127,27 @@ def download_dependency(
             f"expected {dependency.sha256}, got {actual}"
         )
     partial.replace(target)
+    validate_dependency_archive(dependency, target)
     return target
+
+
+def validate_dependency_archive(dependency: Dependency, path: Path) -> None:
+    """Reject Fabric API's metadata-only Maven coordinate as a server mod."""
+    if dependency.dependency_id != "fabric-api":
+        return
+    try:
+        with zipfile.ZipFile(path) as archive:
+            names = archive.namelist()
+    except zipfile.BadZipFile as error:
+        raise RuntimeError(f"{dependency.dependency_id} is not a valid JAR") from error
+    has_runtime_code = any(name.endswith(".class") for name in names) or any(
+        name.startswith("META-INF/jars/") and name.endswith(".jar")
+        for name in names
+    )
+    if not has_runtime_code:
+        raise RuntimeError(
+            "fabric-api dependency is metadata-only; use the published mod distribution"
+        )
 
 
 def stage_dependency(
@@ -216,6 +238,38 @@ def enable_existing_dependency(
         raise RuntimeError(f"server did not remain stopped after {dependency.dependency_id}")
 
 
+def refresh_existing_dependency(
+    panel: Any,
+    server: dict[str, Any],
+    dependency: Dependency,
+    source: Path,
+) -> None:
+    """Replace stopped-server bytes while preserving the exact ModService record."""
+    server_id = str(server["id"])
+    fresh = panel.get_server(server_id)
+    if fresh.get("status") != reconciler.STATUS_STOPPED:
+        raise RuntimeError(
+            f"server became active before refreshing {dependency.dependency_id}"
+        )
+    panel.update_file(server_id, f"mods/{dependency.filename}", source.read_bytes())
+    if deployment.remote_mod_digest(panel, server_id, dependency.filename) != dependency.sha256:
+        raise RuntimeError(f"refreshed remote digest mismatch for {dependency.dependency_id}")
+    final_mods = panel.call("ModService", "ListMods", {"serverId": server_id}).get(
+        "mods", []
+    )
+    final_active = [
+        mod
+        for mod in final_mods
+        if owns(dependency, mod) and deployment.is_enabled(mod)
+    ]
+    if len(final_active) != 1 or final_active[0].get("fileName") != dependency.filename:
+        raise RuntimeError(
+            f"{dependency.dependency_id} refresh changed the active dependency record"
+        )
+    if panel.get_server(server_id).get("status") != reconciler.STATUS_STOPPED:
+        raise RuntimeError(f"server did not remain stopped after {dependency.dependency_id}")
+
+
 def run(args: argparse.Namespace) -> int:
     token = os.environ.get(args.token_env)
     if not token:
@@ -254,6 +308,7 @@ def run(args: argparse.Namespace) -> int:
         pending: list[
             tuple[Dependency, list[dict[str, Any]], dict[str, Any] | None]
         ] = []
+        refreshes: list[Dependency] = []
         already = 0
         for dependency in dependencies:
             owned = [mod for mod in mods if owns(dependency, mod)]
@@ -280,10 +335,9 @@ def run(args: argparse.Namespace) -> int:
                     )
                     != dependency.sha256
                 ):
-                    raise RuntimeError(
-                        f"{args.runtime} active {dependency.dependency_id} digest differs"
-                    )
-                already += 1
+                    refreshes.append(dependency)
+                else:
+                    already += 1
             else:
                 pending.append(
                     (
@@ -295,9 +349,15 @@ def run(args: argparse.Namespace) -> int:
         print(
             f"DiscPanel runtime dependencies: runtime={args.runtime} "
             f"selected={len(dependencies)} already_verified={already} "
-            f"deploy_required={len(pending)} apply={str(args.apply).lower()}"
+            f"deploy_required={len(pending) + len(refreshes)} "
+            f"apply={str(args.apply).lower()}"
         )
         if not args.apply:
+            for dependency in refreshes:
+                print(
+                    f"WOULD_REFRESH_DEPENDENCY {dependency.dependency_id} "
+                    f"{dependency.filename} record=preserved"
+                )
             for dependency, active, exact_disabled in pending:
                 rollback = str(active[0].get("fileName")) if active else "none"
                 action = "ENABLE" if exact_disabled else "DEPLOY"
@@ -306,6 +366,18 @@ def run(args: argparse.Namespace) -> int:
                     f"{dependency.filename} rollback={rollback}"
                 )
             return 0
+        for dependency in refreshes:
+            refresh_existing_dependency(
+                panel,
+                server,
+                dependency,
+                downloaded[dependency.dependency_id],
+            )
+            print(
+                f"REFRESHED_DEPENDENCY_STOPPED {dependency.dependency_id} "
+                f"sha256={dependency.sha256}",
+                flush=True,
+            )
         for dependency, active, exact_disabled in pending:
             if exact_disabled:
                 enable_existing_dependency(

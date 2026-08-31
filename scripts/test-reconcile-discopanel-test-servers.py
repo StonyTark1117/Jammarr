@@ -51,6 +51,21 @@ class DiscPanelReconcilerTests(unittest.TestCase):
         self.assertEqual(profiles["1.21.11-neoforge"].docker_image, "java21")
         self.assertEqual(profiles["26.2-quilt"].docker_image, "java25")
 
+    def test_java8_quilt_profile_pins_java8_compatible_installer(self) -> None:
+        profiles = {
+            profile.runtime: profile
+            for profile in reconcile_discopanel.desired_profiles(Path("gradle/targets.json"))
+        }
+        quilt = profiles["1.16.5-quilt"]
+        self.assertEqual(quilt.docker_image, "java8")
+        self.assertEqual(quilt.provisioning, "native")
+        self.assertEqual(
+            dict(quilt.environment),
+            {
+                "QUILT_INSTALLER_VERSION": "0.7.0",
+            },
+        )
+
     def test_custom_profiles_use_pinned_fabric_bootstraps(self) -> None:
         profiles = {
             profile.runtime: profile
@@ -404,6 +419,7 @@ class DiscPanelReconcilerTests(unittest.TestCase):
             "mcVersion": profile.minecraft,
             "dockerImage": profile.docker_image,
             "autoStart": False,
+            "status": "SERVER_STATUS_STOPPED",
             "detached": True,
             "dockerOverrides": {
                 "environment": {
@@ -421,6 +437,46 @@ class DiscPanelReconcilerTests(unittest.TestCase):
         self.assertNotIn("FABRIC_LAUNCHER", environment)
         self.assertEqual(environment["TYPE"], "CUSTOM")
         self.assertEqual(payload["dockerOverrides"]["networkMode"], "host")
+
+    def test_native_quilt_repair_preserves_release_loader_pin(self) -> None:
+        panel = reconcile_discopanel.DiscPanel("http://example.invalid", "test")
+        profile = next(
+            profile
+            for profile in reconcile_discopanel.desired_profiles(
+                Path("gradle/targets.json")
+            )
+            if profile.runtime == "1.16.5-quilt"
+        )
+        server = {
+            "id": "server",
+            "name": profile.name,
+            "description": "managed",
+            "port": 25565,
+            "maxPlayers": 5,
+            "memory": 4096,
+            "modLoader": profile.panel_loader,
+            "mcVersion": profile.minecraft,
+            "dockerImage": profile.docker_image,
+            "autoStart": False,
+            "status": "SERVER_STATUS_STOPPED",
+            "detached": True,
+            "dockerOverrides": {
+                "environment": {
+                    "QUILT_LOADER_VERSION": "0.24.0",
+                    "JAMMARR_PLEX_TOKEN": "private-token",
+                }
+            },
+        }
+        self.assertRegex(
+            reconcile_discopanel.drift(profile, server)[0],
+            "QUILT_INSTALLER_VERSION",
+        )
+        with mock.patch.object(panel, "call", return_value={}) as call:
+            panel.update_server(profile, server)
+        environment = call.call_args.args[2]["dockerOverrides"]["environment"]
+        self.assertEqual(environment["QUILT_INSTALLER_VERSION"], "0.7.0")
+        self.assertEqual(environment["QUILT_LOADER_VERSION"], "0.24.0")
+        self.assertEqual(environment["JAMMARR_PLEX_TOKEN"], "private-token")
 
 
 if __name__ == "__main__":
