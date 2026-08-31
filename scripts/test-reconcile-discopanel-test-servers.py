@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPT = Path(__file__).with_name("reconcile-discopanel-test-servers.py")
@@ -52,6 +54,9 @@ class DiscPanelReconcilerTests(unittest.TestCase):
         self.assertEqual(babric.panel_loader, "MOD_LOADER_FABRIC")
         self.assertEqual(babric.provisioning, "custom-url")
         self.assertIn("0.16.9", dict(babric.environment)["FABRIC_LAUNCHER_URL"])
+        self.assertRegex(babric.launcher_sha256, r"^[0-9a-f]{64}$")
+        for runtime in ("1.6.4-fabric", "1.8.9-fabric"):
+            self.assertRegex(profiles[runtime].launcher_sha256, r"^[0-9a-f]{64}$")
         ornithe = profiles["1.6.4-ornithe"]
         self.assertEqual(ornithe.provisioning, "custom-upload")
         self.assertEqual(
@@ -111,6 +116,51 @@ class DiscPanelReconcilerTests(unittest.TestCase):
             reconcile_discopanel.drift(profile, server)[0],
             "docker environment FABRIC_LAUNCHER_URL",
         )
+
+    def test_custom_url_launcher_verifies_pinned_bytes(self) -> None:
+        payload = b"pinned custom launcher"
+        profile = reconcile_discopanel.Profile(
+            runtime="test-fabric",
+            minecraft="test",
+            loader="fabric",
+            name="Test",
+            java=8,
+            docker_image="java8",
+            panel_loader="MOD_LOADER_FABRIC",
+            provisioning="custom-url",
+            environment=(("FABRIC_LAUNCHER_URL", "https://example.invalid/server.jar"),),
+            launcher_sha256=reconcile_discopanel.hashlib.sha256(payload).hexdigest(),
+        )
+        with mock.patch.object(
+            reconcile_discopanel.urllib.request,
+            "urlopen",
+            return_value=io.BytesIO(payload),
+        ):
+            self.assertEqual(
+                reconcile_discopanel.verify_custom_url_launcher(profile),
+                profile.launcher_sha256,
+            )
+
+    def test_custom_url_launcher_rejects_changed_bytes(self) -> None:
+        profile = reconcile_discopanel.Profile(
+            runtime="test-fabric",
+            minecraft="test",
+            loader="fabric",
+            name="Test",
+            java=8,
+            docker_image="java8",
+            panel_loader="MOD_LOADER_FABRIC",
+            provisioning="custom-url",
+            environment=(("FABRIC_LAUNCHER_URL", "https://example.invalid/server.jar"),),
+            launcher_sha256="0" * 64,
+        )
+        with mock.patch.object(
+            reconcile_discopanel.urllib.request,
+            "urlopen",
+            return_value=io.BytesIO(b"changed"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "digest mismatch"):
+                reconcile_discopanel.verify_custom_url_launcher(profile)
 
 
 if __name__ == "__main__":

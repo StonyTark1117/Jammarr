@@ -19,7 +19,7 @@
 - Add a production Forge 1.7.10 UI regression probe for issue #5 that clicks the real search field and proves typing, backspace, retyping, focus, and cursor state survive repeated screen rebuilds.
 - Validate the shared Plex implementation against the live deployment with blank-library preference for `Music`, exclusion of a real item from the separate ASMR library, browse/search/station/Adventure/transcode coverage, and 30 repeat-safe autoplay transitions.
 - Add a manifest-driven DiscPanel reconciler with dry-run-by-default planning, exact stopped-state drift checks, sequential no-mod native instance creation, pinned Java images, and fail-closed handling for custom legacy loader distributions.
-- Reconcile the live DiscPanel matrix to 94 stopped native-loader profiles with unique ports and no creation errors; verify all 73 newly created instances contain no mod records while five custom legacy distributions remain pending.
+- Reconcile the live DiscPanel matrix to all 99 manifest-derived runtime profiles, including checksum-pinned Babric and Legacy Fabric launchers plus inspected Ornithe generation-2 bootstrap distributions; leave every profile stopped with a unique port and verify all 78 newly created instances contain no mod records.
 
 ## 1.0.2 - 2026-08-28
 

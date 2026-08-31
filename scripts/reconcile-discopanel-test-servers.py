@@ -47,18 +47,21 @@ LOADER_ENUM = {
 CUSTOM_RUNTIME_CONFIG = {
     "b1.7.3-babric": {
         "provisioning": "custom-url",
+        "launcherSha256": "a9374e2da1b0ca336c0f8fa2fb894d761931b7b161d8d264626cc779c13c7278",
         "environment": {
             "FABRIC_LAUNCHER_URL": "https://meta.babric.glass-launcher.net/v2/versions/loader/b1.7.3/0.16.9/1.0.0-babric.2/server/jar",
         },
     },
     "1.6.4-fabric": {
         "provisioning": "custom-url",
+        "launcherSha256": "bc3f1a2a1a98dead328d74b834072e90e699b10c551e77214b23f82d4f170012",
         "environment": {
             "FABRIC_LAUNCHER_URL": "https://meta.legacyfabric.net/v2/versions/loader/1.6.4/0.18.3/1.1.1/server/jar",
         },
     },
     "1.8.9-fabric": {
         "provisioning": "custom-url",
+        "launcherSha256": "f61b5ea5391cc941e7b7d559c0cd353cabc8e186e7333ab0e1968dff951ea4a0",
         "environment": {
             "FABRIC_LAUNCHER_URL": "https://meta.legacyfabric.net/v2/versions/loader/1.8.9/0.18.3/1.1.1/server/jar",
         },
@@ -97,6 +100,7 @@ class Profile:
     panel_loader: str
     provisioning: str
     environment: tuple[tuple[str, str], ...] = ()
+    launcher_sha256: str = ""
 
 
 def desired_profiles(manifest_path: Path) -> list[Profile]:
@@ -121,6 +125,7 @@ def desired_profiles(manifest_path: Path) -> list[Profile]:
                 panel_loader="MOD_LOADER_FABRIC" if custom else LOADER_ENUM.get(loader, ""),
                 provisioning=str(custom["provisioning"]) if custom else "native",
                 environment=tuple(sorted(custom["environment"].items())) if custom else (),
+                launcher_sha256=str(custom.get("launcherSha256", "")) if custom else "",
             )
         )
     unsupported = [profile.runtime for profile in profiles if not profile.panel_loader]
@@ -138,6 +143,30 @@ def display_loader(loader: str) -> str:
         "ornithe": "Ornithe",
         "quilt": "Quilt",
     }[loader]
+
+
+def verify_custom_url_launcher(profile: Profile, timeout: int = 120) -> str:
+    """Download and verify a pinned Fabric-derived server launcher."""
+    if profile.provisioning != "custom-url":
+        raise ValueError(f"{profile.runtime} is not a custom URL launcher profile")
+    if len(profile.launcher_sha256) != 64:
+        raise RuntimeError(f"{profile.runtime} has no valid pinned launcher digest")
+    environment = dict(profile.environment)
+    url = environment.get("FABRIC_LAUNCHER_URL")
+    if not url:
+        raise RuntimeError(f"{profile.runtime} has no FABRIC_LAUNCHER_URL")
+    request = urllib.request.Request(url, headers={"User-Agent": "Jammarr-DiscPanel-Reconciler/1"})
+    digest = hashlib.sha256()
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        while chunk := response.read(1024 * 1024):
+            digest.update(chunk)
+    actual = digest.hexdigest()
+    if actual != profile.launcher_sha256:
+        raise RuntimeError(
+            f"custom launcher digest mismatch for {profile.runtime}: "
+            f"expected {profile.launcher_sha256}, got {actual}"
+        )
+    return actual
 
 
 class DiscPanel:
@@ -581,6 +610,27 @@ def reconcile(args: argparse.Namespace) -> int:
     if drifted:
         print("Refusing changes while existing server definitions drift.", file=sys.stderr)
         return 2
+
+    launchers_to_verify: list[Profile] = []
+    if args.verify_custom_launchers:
+        launchers_to_verify.extend(
+            profile for profile in profiles if profile.provisioning == "custom-url"
+        )
+    elif args.apply_custom:
+        launchers_to_verify.extend(
+            profile
+            for profile in missing_custom
+            if profile.provisioning == "custom-url"
+        )
+        launchers_to_verify.extend(
+            profile
+            for profile, _ in repairable_custom
+            if profile.provisioning == "custom-url"
+        )
+    for profile in dict.fromkeys(launchers_to_verify):
+        digest = verify_custom_url_launcher(profile, args.request_timeout)
+        print(f"VERIFIED_CUSTOM_LAUNCHER {profile.runtime} sha256={digest}")
+
     if not args.apply_native and not args.apply_custom:
         for profile in missing_native:
             print(f"WOULD_CREATE {profile.runtime} {profile.docker_image}")
@@ -691,6 +741,11 @@ def parse_args() -> argparse.Namespace:
         "--apply-custom",
         action="store_true",
         help="create pinned Fabric-derived legacy servers and upload only required bootstrap files",
+    )
+    parser.add_argument(
+        "--verify-custom-launchers",
+        action="store_true",
+        help="download and verify every pinned custom URL launcher without changing servers",
     )
     parser.add_argument("--json", action="store_true")
     return parser.parse_args()
