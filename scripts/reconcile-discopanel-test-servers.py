@@ -357,6 +357,8 @@ def drift(profile: Profile, server: dict[str, Any]) -> list[str]:
     ]
     if not is_stopped(server):
         differences.append(f"status={server.get('status')!r} expected {STATUS_STOPPED!r}")
+    if bool(server.get("autoStart", False)):
+        differences.append("autoStart=True expected False")
     environment = (server.get("dockerOverrides") or {}).get("environment") or {}
     for key, value in profile.environment:
         if environment.get(key) != value:

@@ -90,9 +90,13 @@ class DiscPanelReconcilerTests(unittest.TestCase):
             "modLoader": "MOD_LOADER_FABRIC",
             "dockerImage": "java17",
             "memory": 4096,
+            "autoStart": False,
             "status": "SERVER_STATUS_STOPPED",
         }
         self.assertEqual(reconcile_discopanel.drift(profile, server), [])
+        server["autoStart"] = True
+        self.assertRegex(reconcile_discopanel.drift(profile, server)[0], "autoStart")
+        server["autoStart"] = False
         server["status"] = "SERVER_STATUS_RUNNING"
         self.assertRegex(reconcile_discopanel.drift(profile, server)[0], "status")
 
@@ -107,6 +111,7 @@ class DiscPanelReconcilerTests(unittest.TestCase):
             "modLoader": "MOD_LOADER_FABRIC",
             "dockerImage": "java8",
             "memory": 4096,
+            "autoStart": False,
             "status": "SERVER_STATUS_STOPPED",
             "dockerOverrides": {"environment": dict(profile.environment)},
         }
