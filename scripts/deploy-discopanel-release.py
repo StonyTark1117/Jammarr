@@ -40,6 +40,7 @@ class DeploymentTarget:
     filename: str
     sha256: str
     source: Path
+    loader_environment: tuple[tuple[str, str], ...] = ()
 
 
 def file_sha256(path: Path) -> str:
@@ -149,6 +150,25 @@ def deployment_targets(
         release = release_artifacts.get(filename)
         if release is None:
             raise SystemExit(f"{runtime['name']} release artifact is missing: {filename}")
+        profile = profiles[runtime["name"]]
+        dependencies = release.get("dependencies") or {}
+        loader_key = {
+            "fabric": ("FABRIC_LOADER_VERSION", "fabric-loader"),
+            "forge": ("FORGE_VERSION", "forge"),
+            "neoforge": ("NEOFORGE_VERSION", "neoforge"),
+            "quilt": ("QUILT_LOADER_VERSION", "quilt-loader"),
+        }.get(runtime_loader)
+        loader_environment: tuple[tuple[str, str], ...] = ()
+        if profile.provisioning == "native" and loader_key:
+            environment_key, dependency_key = loader_key
+            version = str(dependencies.get(dependency_key, ""))
+            if not version:
+                raise SystemExit(
+                    f"{runtime['name']} release metadata lacks {dependency_key}"
+                )
+            if runtime_loader == "forge" and version.endswith(f"-{minecraft}"):
+                version = version[: -(len(minecraft) + 1)]
+            loader_environment = ((environment_key, version),)
         targets.append(
             DeploymentTarget(
                 runtime=runtime["name"],
@@ -156,6 +176,7 @@ def deployment_targets(
                 filename=filename,
                 sha256=str(release["sha256"]),
                 source=release_dir / filename,
+                loader_environment=loader_environment,
             )
         )
     if len(targets) != len(profiles) or len({target.runtime for target in targets}) != len(targets):
@@ -263,6 +284,24 @@ def update_managed_description(
         raise RuntimeError(f"{target.runtime} did not remain stopped after description update")
 
 
+def update_loader_environment(
+    panel: Any, target: DeploymentTarget, server: dict[str, Any]
+) -> None:
+    if not target.loader_environment:
+        return
+    fresh = panel.get_server(str(server["id"]))
+    if fresh.get("status") != reconciler.STATUS_STOPPED:
+        raise RuntimeError(f"{target.runtime} became active before loader pin update")
+    additions = dict(target.loader_environment)
+    panel.update_server_environment(fresh, additions)
+    updated = panel.get_server(str(server["id"]))
+    environment = ((updated.get("dockerOverrides") or {}).get("environment") or {})
+    if any(environment.get(key) != value for key, value in additions.items()):
+        raise RuntimeError(f"{target.runtime} loader pin update did not persist")
+    if updated.get("status") != reconciler.STATUS_STOPPED:
+        raise RuntimeError(f"{target.runtime} did not remain stopped after loader pin update")
+
+
 def reconcile(args: argparse.Namespace) -> int:
     token = os.environ.get(args.token_env)
     if not token:
@@ -293,6 +332,7 @@ def reconcile(args: argparse.Namespace) -> int:
 
     plan: list[tuple[DeploymentTarget, dict[str, Any], list[dict[str, Any]]]] = []
     description_updates: list[tuple[DeploymentTarget, dict[str, Any]]] = []
+    loader_updates: list[tuple[DeploymentTarget, dict[str, Any]]] = []
     already = 0
     for target in targets:
         summary = by_name.get(target.server_name)
@@ -322,6 +362,12 @@ def reconcile(args: argparse.Namespace) -> int:
             full_server = panel.get_server(server_id)
             if full_server.get("description") != reconciler.MANAGED_DESCRIPTION:
                 description_updates.append((target, full_server))
+            environment = ((full_server.get("dockerOverrides") or {}).get("environment") or {})
+            if any(
+                environment.get(key) != value
+                for key, value in target.loader_environment
+            ):
+                loader_updates.append((target, full_server))
             continue
         if expected_disabled:
             raise RuntimeError(
@@ -332,7 +378,8 @@ def reconcile(args: argparse.Namespace) -> int:
     print(
         f"DiscPanel release {expected_version}: selected={len(targets)} "
         f"already_verified={already} deploy_required={len(plan)} "
-        f"description_updates={len(description_updates)} apply={str(args.apply).lower()}"
+        f"description_updates={len(description_updates)} "
+        f"loader_updates={len(loader_updates)} apply={str(args.apply).lower()}"
     )
     if not args.apply:
         for target, _, enabled in plan:
@@ -340,6 +387,8 @@ def reconcile(args: argparse.Namespace) -> int:
             print(f"WOULD_DEPLOY {target.runtime} {target.filename} rollback={previous}")
         for target, _ in description_updates:
             print(f"WOULD_UPDATE_DESCRIPTION {target.runtime}")
+        for target, _ in loader_updates:
+            print(f"WOULD_PIN_LOADER {target.runtime}")
         return 0
 
     for target, server, previous in plan:
@@ -348,10 +397,14 @@ def reconcile(args: argparse.Namespace) -> int:
         full_server = panel.get_server(str(server["id"]))
         if full_server.get("description") != reconciler.MANAGED_DESCRIPTION:
             update_managed_description(panel, target, full_server)
+        update_loader_environment(panel, target, full_server)
         print(f"DEPLOYED_STOPPED {target.runtime} sha256={target.sha256}", flush=True)
     for target, server in description_updates:
         update_managed_description(panel, target, server)
         print(f"UPDATED_DESCRIPTION_STOPPED {target.runtime}", flush=True)
+    for target, server in loader_updates:
+        update_loader_environment(panel, target, server)
+        print(f"PINNED_LOADER_STOPPED {target.runtime}", flush=True)
     return 0
 
 

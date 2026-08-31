@@ -274,6 +274,43 @@ class DiscPanel:
             payload["dockerOverrides"] = server["dockerOverrides"]
         return self.call("ServerService", "UpdateServer", payload)
 
+    def update_server_environment(
+        self, server: dict[str, Any], additions: dict[str, str]
+    ) -> dict[str, Any]:
+        overrides = json.loads(json.dumps(server.get("dockerOverrides") or {}))
+        environment = dict(overrides.get("environment") or {})
+        environment.update(additions)
+        overrides["environment"] = environment
+        payload: dict[str, Any] = {
+            "id": server["id"],
+            "name": server["name"],
+            "description": server.get("description", ""),
+            "port": int(server["port"]),
+            "maxPlayers": int(server.get("maxPlayers", 5)),
+            "memory": int(server.get("memory", 4096)),
+            "modLoader": str(server["modLoader"]).removeprefix("MOD_LOADER_").lower(),
+            "mcVersion": server["mcVersion"],
+            "dockerImage": server["dockerImage"],
+            "autoStart": bool(server.get("autoStart", False)),
+            "detached": bool(server.get("detached", True)),
+            "dockerOverrides": overrides,
+        }
+        return self.call("ServerService", "UpdateServer", payload)
+
+    def create_folder(self, server_id: str, path: str) -> None:
+        self.call("FileService", "CreateFolder", {"serverId": server_id, "path": path})
+
+    def update_file(self, server_id: str, path: str, content: bytes) -> None:
+        self.call(
+            "FileService",
+            "UpdateFile",
+            {
+                "serverId": server_id,
+                "path": path,
+                "content": base64.b64encode(content).decode("ascii"),
+            },
+        )
+
     def list_files(self, server_id: str, path: str = "") -> list[dict[str, Any]]:
         return list(
             self.call(

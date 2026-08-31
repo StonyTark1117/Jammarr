@@ -195,6 +195,39 @@ class DiscPanelReconcilerTests(unittest.TestCase):
         self.assertEqual(payload["dockerOverrides"], server["dockerOverrides"])
         self.assertFalse(payload["autoStart"])
 
+    def test_environment_update_preserves_existing_overrides(self) -> None:
+        panel = reconcile_discopanel.DiscPanel("http://example.invalid", "test")
+        server = {
+            "id": "server",
+            "name": "Jammarr Test",
+            "description": "managed",
+            "port": 25565,
+            "maxPlayers": 5,
+            "memory": 4096,
+            "modLoader": "MOD_LOADER_FORGE",
+            "mcVersion": "1.7.10",
+            "dockerImage": "java8",
+            "autoStart": False,
+            "detached": True,
+            "dockerOverrides": {
+                "environment": {"PRIVATE_SENTINEL": "preserve-me"},
+                "networkMode": "host",
+            },
+        }
+        with mock.patch.object(panel, "call", return_value={}) as call:
+            panel.update_server_environment(server, {"NEW_SETTING": "new-value"})
+        service, method, payload = call.call_args.args
+        self.assertEqual((service, method), ("ServerService", "UpdateServer"))
+        self.assertEqual(
+            payload["dockerOverrides"]["environment"],
+            {"PRIVATE_SENTINEL": "preserve-me", "NEW_SETTING": "new-value"},
+        )
+        self.assertEqual(payload["dockerOverrides"]["networkMode"], "host")
+        self.assertEqual(
+            server["dockerOverrides"]["environment"],
+            {"PRIVATE_SENTINEL": "preserve-me"},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -22,6 +22,9 @@
 - Reconcile the live DiscPanel matrix to all 99 manifest-derived runtime profiles, including checksum-pinned Babric and Legacy Fabric launchers plus inspected Ornithe generation-2 bootstrap distributions; leave every profile stopped with a unique port and verify all 78 newly created instances contain no mod records.
 - Add a dry-run-by-default DiscPanel release deployer that verifies all 78 indexed artifacts, maps the 75 server artifacts onto all 99 runtime profiles, refuses running, drifted, autostarted, duplicate, or partial deployments, verifies uploaded bytes, and retains the previously active Jammarr file as a disabled rollback without starting a server.
 - Stage the exact 1.1.0 release-candidate artifact on all 99 DiscPanel runtime profiles, verify every remote digest, retain 21 stable 1.0.2 rollback files disabled, and finish with no active older Jammarr artifact or deployment-created server start.
+- Pin each DiscPanel native runtime to the exact Fabric, Forge, NeoForge, or Quilt loader declared by the release manifest instead of allowing container defaults to drift.
+- Add a guarded live-Plex DiscPanel configurator that keeps credentials environment-only, blanks the library setting to exercise the `Music` metadata fallback, preserves existing canonical configs by default, and never starts a server.
+- Configure 78 stopped DiscPanel profiles for live-Plex fallback testing while preserving 21 pre-existing configs, then validate the final 1.12.2 Forge artifact through a real Plex connection and clean server stop after recovering from a transient upstream installer timeout.
 
 ## 1.0.2 - 2026-08-28
 
