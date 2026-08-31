@@ -276,7 +276,7 @@ final class LegacyAudioPlayer {
                     appliedVolume = volume;
                     openAlStream.gain((float) volume);
                     if (ProtocolLimits.audioProbeEnabled()) {
-                        Jammarr.LOGGER.info("Acceptance backend volume applied: {}", volume);
+                        Jammarr.LOGGER.info("Acceptance backend volume applied: " + volume);
                     }
                 }
                 openAlStream.feed(pcm);
@@ -331,10 +331,10 @@ final class LegacyAudioPlayer {
             recoveryFailed = true; recovering = false; resetAudio(); return;
         }
         lastRecoveryMs = System.currentTimeMillis(); recovering = true;
-        Jammarr.LOGGER.warn("Jammarr legacy audio recovery attempt {}/{}: {}",
-                recoveryAttempts, MAX_RECOVERY_ATTEMPTS, reason);
+        Jammarr.LOGGER.warn("Jammarr legacy audio recovery attempt " + recoveryAttempts
+                + "/" + MAX_RECOVERY_ATTEMPTS + ": " + reason);
         if (stonytark.jammarr.core.protocol.ProtocolLimits.audioProbeEnabled()) {
-            Jammarr.LOGGER.info("Acceptance audio state: RECOVERING reason={}", reason);
+            Jammarr.LOGGER.info("Acceptance audio state: RECOVERING reason=" + reason);
         }
         resetAudio();
         requestManifest();
@@ -357,7 +357,7 @@ final class LegacyAudioPlayer {
                 || manifest == null || !started) return;
         sourceStartedLocalMs -= DRIFT_REBUFFER_MS + 2_000L;
         lastCorrectionMs = 0L;
-        Jammarr.LOGGER.info("Acceptance clock drift injected beyond {} ms", DRIFT_REBUFFER_MS);
+        Jammarr.LOGGER.info("Acceptance clock drift injected beyond " + DRIFT_REBUFFER_MS + " ms");
     }
 
     void acceptanceExhaustRecovery() {

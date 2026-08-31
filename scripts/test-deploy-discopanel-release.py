@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import base64
 import importlib.util
 import sys
 import tempfile
@@ -148,13 +147,6 @@ class DiscPanelReleaseDeploymentTests(unittest.TestCase):
 
                 def call(self, service: str, method: str, body: dict[str, object]):
                     self.calls.append((service, method))
-                    if method == "InitUpload":
-                        return {"sessionId": "upload"}
-                    if method == "UploadChunk":
-                        self.data.extend(base64.b64decode(str(body["data"])))
-                        return {}
-                    if method == "GetUploadStatus":
-                        return {"completed": True}
                     if method == "ImportUploadedMod":
                         self.mods.append(
                             {
@@ -173,6 +165,11 @@ class DiscPanelReleaseDeploymentTests(unittest.TestCase):
                         return {"mods": self.mods}
                     raise AssertionError(f"unexpected API call {service}/{method}")
 
+                def create_upload_session(self, source: Path) -> str:
+                    self.calls.append(("UploadService", "CreateUploadSession"))
+                    self.data.extend(source.read_bytes())
+                    return "upload"
+
                 def get_file(self, server_id: str, path: str) -> bytes:
                     self.calls.append(("FileService", "GetFile"))
                     return bytes(self.data)
@@ -189,6 +186,55 @@ class DiscPanelReleaseDeploymentTests(unittest.TestCase):
             self.assertEqual([mod["fileName"] for mod in active], [target.filename])
             self.assertFalse(panel.mods[0]["enabled"])
             self.assertNotIn(("ServerService", "StartServer"), panel.calls)
+
+    def test_same_filename_candidate_refreshes_bytes_in_place(self) -> None:
+        payload = b"rebuilt candidate bytes"
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "jammarr-1.1.0+mc1.8.9-ornithe.jar"
+            source.write_bytes(payload)
+            target = deployment.DeploymentTarget(
+                runtime="1.8.9-ornithe",
+                server_name="Jammarr 1.8.9 Ornithe Test",
+                filename=source.name,
+                sha256=deployment.hashlib.sha256(payload).hexdigest(),
+                source=source,
+            )
+            previous = {
+                "id": "old",
+                "fileName": target.filename,
+                "displayName": target.filename,
+                "enabled": True,
+            }
+
+            class FakePanel:
+                def __init__(self) -> None:
+                    self.data = b"old candidate bytes"
+                    self.mods = [previous.copy()]
+                    self.operations: list[str] = []
+
+                def call(self, service: str, method: str, body: dict[str, object]):
+                    if method == "ListMods":
+                        return {"mods": self.mods}
+                    raise AssertionError(f"unexpected API call {service}/{method}")
+
+                def update_file(self, server_id: str, path: str, content: bytes) -> None:
+                    self.operations.append(f"update:{path}")
+                    self.data = content
+
+                def get_file(self, server_id: str, path: str) -> bytes:
+                    return self.data
+
+                def get_server(self, server_id: str) -> dict[str, object]:
+                    return {"status": deployment.reconciler.STATUS_STOPPED}
+
+            panel = FakePanel()
+            deployment.deploy_target(
+                panel, target, {"id": "server"}, [previous.copy()], "1.1.0"
+            )
+            self.assertEqual(panel.operations, [f"update:mods/{target.filename}"])
+            self.assertEqual(
+                [mod["id"] for mod in panel.mods if mod.get("enabled")], ["old"]
+            )
 
 
 if __name__ == "__main__":

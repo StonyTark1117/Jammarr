@@ -20,7 +20,7 @@ public final class Jammarr implements ModInitializer {
     private static LegacyGlobalPlayer coordinator;
 
     @Override public void init() {
-        LOGGER.info("Initializing Jammarr {} for Ornithe 1.8.9 protocol {}", VERSION, PROTOCOL);
+        LOGGER.info("Initializing Jammarr " + VERSION + " for Ornithe 1.8.9 protocol " + PROTOCOL);
         LegacyNetwork.register();
         MinecraftServerEvents.READY.register(server -> {
             try {

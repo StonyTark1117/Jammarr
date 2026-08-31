@@ -39,7 +39,10 @@ INSTALLER_FAILURE_PATTERN = re.compile(
 )
 SERVER_FAILURE_PATTERN = re.compile(
     r"(?:Failed to start the minecraft server|Minecraft server failed|"
-    r"MixinApplyError|Exception in server tick loop|mc-server-runner\s+Done)",
+    r"MixinApplyError|Exception in server tick loop|mc-server-runner\s+Done|"
+    r"install-fabric-loader[^\r\n]*command failed|"
+    r"Failed to locate install\.properties|"
+    r"Failed to use provided Fabric launcher)",
     re.IGNORECASE,
 )
 RUN_START_PATTERN = re.compile(r"\[init\] Running as uid=", re.IGNORECASE)

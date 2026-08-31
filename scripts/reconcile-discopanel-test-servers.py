@@ -13,15 +13,19 @@ import argparse
 import base64
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
+import uuid
 import zipfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -69,13 +73,19 @@ CUSTOM_RUNTIME_CONFIG = {
     "1.6.4-ornithe": {
         "provisioning": "custom-upload",
         "environment": {
-            "FABRIC_LAUNCHER": "1.6.4-ornithe-server-bootstrap/fabric-server-launch.jar"
+            "TYPE": "CUSTOM",
+            "CUSTOM_SERVER": (
+                "/data/1.6.4-ornithe-server-bootstrap/fabric-server-launch.jar"
+            ),
         },
     },
     "1.8.9-ornithe": {
         "provisioning": "custom-upload",
         "environment": {
-            "FABRIC_LAUNCHER": "1.8.9-ornithe-server-bootstrap/fabric-server-launch.jar"
+            "TYPE": "CUSTOM",
+            "CUSTOM_SERVER": (
+                "/data/1.8.9-ornithe-server-bootstrap/fabric-server-launch.jar"
+            ),
         },
     },
 }
@@ -85,12 +95,37 @@ ORNITHE_INSTALLER_URL = (
 )
 ORNITHE_INSTALLER_SHA256 = "86b01c48c605e35fba3f4012d2b951ca4ae5f0b7445df8d3152f522b7242389f"
 ORNITHE_LOADER_VERSION = "0.19.5"
+ORNITHE_SERVER_JARS = {
+    "1.6.4": {
+        "url": (
+            "https://launcher.mojang.com/v1/objects/"
+            "050f93c1f3fe9e2052398f7bd6aca10c63d64a87/server.jar"
+        ),
+        "sourceSha256": "81841a2fedfe0ce19983156a06fa5294335284beeb95c8ca872d3c1a5fcf5774",
+        "runtimeSha256": "605036267dc626a674f9da12ffc18717b01cb28b9cbbb5d09fa005c49919f7e7",
+    },
+    "1.8.9": {
+        "url": (
+            "https://launcher.mojang.com/v1/objects/"
+            "b58b2ceb36e01bcd8dbf49c8fb66c55a9f0676cd/server.jar"
+        ),
+        "sourceSha256": "c18e4245073aaff580eb7359902f0251436568b1647a9e443a924cdb73fa8312",
+        "runtimeSha256": "539e0cc6da1aabc72b7f7471f7e423fb59b8a9ad9f365179427819f8ea62ae3f",
+    },
+}
 STATUS_STOPPED = "SERVER_STATUS_STOPPED"
 STATUS_ERROR = "SERVER_STATUS_ERROR"
 MANAGED_DESCRIPTION = (
     "Jammarr test runtime managed from gradle/targets.json; "
     "artifact state is tracked separately by DiscPanel ModService."
 )
+MANAGED_CUSTOM_ENV_KEYS = {
+    "CUSTOM_JAR_EXEC",
+    "CUSTOM_SERVER",
+    "FABRIC_LAUNCHER",
+    "FABRIC_LAUNCHER_URL",
+    "TYPE",
+}
 
 
 @dataclass(frozen=True)
@@ -235,6 +270,12 @@ class DiscPanel:
         return self.call("ServerService", "GetServer", {"id": server_id})["server"]
 
     def update_server(self, profile: Profile, server: dict[str, Any]) -> dict[str, Any]:
+        overrides = json.loads(json.dumps(server.get("dockerOverrides") or {}))
+        environment = dict(overrides.get("environment") or {})
+        for key in MANAGED_CUSTOM_ENV_KEYS:
+            environment.pop(key, None)
+        environment.update(dict(profile.environment))
+        overrides["environment"] = environment
         return self.call(
             "ServerService",
             "UpdateServer",
@@ -250,7 +291,7 @@ class DiscPanel:
                 "dockerImage": profile.docker_image,
                 "autoStart": False,
                 "detached": True,
-                "dockerOverrides": {"environment": dict(profile.environment)},
+                "dockerOverrides": overrides,
             },
         )
 
@@ -329,46 +370,98 @@ class DiscPanel:
             raise RuntimeError(f"DiscPanel GetFile returned invalid content for {path}")
         return base64.b64decode(content)
 
-    def upload_file(self, server_id: str, source: Path, destination: str) -> None:
-        chunk_size = 1024 * 1024
+    def delete_file(self, server_id: str, path: str) -> None:
+        self.call(
+            "FileService",
+            "DeleteFile",
+            {"serverId": server_id, "path": path},
+        )
+
+    def create_upload_session(self, source: Path) -> str:
+        # DiscPanel's upload staging area can retain completed or failed names.
+        # Keep each transient session filename unique.
+        upload_filename = f"jammarr-{uuid.uuid4().hex}-{source.name}"
         initialized = self.call(
             "UploadService",
             "InitUpload",
             {
-                "filename": source.name,
+                "filename": upload_filename,
                 "totalSize": source.stat().st_size,
-                "chunkSize": chunk_size,
+                "chunkSize": 0,
             },
         )
         session_id = str(initialized["sessionId"])
-        with source.open("rb") as stream:
-            chunk_index = 0
-            while chunk := stream.read(chunk_size):
-                self.call(
-                    "UploadService",
-                    "UploadChunk",
-                    {
-                        "sessionId": session_id,
-                        "chunkIndex": chunk_index,
-                        "data": base64.b64encode(chunk).decode("ascii"),
-                    },
+        try:
+            for attempt in range(3):
+                status = self.call(
+                    "UploadService", "GetUploadStatus", {"sessionId": session_id}
                 )
-                chunk_index += 1
-        status = self.call(
-            "UploadService", "GetUploadStatus", {"sessionId": session_id}
-        )
-        if not status.get("completed"):
-            raise RuntimeError(f"DiscPanel upload did not complete for {source.name}")
-        self.call(
-            "FileService",
-            "SaveUploadedFile",
-            {
-                "serverId": server_id,
-                "uploadSessionId": session_id,
-                "destinationPath": destination,
-                "filename": source.name,
-            },
-        )
+                if status.get("completed"):
+                    break
+                offset = int(status.get("bytesReceived", 0))
+                if offset < 0 or offset > source.stat().st_size:
+                    raise RuntimeError(
+                        f"DiscPanel returned an invalid upload offset for {source.name}"
+                    )
+                with source.open("rb") as stream:
+                    stream.seek(offset)
+                    data = stream.read()
+                headers = {
+                    "Authorization": f"Bearer {self.token}",
+                    "Content-Type": "application/octet-stream",
+                }
+                if offset:
+                    headers["X-Upload-Offset"] = str(offset)
+                request = urllib.request.Request(
+                    f"{self.base_url}/api/v1/upload/"
+                    f"{urllib.parse.quote(session_id, safe='')}",
+                    data=data,
+                    headers=headers,
+                    method="PUT",
+                )
+                try:
+                    with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                        response.read()
+                except (OSError, urllib.error.URLError):
+                    if attempt == 2:
+                        raise
+                    time.sleep(0.5 * (attempt + 1))
+            status = self.call(
+                "UploadService", "GetUploadStatus", {"sessionId": session_id}
+            )
+            if not status.get("completed"):
+                raise RuntimeError(f"DiscPanel upload did not complete for {source.name}")
+            return session_id
+        except BaseException:
+            try:
+                self.call(
+                    "UploadService", "CancelUpload", {"sessionId": session_id}
+                )
+            except BaseException:
+                pass
+            raise
+
+    def upload_file(self, server_id: str, source: Path, destination: str) -> None:
+        session_id = self.create_upload_session(source)
+        try:
+            self.call(
+                "FileService",
+                "SaveUploadedFile",
+                {
+                    "serverId": server_id,
+                    "uploadSessionId": session_id,
+                    "destinationPath": destination,
+                    "filename": source.name,
+                },
+            )
+        except BaseException:
+            try:
+                self.call(
+                    "UploadService", "CancelUpload", {"sessionId": session_id}
+                )
+            except BaseException:
+                pass
+            raise
 
     def extract_archive(
         self, server_id: str, archive_path: str, timeout_seconds: int
@@ -418,9 +511,13 @@ def drift(profile: Profile, server: dict[str, Any]) -> list[str]:
     if bool(server.get("autoStart", False)):
         differences.append("autoStart=True expected False")
     environment = (server.get("dockerOverrides") or {}).get("environment") or {}
+    expected_environment = dict(profile.environment)
     for key, value in profile.environment:
         if environment.get(key) != value:
             differences.append(f"docker environment {key} is not the pinned value")
+    for key in MANAGED_CUSTOM_ENV_KEYS - expected_environment.keys():
+        if key in environment:
+            differences.append(f"docker environment {key} is unexpectedly managed")
     return differences
 
 
@@ -446,13 +543,9 @@ def download_pinned(url: str, destination: Path, expected_sha256: str) -> None:
     destination.write_bytes(data)
 
 
-def validate_ornithe_install(install_dir: Path, minecraft: str) -> Path:
-    launcher = install_dir / "fabric-server-launch.jar"
-    if not launcher.is_file():
-        raise RuntimeError(f"Ornithe installer omitted the server launcher for {minecraft}")
-    if any("jammarr" in path.name.lower() for path in install_dir.rglob("*")):
-        raise RuntimeError("Ornithe bootstrap unexpectedly contains a Jammarr artifact")
-    with zipfile.ZipFile(launcher) as archive:
+def validate_ornithe_launcher(launcher: bytes | Path, minecraft: str) -> None:
+    source: Any = io.BytesIO(launcher) if isinstance(launcher, bytes) else launcher
+    with zipfile.ZipFile(source) as archive:
         manifest = archive.read("META-INF/MANIFEST.MF").decode("utf-8", "replace")
         properties = archive.read("fabric-server-launch.properties").decode(
             "utf-8", "replace"
@@ -466,6 +559,24 @@ def validate_ornithe_install(install_dir: Path, minecraft: str) -> Path:
         raise RuntimeError(f"Ornithe launcher has the wrong game mappings for {minecraft}")
     if f"fabric-loader/{ORNITHE_LOADER_VERSION}/" not in manifest:
         raise RuntimeError(f"Ornithe launcher has the wrong loader version for {minecraft}")
+    for required_library in (
+        "log4j-api/2.19.0/",
+        "log4j-core/2.19.0/",
+        "sponge-mixin/0.17.4+mixin.0.8.7/",
+    ):
+        if required_library not in manifest:
+            raise RuntimeError(
+                f"Ornithe launcher is missing {required_library} for {minecraft}"
+            )
+
+
+def validate_ornithe_install(install_dir: Path, minecraft: str) -> Path:
+    launcher = install_dir / "fabric-server-launch.jar"
+    if not launcher.is_file():
+        raise RuntimeError(f"Ornithe installer omitted the server launcher for {minecraft}")
+    if any("jammarr" in path.name.lower() for path in install_dir.rglob("*")):
+        raise RuntimeError("Ornithe bootstrap unexpectedly contains a Jammarr artifact")
+    validate_ornithe_launcher(launcher, minecraft)
     libraries = list((install_dir / "libraries").rglob("*.jar"))
     if len(libraries) < 8:
         raise RuntimeError(f"Ornithe installer produced only {len(libraries)} libraries")
@@ -514,15 +625,151 @@ def prepare_ornithe_archive(profile: Profile, output_dir: Path, java: str) -> Pa
     return archive_path
 
 
+def _zip_entries_without_paths(source: bytes, removed_paths: set[str]) -> bytes:
+    """Remove ZIP members while preserving every retained compressed byte.
+
+    Current Ornithe launchers strip libraries shaded into legacy Mojang server
+    JARs before handing the game JAR to Fabric. The pinned Java installer used
+    by this automation predates that launcher behavior, so reproduce it here.
+    Rebuilding entries through ZipFile would make the derived digest depend on
+    the host zlib; this small central-directory rewrite keeps it reproducible.
+    """
+    eocd_signature = b"PK\x05\x06"
+    central_signature = b"PK\x01\x02"
+    eocd_offset = source.rfind(eocd_signature, max(0, len(source) - 65_557))
+    if eocd_offset < 0 or eocd_offset + 22 > len(source):
+        raise RuntimeError("server JAR has no valid ZIP end record")
+    disk, central_disk, disk_entries, total_entries, central_size, central_offset, comment_size = (
+        struct.unpack_from("<HHHHIIH", source, eocd_offset + 4)
+    )
+    if disk or central_disk or disk_entries != total_entries:
+        raise RuntimeError("multi-disk server JARs are unsupported")
+    if total_entries == 0xFFFF or central_offset == 0xFFFFFFFF:
+        raise RuntimeError("ZIP64 server JARs are unsupported")
+    if eocd_offset + 22 + comment_size != len(source):
+        raise RuntimeError("server JAR has unexpected data after its ZIP end record")
+    if central_offset + central_size != eocd_offset:
+        raise RuntimeError("server JAR has an unsupported central-directory trailer")
+
+    entries: list[dict[str, Any]] = []
+    cursor = central_offset
+    for _ in range(total_entries):
+        if source[cursor : cursor + 4] != central_signature:
+            raise RuntimeError("server JAR central directory is malformed")
+        flags = struct.unpack_from("<H", source, cursor + 8)[0]
+        filename_size, extra_size, entry_comment_size = struct.unpack_from(
+            "<HHH", source, cursor + 28
+        )
+        record_size = 46 + filename_size + extra_size + entry_comment_size
+        record = bytearray(source[cursor : cursor + record_size])
+        filename_bytes = bytes(record[46 : 46 + filename_size])
+        encoding = "utf-8" if flags & 0x800 else "cp437"
+        filename = filename_bytes.decode(encoding)
+        local_offset = struct.unpack_from("<I", record, 42)[0]
+        if local_offset == 0xFFFFFFFF:
+            raise RuntimeError("ZIP64 server JAR entries are unsupported")
+        entries.append(
+            {
+                "filename": filename,
+                "localOffset": local_offset,
+                "record": record,
+            }
+        )
+        cursor += record_size
+    if cursor != central_offset + central_size:
+        raise RuntimeError("server JAR central-directory size does not match")
+
+    by_local_offset = sorted(entries, key=lambda entry: int(entry["localOffset"]))
+    if len({entry["localOffset"] for entry in by_local_offset}) != len(entries):
+        raise RuntimeError("server JAR contains duplicate local entry offsets")
+    first_local_offset = int(by_local_offset[0]["localOffset"]) if entries else central_offset
+    output = bytearray(source[:first_local_offset])
+    retained_offsets: dict[int, int] = {}
+    for index, entry in enumerate(by_local_offset):
+        old_offset = int(entry["localOffset"])
+        next_offset = (
+            int(by_local_offset[index + 1]["localOffset"])
+            if index + 1 < len(by_local_offset)
+            else central_offset
+        )
+        if old_offset < first_local_offset or next_offset < old_offset:
+            raise RuntimeError("server JAR local entry offsets are malformed")
+        if str(entry["filename"]) in removed_paths:
+            continue
+        retained_offsets[old_offset] = len(output)
+        output.extend(source[old_offset:next_offset])
+
+    new_central_offset = len(output)
+    retained_count = 0
+    for entry in entries:
+        old_offset = int(entry["localOffset"])
+        if old_offset not in retained_offsets:
+            continue
+        record = bytearray(entry["record"])
+        struct.pack_into("<I", record, 42, retained_offsets[old_offset])
+        output.extend(record)
+        retained_count += 1
+    if retained_count > 0xFFFF:
+        raise RuntimeError("derived server JAR has too many entries")
+    new_central_size = len(output) - new_central_offset
+    end_record = bytearray(source[eocd_offset:])
+    struct.pack_into("<HHII", end_record, 8, retained_count, retained_count, new_central_size, new_central_offset)
+    output.extend(end_record)
+    return bytes(output)
+
+
+def prepare_ornithe_server_jar(
+    profile: Profile, bootstrap_archive: Path, output_dir: Path
+) -> Path:
+    spec = ORNITHE_SERVER_JARS.get(profile.minecraft)
+    if not spec:
+        raise RuntimeError(f"no pinned Minecraft server JAR for {profile.runtime}")
+    runtime_dir = output_dir / profile.runtime
+    source = runtime_dir / "server-source.jar"
+    download_pinned(spec["url"], source, spec["sourceSha256"])
+
+    shaded_paths: set[str] = set()
+    with zipfile.ZipFile(bootstrap_archive) as bootstrap:
+        library_names = sorted(
+            name
+            for name in bootstrap.namelist()
+            if name.startswith("libraries/") and name.endswith(".jar")
+        )
+        if not library_names:
+            raise RuntimeError(f"Ornithe bootstrap has no libraries for {profile.runtime}")
+        for library_name in library_names:
+            with zipfile.ZipFile(io.BytesIO(bootstrap.read(library_name))) as library:
+                shaded_paths.update(
+                    entry.filename for entry in library.infolist() if not entry.is_dir()
+                )
+
+    destination = runtime_dir / "server.jar"
+    transformed = _zip_entries_without_paths(source.read_bytes(), shaded_paths)
+    destination.write_bytes(transformed)
+    actual = hashlib.sha256(transformed).hexdigest()
+    if actual != spec["runtimeSha256"]:
+        raise RuntimeError(
+            f"derived Ornithe server digest mismatch for {profile.runtime}: {actual}"
+        )
+    with zipfile.ZipFile(destination) as runtime_jar:
+        remaining = set(runtime_jar.namelist())
+    leaked = shaded_paths & remaining
+    if leaked:
+        raise RuntimeError(
+            f"derived Ornithe server retained {len(leaked)} shaded library entries"
+        )
+    return destination
+
+
 def ornithe_bootstrap_dir(profile: Profile) -> str:
     return f"{profile.runtime}-server-bootstrap"
 
 
-def has_ornithe_bootstrap(
+def has_ornithe_launcher_files(
     panel: DiscPanel, server_id: str, profile: Profile
 ) -> bool:
-    names = {str(entry.get("name", "")) for entry in panel.list_files(server_id)}
     bootstrap_dir = ornithe_bootstrap_dir(profile)
+    names = {str(entry.get("name", "")) for entry in panel.list_files(server_id)}
     if bootstrap_dir not in names:
         return False
     nested_names = {
@@ -530,6 +777,38 @@ def has_ornithe_bootstrap(
         for entry in panel.list_files(server_id, bootstrap_dir)
     }
     return "fabric-server-launch.jar" in nested_names and "libraries" in nested_names
+
+
+def has_ornithe_bootstrap(
+    panel: DiscPanel, server_id: str, profile: Profile
+) -> bool:
+    names = {str(entry.get("name", "")) for entry in panel.list_files(server_id)}
+    if "server.jar" not in names or not has_ornithe_launcher_files(
+        panel, server_id, profile
+    ):
+        return False
+    expected = ORNITHE_SERVER_JARS.get(profile.minecraft, {}).get("runtimeSha256")
+    if not expected:
+        raise RuntimeError(f"no pinned Minecraft server JAR for {profile.runtime}")
+    return hashlib.sha256(panel.get_file(server_id, "server.jar")).hexdigest() == expected
+
+
+def clear_ornithe_remap_cache(
+    panel: DiscPanel, server_id: str, profile: Profile
+) -> bool:
+    cache_parent = ".fabric/remappedJars"
+    cache_name = f"minecraft-{profile.minecraft}-{ORNITHE_LOADER_VERSION}"
+    try:
+        names = {
+            str(entry.get("name", ""))
+            for entry in panel.list_files(server_id, cache_parent)
+        }
+    except RuntimeError:
+        return False
+    if cache_name not in names:
+        return False
+    panel.delete_file(server_id, f"{cache_parent}/{cache_name}")
+    return True
 
 
 def install_ornithe_bootstrap(
@@ -541,18 +820,36 @@ def install_ornithe_bootstrap(
     timeout_seconds: int,
 ) -> None:
     archive = prepare_ornithe_archive(profile, output_dir, java)
-    panel.upload_file(server_id, archive, "")
-    panel.extract_archive(server_id, archive.name, timeout_seconds)
+    server_jar = prepare_ornithe_server_jar(profile, archive, output_dir)
+    server_spec = ORNITHE_SERVER_JARS.get(profile.minecraft)
+    if not server_spec:
+        raise RuntimeError(f"no pinned Minecraft server JAR for {profile.runtime}")
+    launcher_path = f"{ornithe_bootstrap_dir(profile)}/fabric-server-launch.jar"
+    remote_launcher = (
+        panel.get_file(server_id, launcher_path)
+        if has_ornithe_launcher_files(panel, server_id, profile)
+        else b""
+    )
+    try:
+        validate_ornithe_launcher(remote_launcher, profile.minecraft)
+        remote_launcher_valid = True
+    except (KeyError, OSError, RuntimeError, zipfile.BadZipFile):
+        remote_launcher_valid = False
+    if not remote_launcher_valid:
+        panel.upload_file(server_id, archive, "")
+        panel.extract_archive(server_id, archive.name, timeout_seconds)
+        remote_launcher = panel.get_file(server_id, launcher_path)
+    validate_ornithe_launcher(remote_launcher, profile.minecraft)
+    # This is a bounded, checksum-pinned replacement of an existing stopped
+    # server file. Use FileService directly so stale upload staging sessions do
+    # not prevent legacy server-JAR repair.
+    panel.update_file(server_id, "server.jar", server_jar.read_bytes())
+    clear_ornithe_remap_cache(panel, server_id, profile)
+    remote_server = panel.get_file(server_id, "server.jar")
+    if hashlib.sha256(remote_server).hexdigest() != server_spec["runtimeSha256"]:
+        raise RuntimeError(f"DiscPanel Minecraft server digest mismatch for {profile.runtime}")
     if not has_ornithe_bootstrap(panel, server_id, profile):
         raise RuntimeError(f"DiscPanel omitted extracted Ornithe bootstrap for {profile.runtime}")
-    local_launcher: bytes
-    with zipfile.ZipFile(archive) as source:
-        local_launcher = source.read("fabric-server-launch.jar")
-    remote_launcher = panel.get_file(
-        server_id, f"{ornithe_bootstrap_dir(profile)}/fabric-server-launch.jar"
-    )
-    if hashlib.sha256(remote_launcher).digest() != hashlib.sha256(local_launcher).digest():
-        raise RuntimeError(f"DiscPanel launcher digest mismatch for {profile.runtime}")
 
 
 def allocate_ports(start: int, used: set[int], count: int) -> list[int]:

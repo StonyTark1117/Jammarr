@@ -6,7 +6,9 @@ from __future__ import annotations
 import importlib.util
 import io
 import sys
+import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -66,10 +68,120 @@ class DiscPanelReconcilerTests(unittest.TestCase):
         self.assertEqual(
             dict(ornithe.environment),
             {
-                "FABRIC_LAUNCHER": (
-                    "1.6.4-ornithe-server-bootstrap/fabric-server-launch.jar"
-                )
+                "CUSTOM_SERVER": (
+                    "/data/1.6.4-ornithe-server-bootstrap/fabric-server-launch.jar"
+                ),
+                "TYPE": "CUSTOM",
             },
+        )
+        for digest_name in ("sourceSha256", "runtimeSha256"):
+            self.assertRegex(
+                reconcile_discopanel.ORNITHE_SERVER_JARS["1.6.4"][digest_name],
+                r"^[0-9a-f]{64}$",
+            )
+
+    def test_ornithe_bootstrap_requires_exact_transformed_server_jar(self) -> None:
+        profile = next(
+            profile
+            for profile in reconcile_discopanel.desired_profiles(
+                Path("gradle/targets.json")
+            )
+            if profile.runtime == "1.6.4-ornithe"
+        )
+        expected = reconcile_discopanel.ORNITHE_SERVER_JARS["1.6.4"][
+            "runtimeSha256"
+        ]
+
+        class Panel:
+            def list_files(self, server_id: str, path: str = "") -> list[dict[str, str]]:
+                if path:
+                    return [
+                        {"name": "fabric-server-launch.jar"},
+                        {"name": "libraries"},
+                    ]
+                return [
+                    {"name": "1.6.4-ornithe-server-bootstrap"},
+                    {"name": "server.jar"},
+                ]
+
+            def get_file(self, server_id: str, path: str) -> bytes:
+                self.requested = path
+                return b"server"
+
+        panel = Panel()
+        with mock.patch.object(
+            reconcile_discopanel.hashlib,
+            "sha256",
+            return_value=mock.Mock(hexdigest=mock.Mock(return_value=expected)),
+        ):
+            self.assertTrue(
+                reconcile_discopanel.has_ornithe_bootstrap(panel, "server", profile)
+            )
+        self.assertEqual(panel.requested, "server.jar")
+
+    def test_ornithe_server_transform_is_deterministic_and_removes_library_paths(self) -> None:
+        source = io.BytesIO()
+        with zipfile.ZipFile(source, "w") as archive:
+            archive.writestr("net/minecraft/Server.class", b"game")
+            archive.writestr(
+                "org/apache/logging/log4j/Logger.class",
+                b"legacy logger",
+                compress_type=zipfile.ZIP_DEFLATED,
+            )
+            archive.writestr("META-INF/MANIFEST.MF", b"manifest")
+        removed = {
+            "org/apache/logging/log4j/Logger.class",
+            "META-INF/MANIFEST.MF",
+        }
+        first = reconcile_discopanel._zip_entries_without_paths(
+            source.getvalue(), removed
+        )
+        second = reconcile_discopanel._zip_entries_without_paths(
+            source.getvalue(), removed
+        )
+        self.assertEqual(first, second)
+        with tempfile.TemporaryDirectory() as temporary:
+            result = Path(temporary) / "server.jar"
+            result.write_bytes(first)
+            with zipfile.ZipFile(result) as archive:
+                self.assertEqual(archive.testzip(), None)
+                self.assertEqual(
+                    archive.namelist(), ["net/minecraft/Server.class"]
+                )
+                self.assertEqual(
+                    archive.read("net/minecraft/Server.class"), b"game"
+                )
+
+    def test_ornithe_remap_cache_clear_is_scoped_to_exact_runtime(self) -> None:
+        profile = next(
+            profile
+            for profile in reconcile_discopanel.desired_profiles(
+                Path("gradle/targets.json")
+            )
+            if profile.runtime == "1.8.9-ornithe"
+        )
+
+        class Panel:
+            def list_files(self, server_id: str, path: str = "") -> list[dict[str, str]]:
+                self.listed = path
+                return [
+                    {"name": "minecraft-1.8.9-0.19.5"},
+                    {"name": "unrelated-cache"},
+                ]
+
+            def delete_file(self, server_id: str, path: str) -> None:
+                self.deleted = (server_id, path)
+
+        panel = Panel()
+        self.assertTrue(
+            reconcile_discopanel.clear_ornithe_remap_cache(
+                panel, "server", profile
+            )
+        )
+        self.assertEqual(panel.listed, ".fabric/remappedJars")
+        self.assertEqual(
+            panel.deleted,
+            ("server", ".fabric/remappedJars/minecraft-1.8.9-0.19.5"),
         )
 
     def test_port_allocator_skips_existing_ports(self) -> None:
@@ -171,6 +283,50 @@ class DiscPanelReconcilerTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "digest mismatch"):
                 reconcile_discopanel.verify_custom_url_launcher(profile)
 
+    def test_upload_uses_raw_endpoint_and_stable_saved_name(self) -> None:
+        panel = reconcile_discopanel.DiscPanel("http://example.invalid", "test")
+        calls: list[str] = []
+        uploaded = False
+
+        def fake_call(service: str, method: str, payload: dict) -> dict:
+            nonlocal uploaded
+            calls.append(method)
+            if method == "InitUpload":
+                self.assertRegex(
+                    payload["filename"], r"^jammarr-[0-9a-f]{32}-probe\.bin$"
+                )
+                self.assertEqual(payload["chunkSize"], 0)
+                return {"sessionId": "session"}
+            if method == "GetUploadStatus":
+                return {
+                    "completed": uploaded,
+                    "bytesReceived": 7 if uploaded else 0,
+                }
+            if method == "SaveUploadedFile":
+                self.assertEqual(payload["filename"], "probe.bin")
+                return {}
+            return {}
+
+        def fake_urlopen(request, timeout):
+            nonlocal uploaded
+            self.assertEqual(request.full_url, "http://example.invalid/api/v1/upload/session")
+            self.assertEqual(request.method, "PUT")
+            self.assertEqual(request.data, b"payload")
+            uploaded = True
+            return io.BytesIO(b"{}")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "probe.bin"
+            source.write_bytes(b"payload")
+            with mock.patch.object(panel, "call", side_effect=fake_call), mock.patch.object(
+                reconcile_discopanel.urllib.request,
+                "urlopen",
+                side_effect=fake_urlopen,
+            ):
+                panel.upload_file("server", source, "")
+        self.assertNotIn("UploadChunk", calls)
+        self.assertEqual(calls[-2:], ["GetUploadStatus", "SaveUploadedFile"])
+
     def test_description_update_preserves_server_overrides(self) -> None:
         panel = reconcile_discopanel.DiscPanel("http://example.invalid", "test")
         server = {
@@ -227,6 +383,44 @@ class DiscPanelReconcilerTests(unittest.TestCase):
             server["dockerOverrides"]["environment"],
             {"PRIVATE_SENTINEL": "preserve-me"},
         )
+
+    def test_custom_repair_preserves_private_environment_and_removes_old_launcher(self) -> None:
+        panel = reconcile_discopanel.DiscPanel("http://example.invalid", "test")
+        profile = next(
+            profile
+            for profile in reconcile_discopanel.desired_profiles(
+                Path("gradle/targets.json")
+            )
+            if profile.runtime == "1.6.4-ornithe"
+        )
+        server = {
+            "id": "server",
+            "name": profile.name,
+            "description": "managed",
+            "port": 25565,
+            "maxPlayers": 5,
+            "memory": 4096,
+            "modLoader": profile.panel_loader,
+            "mcVersion": profile.minecraft,
+            "dockerImage": profile.docker_image,
+            "autoStart": False,
+            "detached": True,
+            "dockerOverrides": {
+                "environment": {
+                    "FABRIC_LAUNCHER": "obsolete.jar",
+                    "JAMMARR_PLEX_TOKEN": "private-token",
+                },
+                "networkMode": "host",
+            },
+        }
+        with mock.patch.object(panel, "call", return_value={}) as call:
+            panel.update_server(profile, server)
+        payload = call.call_args.args[2]
+        environment = payload["dockerOverrides"]["environment"]
+        self.assertEqual(environment["JAMMARR_PLEX_TOKEN"], "private-token")
+        self.assertNotIn("FABRIC_LAUNCHER", environment)
+        self.assertEqual(environment["TYPE"], "CUSTOM")
+        self.assertEqual(payload["dockerOverrides"]["networkMode"], "host")
 
 
 if __name__ == "__main__":

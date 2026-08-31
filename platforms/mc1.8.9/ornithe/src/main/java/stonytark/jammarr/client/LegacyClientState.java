@@ -79,8 +79,9 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
             ClockSynchronizer.Sample sample = clock.accept(
                     response.clientSentEpochMs(), response.serverEpochMs(), System.currentTimeMillis());
             if (ProtocolLimits.audioProbeEnabled() && clock.sampleCount() <= ClockSynchronizer.STARTUP_SAMPLE_TARGET) {
-                Jammarr.LOGGER.info("Acceptance clock sample: count={} rttMs={} rawOffsetMs={} selectedOffsetMs={}",
-                        clock.sampleCount(), sample.roundTripMs(), sample.rawOffsetMs(), sample.filteredOffsetMs());
+                Jammarr.LOGGER.info("Acceptance clock sample: count=" + clock.sampleCount()
+                        + " rttMs=" + sample.roundTripMs() + " rawOffsetMs=" + sample.rawOffsetMs()
+                        + " selectedOffsetMs=" + sample.filteredOffsetMs());
             }
         } else if (type == LegacyPacketTypes.BROWSE_RESULTS) {
             browse = (ControlPackets.BrowseResults) message;
@@ -92,8 +93,9 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
         } else if (type == LegacyPacketTypes.STATION_STATE) {
             station = (StatePackets.StationState) message;
             if (ProtocolLimits.audioProbeEnabled()) Jammarr.LOGGER.info(
-                    "Acceptance station state: type={} active={} autoplay={} generation={} preview={}",
-                    station.stationType(), station.active(), station.autoplayEnabled(), station.generation(), station.preview().size());
+                    "Acceptance station state: type=" + station.stationType()
+                            + " active=" + station.active() + " autoplay=" + station.autoplayEnabled()
+                            + " generation=" + station.generation() + " preview=" + station.preview().size());
             screenChanged();
         } else if (type == LegacyPacketTypes.ADVENTURE_PREVIEW) {
             adventure = (StatePackets.AdventurePreview) message; screenChanged();
@@ -101,8 +103,9 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
             if (!audioNegotiated) return;
             TransportPackets.AudioManifest manifest = (TransportPackets.AudioManifest) message;
             if (ProtocolLimits.audioProbeEnabled()) Jammarr.LOGGER.info(
-                    "Acceptance audio manifest: session={} title={} firstChunk={} paused={}",
-                    manifest.sessionId(), manifest.title(), manifest.firstChunk(), manifest.paused());
+                    "Acceptance audio manifest: session=" + manifest.sessionId()
+                            + " title=" + manifest.title() + " firstChunk=" + manifest.firstChunk()
+                            + " paused=" + manifest.paused());
             audio.manifest(manifest);
         } else if (type == LegacyPacketTypes.AUDIO_CHUNK) {
             if (!audioNegotiated) return;
@@ -147,7 +150,7 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
         long delayMs = ProtocolLimits.clientHelloDelayMs();
         if (helloEligibleAt == 0L && delayMs > 0L) {
             helloEligibleAt = now + delayMs;
-            Jammarr.LOGGER.info("Acceptance client delaying Jammarr hello by {} ms", delayMs);
+            Jammarr.LOGGER.info("Acceptance client delaying Jammarr hello by " + delayMs + " ms");
         }
         if (helloEligibleAt > now) return;
         LegacyNetwork.sendToServer(LegacyPacketTypes.CLIENT_HELLO, new ControlPackets.ClientHello(ProtocolLimits.clientHelloVersion()));
@@ -190,7 +193,7 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
         String state = audio.state();
         if (state.equals(lastAcceptanceAudioState)) return;
         lastAcceptanceAudioState = state;
-        Jammarr.LOGGER.info("Acceptance audio state: {}", state);
+        Jammarr.LOGGER.info("Acceptance audio state: " + state);
     }
 
     private void logAcceptancePlayback(StatePackets.PlaybackState value) {
@@ -200,8 +203,9 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
             if (queue.length() != 0) queue.append(',');
             queue.append(entry.key());
         }
-        Jammarr.LOGGER.info("Acceptance playback state: status={} paused={} title={} origin={} queue={}",
-                value.status(), value.paused(), value.title(), value.origin(), queue);
+        Jammarr.LOGGER.info("Acceptance playback state: status=" + value.status()
+                + " paused=" + value.paused() + " title=" + value.title()
+                + " origin=" + value.origin() + " queue=" + queue);
     }
 
     private void runAcceptanceScreenProbe() {
@@ -276,7 +280,7 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
             } else {
                 throw new IllegalArgumentException("Unknown acceptance operation");
             }
-            Jammarr.LOGGER.info("Acceptance control applied: {}", command);
+            Jammarr.LOGGER.info("Acceptance control applied: " + command);
         } catch (RuntimeException error) {
             Jammarr.LOGGER.error("Acceptance control failed: " + command, error);
         }

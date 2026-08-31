@@ -10,7 +10,6 @@ It never starts, restarts, or enables autostart on a server.
 from __future__ import annotations
 
 import argparse
-import base64
 import hashlib
 import importlib.util
 import json
@@ -193,30 +192,7 @@ def is_enabled(mod: dict[str, Any]) -> bool:
 
 
 def upload_session(panel: Any, source: Path) -> str:
-    chunk_size = 1024 * 1024
-    initialized = panel.call(
-        "UploadService",
-        "InitUpload",
-        {"filename": source.name, "totalSize": source.stat().st_size, "chunkSize": chunk_size},
-    )
-    session_id = str(initialized["sessionId"])
-    with source.open("rb") as stream:
-        chunk_index = 0
-        while chunk := stream.read(chunk_size):
-            panel.call(
-                "UploadService",
-                "UploadChunk",
-                {
-                    "sessionId": session_id,
-                    "chunkIndex": chunk_index,
-                    "data": base64.b64encode(chunk).decode("ascii"),
-                },
-            )
-            chunk_index += 1
-    status = panel.call("UploadService", "GetUploadStatus", {"sessionId": session_id})
-    if not status.get("completed"):
-        raise RuntimeError(f"DiscPanel upload did not complete for {source.name}")
-    return session_id
+    return str(panel.create_upload_session(source))
 
 
 def update_mod_enabled(panel: Any, server_id: str, mod: dict[str, Any], enabled: bool) -> None:
@@ -245,6 +221,38 @@ def deploy_target(
     expected_version: str,
 ) -> None:
     server_id = str(server["id"])
+    same_name_previous = [
+        mod for mod in previous if mod.get("fileName") == target.filename
+    ]
+    if same_name_previous:
+        if len(same_name_previous) != 1:
+            raise RuntimeError(
+                f"{target.runtime} has multiple active same-name candidate records"
+            )
+        # 1.1.0 is still an unreleased candidate. Refresh rebuilt bytes in
+        # place rather than creating duplicate same-name ModService records;
+        # the server is stopped and the exact remote digest is checked before
+        # this target can be started by a later gate.
+        panel.update_file(
+            server_id, f"mods/{target.filename}", target.source.read_bytes()
+        )
+        if remote_mod_digest(panel, server_id, target.filename) != target.sha256:
+            raise RuntimeError(f"{target.runtime} remote release digest does not match")
+        final_mods = panel.call(
+            "ModService", "ListMods", {"serverId": server_id}
+        ).get("mods", [])
+        final_active = [
+            mod for mod in final_mods if is_jammarr_mod(mod) and is_enabled(mod)
+        ]
+        if len(final_active) != 1 or final_active[0].get("fileName") != target.filename:
+            raise RuntimeError(
+                f"{target.runtime} did not retain one exact active candidate record"
+            )
+        if panel.get_server(server_id).get("status") != reconciler.STATUS_STOPPED:
+            raise RuntimeError(
+                f"{target.runtime} did not remain stopped after candidate refresh"
+            )
+        return
     session_id = upload_session(panel, target.source)
     panel.call(
         "ModService",
@@ -259,7 +267,8 @@ def deploy_target(
     if remote_mod_digest(panel, server_id, target.filename) != target.sha256:
         raise RuntimeError(f"{target.runtime} remote release digest does not match")
     for mod in previous:
-        update_mod_enabled(panel, server_id, mod, False)
+        if mod not in same_name_previous:
+            update_mod_enabled(panel, server_id, mod, False)
     final_mods = panel.call(
         "ModService", "ListMods", {"serverId": server_id}
     ).get("mods", [])
@@ -357,7 +366,8 @@ def reconcile(args: argparse.Namespace) -> int:
         if expected_active:
             actual = remote_mod_digest(panel, server_id, target.filename)
             if actual != target.sha256:
-                raise RuntimeError(f"{target.runtime} active release digest does not match")
+                plan.append((target, summary, enabled))
+                continue
             already += 1
             full_server = panel.get_server(server_id)
             if full_server.get("description") != reconciler.MANAGED_DESCRIPTION:

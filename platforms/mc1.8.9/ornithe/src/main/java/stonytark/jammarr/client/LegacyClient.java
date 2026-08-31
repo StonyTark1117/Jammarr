@@ -84,7 +84,7 @@ public final class LegacyClient implements ClientModInitializer {
     public static void acceptanceChat(Text text) {
         if (!ProtocolLimits.commandProbeEnabled() || text == null) return;
         String message = text.getString();
-        Jammarr.LOGGER.info("Acceptance command response: {}", message);
+        Jammarr.LOGGER.info("Acceptance command response: " + message);
         if (message.contains("JAMMARR_ACCEPTANCE_OPERATOR_READY")) {
             LegacyClientState.INSTANCE.operatorCommandProbe();
         }

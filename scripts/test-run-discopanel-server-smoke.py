@@ -89,6 +89,17 @@ class DiscPanelServerSmokeTests(unittest.TestCase):
         self.assertTrue(result["server_failure"])
         self.assertFalse(result["minecraft_ready"])
 
+    def test_custom_launcher_rejection_is_detected_before_timeout(self) -> None:
+        result = smoke.startup_evidence(
+            [
+                "[mc-image-helper] ERROR: 'install-fabric-loader' command failed",
+                "Failed to locate install.properties from launcher",
+                "[init] [ERROR] Failed to use provided Fabric launcher",
+            ],
+            "1.1.0",
+        )
+        self.assertTrue(result["server_failure"])
+
     def test_modern_plex_marker_proves_exact_preflighted_candidate_active(self) -> None:
         result = smoke.startup_evidence(
             [
