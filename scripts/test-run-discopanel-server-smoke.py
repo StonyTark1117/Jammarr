@@ -4,9 +4,13 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
+import tempfile
 import unittest
+from argparse import Namespace
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPT = Path(__file__).with_name("run-discopanel-server-smoke.py")
@@ -111,6 +115,83 @@ class DiscPanelServerSmokeTests(unittest.TestCase):
         self.assertTrue(result["minecraft_ready"])
         self.assertTrue(result["jammarr_initialized"])
         self.assertTrue(result["plex_connected"])
+
+    def test_stopped_start_recovery_retries_exactly_once_and_still_requires_evidence(self) -> None:
+        class Panel:
+            def __init__(self) -> None:
+                self.start_calls = 0
+                self.stopped = False
+
+            def call(self, service: str, method: str, payload: dict[str, object]) -> dict[str, object]:
+                if method == "GetServerLogs":
+                    messages = []
+                    if self.start_calls >= 2:
+                        messages = [
+                            "[init] Running as uid=1000 gid=1000",
+                            'Done (1.0s)! For help, type "help"',
+                            "Initializing Jammarr 1.1.0 for Fabric 1.18.2 protocol 6",
+                            "Jammarr connected to Plex",
+                        ]
+                    return {"logs": [{"message": message} for message in messages]}
+                if method == "StartServer":
+                    self.start_calls += 1
+                    return {}
+                if method == "StopServer":
+                    self.stopped = True
+                    return {}
+                raise AssertionError((service, method, payload))
+
+            def get_server(self, server_id: str) -> dict[str, object]:
+                if self.stopped:
+                    return {"id": server_id, "status": smoke.reconciler.STATUS_STOPPED}
+                status = (
+                    "SERVER_STATUS_RUNNING"
+                    if self.start_calls >= 2
+                    else smoke.reconciler.STATUS_STOPPED
+                )
+                return {"id": server_id, "status": status}
+
+        with tempfile.TemporaryDirectory() as temporary:
+            panel = Panel()
+            args = Namespace(
+                apply=True,
+                confirm_runtime="1.18.2-fabric",
+                runtime="1.18.2-fabric",
+                start_timeout=2,
+                stop_timeout=2,
+                poll_interval=0,
+                log_tail=100,
+                evidence_dir=Path(temporary),
+            )
+            target = Namespace(
+                runtime="1.18.2-fabric",
+                filename="jammarr.jar",
+                sha256="a" * 64,
+            )
+            with (
+                mock.patch.object(smoke, "preflight", return_value={"id": "server"}),
+                mock.patch.object(smoke, "START_RECOVERY_RETRY_DELAY_SECONDS", 0),
+            ):
+                self.assertEqual(smoke.run_target(args, panel, "1.1.0", target, object()), 0)
+            self.assertEqual(panel.start_calls, 2)
+            evidence = json.loads((Path(temporary) / "1.18.2-fabric.json").read_text())
+            self.assertTrue(evidence["startRecoveryRetry"])
+            self.assertTrue(evidence["stoppedCleanly"])
+
+    def test_stopped_start_recovery_predicate_is_single_use(self) -> None:
+        self.assertTrue(
+            smoke.should_retry_stopped_start(
+                smoke.reconciler.STATUS_STOPPED, False, False, 6.0
+            )
+        )
+        self.assertFalse(
+            smoke.should_retry_stopped_start(
+                smoke.reconciler.STATUS_STOPPED, False, True, 60.0
+            )
+        )
+        self.assertFalse(
+            smoke.should_retry_stopped_start("SERVER_STATUS_STARTING", True, False, 60.0)
+        )
 
 
 if __name__ == "__main__":

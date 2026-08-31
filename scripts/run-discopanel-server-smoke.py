@@ -46,6 +46,8 @@ SERVER_FAILURE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 RUN_START_PATTERN = re.compile(r"\[init\] Running as uid=", re.IGNORECASE)
+START_RECOVERY_RETRY_DELAY_SECONDS = 6.0
+START_RECOVERY_FAILURE_DELAY_SECONDS = 30.0
 
 
 def log_messages(response: dict[str, Any]) -> list[str]:
@@ -115,6 +117,21 @@ def startup_evidence(messages: list[str], version: str) -> dict[str, bool]:
         "installer_failure": bool(INSTALLER_FAILURE_PATTERN.search(joined)),
         "server_failure": bool(SERVER_FAILURE_PATTERN.search(joined)),
     }
+
+
+def should_retry_stopped_start(
+    status: str,
+    active_seen: bool,
+    retry_requested: bool,
+    elapsed: float,
+) -> bool:
+    """Retry once when DiscPanel recreated a missing container but left it stopped."""
+    return (
+        status == reconciler.STATUS_STOPPED
+        and not active_seen
+        and not retry_requested
+        and elapsed >= START_RECOVERY_RETRY_DELAY_SECONDS
+    )
 
 
 def wait_for_status(
@@ -232,6 +249,10 @@ def run_target(
     try:
         start_requested = True
         panel.call("ServerService", "StartServer", {"id": server_id})
+        first_start_returned_at = time.monotonic()
+        recovery_retry_requested = False
+        recovery_retry_returned_at = 0.0
+        result["startRecoveryRetry"] = False
         deadline = time.monotonic() + args.start_timeout
         observed: dict[str, bool] = {}
         last_status = "unknown"
@@ -241,6 +262,33 @@ def run_target(
             last_status = str(panel.get_server(server_id).get("status", "unknown"))
             if last_status != reconciler.STATUS_STOPPED:
                 active_seen = True
+            now = time.monotonic()
+            if should_retry_stopped_start(
+                last_status,
+                active_seen,
+                recovery_retry_requested,
+                now - first_start_returned_at,
+            ):
+                panel.call("ServerService", "StartServer", {"id": server_id})
+                recovery_retry_requested = True
+                recovery_retry_returned_at = time.monotonic()
+                result["startRecoveryRetry"] = True
+                print(
+                    f"SERVER_SMOKE_START_RECOVERY_RETRY {args.runtime} "
+                    "reason=stopped_after_container_recreation"
+                )
+                continue
+            if (
+                recovery_retry_requested
+                and not active_seen
+                and last_status == reconciler.STATUS_STOPPED
+                and now - recovery_retry_returned_at
+                >= START_RECOVERY_FAILURE_DELAY_SECONDS
+            ):
+                raise RuntimeError(
+                    f"{args.runtime} remained stopped after its single container-recovery "
+                    "start retry"
+                )
             response = panel.call(
                 "ServerService",
                 "GetServerLogs",
