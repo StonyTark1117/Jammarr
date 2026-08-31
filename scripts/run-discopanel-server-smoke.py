@@ -37,6 +37,11 @@ INSTALLER_FAILURE_PATTERN = re.compile(
     r"SocketTimeoutException|Could not resolve all files)",
     re.IGNORECASE,
 )
+SERVER_FAILURE_PATTERN = re.compile(
+    r"(?:Failed to start the minecraft server|Minecraft server failed|"
+    r"MixinApplyError|Exception in server tick loop|mc-server-runner\s+Done)",
+    re.IGNORECASE,
+)
 
 
 def log_messages(response: dict[str, Any]) -> list[str]:
@@ -70,6 +75,7 @@ def startup_evidence(messages: list[str], version: str) -> dict[str, bool]:
         ) or plex_connected,
         "plex_connected": plex_connected,
         "installer_failure": bool(INSTALLER_FAILURE_PATTERN.search(joined)),
+        "server_failure": bool(SERVER_FAILURE_PATTERN.search(joined)),
     }
 
 
@@ -207,6 +213,8 @@ def run_target(
             observed = startup_evidence(current_messages, version)
             if observed["installer_failure"]:
                 raise RuntimeError(f"{args.runtime} failed during server bootstrap")
+            if observed["server_failure"]:
+                raise RuntimeError(f"{args.runtime} server process failed during startup")
             if last_status == "SERVER_STATUS_RUNNING" and all(
                 observed[key]
                 for key in (

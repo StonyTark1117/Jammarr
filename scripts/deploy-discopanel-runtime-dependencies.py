@@ -39,6 +39,7 @@ class Dependency:
     url: str
     sha256: str
     owned_prefixes: tuple[str, ...]
+    replaces_multiple_active: bool = False
 
 
 def load_dependencies(path: Path, runtime: str) -> list[Dependency]:
@@ -56,6 +57,7 @@ def load_dependencies(path: Path, runtime: str) -> list[Dependency]:
             url=str(raw.get("url", "")),
             sha256=str(raw.get("sha256", "")),
             owned_prefixes=tuple(str(value).lower() for value in raw.get("ownedPrefixes", [])),
+            replaces_multiple_active=raw.get("replacesMultipleActive", False) is True,
         )
         if (
             not dependency.dependency_id
@@ -212,7 +214,7 @@ def run(args: argparse.Namespace) -> int:
             owned = [mod for mod in mods if owns(dependency, mod)]
             active = [mod for mod in owned if deployment.is_enabled(mod)]
             exact = [mod for mod in active if mod.get("fileName") == dependency.filename]
-            if len(active) > 1:
+            if len(active) > 1 and not dependency.replaces_multiple_active:
                 raise RuntimeError(
                     f"{args.runtime} has multiple active {dependency.dependency_id} records"
                 )

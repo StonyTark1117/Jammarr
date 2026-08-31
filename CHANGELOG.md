@@ -32,7 +32,8 @@
 - Generate a checksum-pinned DiscPanel dependency manifest covering 53 Fabric, Quilt, Babric, Legacy Fabric, and Ornithe runtime profiles, including only the version-compatible OSL modules used by each Ornithe generation.
 - Deploy and remotely verify the initial 75 pinned runtime-dependency placements across the 53 dependency-bearing DiscPanel profiles, reusing 11 already-exact files, staging the other 64 without starting a server, and finish with all 99 profiles stopped and autostart disabled.
 - Add a manifest-derived, resumable DiscPanel server-smoke matrix runner that resolves the release once, audits the complete stopped/autostart state before and after every sequential runtime, accepts resume evidence only for the exact candidate, and writes a sanitized aggregate result; all 99 live profiles pass its no-start preflight.
-- Fix production Legacy Fabric dependency resolution after the 1.6.4 live gate proved that the Maven aggregate JAR does not embed its runtime modules: derive and checksum-pin all 24 or 43 exact compile modules from each aggregate POM, expanding the complete manifest to 142 placements with collision-safe ownership.
+- Fix production Legacy Fabric dependency resolution after live gates proved that the per-version Maven aggregate is descriptor-only and its raw module artifacts are not the canonical installable distribution. Pin the official 1.13.2 CurseForge bundle containing its nested runtime modules, and explicitly allow its guarded migration to disable the previously staged aggregate/module records as rollback copies.
+- Detect terminal Minecraft process failures such as startup Mixin errors and `mc-server-runner` completion immediately instead of waiting for DiscPanel's stale `STARTING` state to reach the ten-minute timeout.
 
 ## 1.0.2 - 2026-08-28
 

@@ -24,6 +24,15 @@ REPOSITORIES = {
     "ornithe": "https://maven.ornithemc.net/releases",
 }
 
+LEGACY_FABRIC_BUNDLE = {
+    "filename": "legacy-fabric-api-1.13.2.jar",
+    "url": (
+        "https://mediafilez.forgecdn.net/files/7133/579/"
+        "legacy-fabric-api-1.13.2.jar"
+    ),
+    "sha256": "397d009ebfee69fbd7d44e7387fe10c758e0d49b6ca8bb316d34ce1a8d37c03a",
+}
+
 ORNITHE_MODULES = {
     "1.6.4-ornithe": {
         "core": "0.10.0-alpha.5+mca1.0.1_01-mc14w26c",
@@ -117,9 +126,9 @@ def dependency(
     }
 
 
-def legacy_fabric_dependencies(
+def legacy_fabric_module_coordinates(
     cache: Path, minecraft: str, version: str
-) -> list[dict[str, Any]]:
+) -> list[tuple[str, str]]:
     group = "net.legacyfabric.legacy-fabric-api"
     aggregate = "legacy-fabric-api"
     pom = cached_pom(cache, group, aggregate, version)
@@ -146,19 +155,26 @@ def legacy_fabric_dependencies(
         raise SystemExit(
             f"Legacy Fabric API {version} has missing or duplicate module coordinates"
         )
-    resolved = [(aggregate, version), *coordinates]
-    return [
-        dependency(
-            cache,
-            dependency_id=artifact,
-            repository="legacy-fabric",
-            group=group,
-            artifact=artifact,
-            version=dependency_version,
-            owned_prefix=f"{artifact}-{dependency_version}",
-        )
-        for artifact, dependency_version in resolved
+    return coordinates
+
+
+def legacy_fabric_bundle(
+    cache: Path, minecraft: str, version: str
+) -> dict[str, Any]:
+    coordinates = legacy_fabric_module_coordinates(cache, minecraft, version)
+    owned_filenames = [
+        LEGACY_FABRIC_BUNDLE["filename"],
+        f"legacy-fabric-api-{version}.jar",
+        *(f"{artifact}-{dependency_version}.jar" for artifact, dependency_version in coordinates),
     ]
+    return {
+        "id": "legacy-fabric-api",
+        "filename": LEGACY_FABRIC_BUNDLE["filename"],
+        "url": LEGACY_FABRIC_BUNDLE["url"],
+        "sha256": LEGACY_FABRIC_BUNDLE["sha256"],
+        "ownedPrefixes": [filename.lower() for filename in owned_filenames],
+        "replacesMultipleActive": True,
+    }
 
 
 def generate(release_manifest: Path, cache: Path) -> dict[str, Any]:
@@ -199,9 +215,9 @@ def generate(release_manifest: Path, cache: Path) -> dict[str, Any]:
 
     for minecraft in ("1.6.4", "1.8.9"):
         version = f"1.13.2+{minecraft}"
-        runtimes[f"{minecraft}-fabric"] = legacy_fabric_dependencies(
-            cache, minecraft, version
-        )
+        runtimes[f"{minecraft}-fabric"] = [
+            legacy_fabric_bundle(cache, minecraft, version)
+        ]
 
     for runtime, modules in ORNITHE_MODULES.items():
         runtimes[runtime] = [

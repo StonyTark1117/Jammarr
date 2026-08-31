@@ -45,6 +45,7 @@ class DiscPanelServerSmokeTests(unittest.TestCase):
                 "jammarr_initialized": True,
                 "plex_connected": True,
                 "installer_failure": False,
+                "server_failure": False,
             },
         )
 
@@ -55,6 +56,14 @@ class DiscPanelServerSmokeTests(unittest.TestCase):
         )
         self.assertTrue(result["installer_failure"])
         self.assertFalse(result["jammarr_initialized"])
+
+    def test_terminal_server_failure_is_detected_before_timeout(self) -> None:
+        result = smoke.startup_evidence(
+            ["MixinApplyError", "Minecraft server failed.", "mc-server-runner Done"],
+            "1.1.0",
+        )
+        self.assertTrue(result["server_failure"])
+        self.assertFalse(result["minecraft_ready"])
 
     def test_modern_plex_marker_proves_exact_preflighted_candidate_active(self) -> None:
         result = smoke.startup_evidence(
