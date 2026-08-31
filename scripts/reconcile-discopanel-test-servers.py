@@ -215,7 +215,7 @@ class DiscPanel:
                 "port": int(server["port"]),
                 "maxPlayers": int(server.get("maxPlayers", 5)),
                 "memory": int(server.get("memory", 4096)),
-                "modLoader": profile.panel_loader,
+                "modLoader": profile.panel_loader.removeprefix("MOD_LOADER_").lower(),
                 "mcVersion": profile.minecraft,
                 "dockerImage": profile.docker_image,
                 "autoStart": False,
@@ -532,10 +532,15 @@ def reconcile(args: argparse.Namespace) -> int:
             server = panel.get_server(str(server["id"]))
         differences = drift(profile, server)
         if differences:
+            repairable_differences = all(
+                item.startswith("docker environment ")
+                or item.startswith("modLoader='MOD_LOADER_VANILLA' expected 'MOD_LOADER_FABRIC'")
+                for item in differences
+            )
             if (
                 profile.provisioning != "native"
                 and is_stopped(server)
-                and all(item.startswith("docker environment ") for item in differences)
+                and repairable_differences
             ):
                 repairable_custom.append((profile, server))
             else:
