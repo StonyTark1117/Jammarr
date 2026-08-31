@@ -25,6 +25,7 @@
 - Pin each DiscPanel native runtime to the exact Fabric, Forge, NeoForge, or Quilt loader declared by the release manifest instead of allowing container defaults to drift.
 - Add a guarded live-Plex DiscPanel configurator that keeps credentials environment-only, blanks the library setting to exercise the `Music` metadata fallback, preserves existing canonical configs by default, and never starts a server.
 - Configure 78 stopped DiscPanel profiles for live-Plex fallback testing while preserving 21 pre-existing configs, then validate the final 1.12.2 Forge artifact through a real Plex connection and clean server stop after recovering from a transient upstream installer timeout.
+- Add a dry-run-by-default, single-runtime DiscPanel server smoke gate with exact artifact/hash/loader preflight, post-snapshot log evidence that rejects replayed historical lines, installer-failure classification, and guaranteed stopped-state teardown.
 
 ## 1.0.2 - 2026-08-28
 
