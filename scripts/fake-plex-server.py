@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import signal
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -50,8 +51,10 @@ def main() -> None:
             token = self.headers.get("X-Plex-Token", "")
             if not token:
                 token = parse_qs(request.query).get("X-Plex-Token", [""])[0]
-            state = "offline" if state_file is not None and state_file.exists() \
-                and state_file.read_text(encoding="utf-8").strip() == "offline" else "online"
+            state = state_file.read_text(encoding="utf-8").strip() \
+                if state_file is not None and state_file.exists() else "online"
+            if state not in {"online", "offline", "stall"}:
+                state = "online"
             with request_log.open("a", encoding="utf-8") as stream:
                 stream.write(f"GET\t{request.path}\t{token}\t{state}\n")
             if token != args.token:
@@ -60,6 +63,8 @@ def main() -> None:
             if state == "offline":
                 self.respond(503, {})
                 return
+            if state == "stall":
+                time.sleep(30)
             path = request.path
             if path == "/library/sections":
                 body = {"MediaContainer": {"Directory": [
@@ -72,7 +77,10 @@ def main() -> None:
                     "myPlexSubscription": True
                 }}
             elif path == "/library/sections/1/all":
-                body = {"MediaContainer": {"librarySectionID": "1", "Metadata": tracks}}
+                query = parse_qs(request.query)
+                title = query.get("title", [""])[0].lower()
+                filtered = [track for track in tracks if not title or title in track["title"].lower()]
+                body = {"MediaContainer": {"librarySectionID": "1", "Metadata": filtered}}
             elif path.startswith("/library/metadata/") and path.endswith("/nearest"):
                 key = path.removeprefix("/library/metadata/").removesuffix("/nearest")
                 if key not in tracks_by_key:
@@ -116,14 +124,20 @@ def main() -> None:
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
-            self.wfile.write(payload)
+            try:
+                self.wfile.write(payload)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
 
         def respond_bytes(self, status: int, payload: bytes, content_type: str) -> None:
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
-            self.wfile.write(payload)
+            try:
+                self.wfile.write(payload)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
 
         def log_message(self, *_args: object) -> None:
             pass

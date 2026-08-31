@@ -15,6 +15,10 @@ REQUIRED_CAPABILITIES = {
     "audioProfile",
     "logProfile",
     "disableConfigurationCache",
+    "clientTask",
+    "serverTask",
+    "stressProfile",
+    "optionalClientProfile",
 }
 
 
@@ -101,6 +105,13 @@ def runtime_capabilities(
         raise SystemExit(
             f"{artifact['name']} disableConfigurationCache must be boolean"
         )
+    for task_key in ("clientTask", "serverTask"):
+        if not isinstance(capabilities[task_key], str) or not capabilities[task_key]:
+            raise SystemExit(f"{artifact['name']} {task_key} must be a non-empty string")
+    if capabilities["stressProfile"] not in {"none", "forge-1.7.10"}:
+        raise SystemExit(f"{artifact['name']} has an invalid stressProfile capability")
+    if capabilities["optionalClientProfile"] not in {"mod-suppressed", "loader-only"}:
+        raise SystemExit(f"{artifact['name']} has an invalid optionalClientProfile capability")
     return capabilities
 
 
@@ -245,6 +256,10 @@ def main() -> None:
                 entry["audioProfile"],
                 entry["logProfile"],
                 str(entry["disableConfigurationCache"]).lower(),
+                entry["clientTask"],
+                entry["serverTask"],
+                entry["stressProfile"],
+                entry["optionalClientProfile"],
             )
             print("|".join(map(str, values)))
     elif args.mode == "companion-lines":

@@ -23,6 +23,10 @@ def fixture() -> dict:
             "audioProfile": "modern",
             "logProfile": "latest",
             "disableConfigurationCache": loader in {"forge", "neoforge"},
+            "clientTask": "runClient",
+            "serverTask": "runServer",
+            "stressProfile": "none",
+            "optionalClientProfile": "mod-suppressed",
         }
         for loader in ("fabric", "quilt", "forge", "neoforge")
     }
@@ -71,6 +75,10 @@ class TargetMatrixTests(unittest.TestCase):
         self.assertEqual(runtimes[-1]["control"], "console")
         self.assertEqual(runtimes[-1]["commandMarkers"], "legacy-response")
         self.assertTrue(runtimes[-1]["disableConfigurationCache"])
+        self.assertEqual(runtimes[-1]["clientTask"], "runClient")
+        self.assertEqual(runtimes[-1]["serverTask"], "runServer")
+        self.assertEqual(runtimes[-1]["stressProfile"], "none")
+        self.assertEqual(runtimes[-1]["optionalClientProfile"], "mod-suppressed")
 
     def test_duplicate_target_fails_closed(self) -> None:
         manifest = fixture()

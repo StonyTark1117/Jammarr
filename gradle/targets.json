@@ -11,42 +11,66 @@
         "commandMarkers": "modern",
         "audioProfile": "modern",
         "logProfile": "latest",
-        "disableConfigurationCache": false
+        "disableConfigurationCache": false,
+        "clientTask": "runClient",
+        "serverTask": "runServer",
+        "stressProfile": "none",
+        "optionalClientProfile": "mod-suppressed"
       },
       "babric": {
         "control": "console",
         "commandMarkers": "legacy-response",
         "audioProfile": "legacy-openal",
         "logProfile": "legacy-babric",
-        "disableConfigurationCache": false
+        "disableConfigurationCache": false,
+        "clientTask": "runClient",
+        "serverTask": "runServer",
+        "stressProfile": "none",
+        "optionalClientProfile": "mod-suppressed"
       },
       "ornithe": {
         "control": "console",
         "commandMarkers": "legacy-response",
         "audioProfile": "legacy-openal",
         "logProfile": "latest",
-        "disableConfigurationCache": false
+        "disableConfigurationCache": false,
+        "clientTask": "runClient",
+        "serverTask": "runServer",
+        "stressProfile": "none",
+        "optionalClientProfile": "mod-suppressed"
       },
       "quilt": {
         "control": "rcon",
         "commandMarkers": "modern",
         "audioProfile": "modern",
         "logProfile": "latest",
-        "disableConfigurationCache": false
+        "disableConfigurationCache": false,
+        "clientTask": "runClient",
+        "serverTask": "runServer",
+        "stressProfile": "none",
+        "optionalClientProfile": "mod-suppressed"
       },
       "forge": {
         "control": "rcon",
         "commandMarkers": "modern",
         "audioProfile": "modern",
         "logProfile": "latest",
-        "disableConfigurationCache": true
+        "disableConfigurationCache": true,
+        "clientTask": "runClient",
+        "serverTask": "runServer",
+        "stressProfile": "none",
+        "optionalClientProfile": "mod-suppressed"
       },
       "neoforge": {
         "control": "rcon",
         "commandMarkers": "modern",
         "audioProfile": "modern",
         "logProfile": "latest",
-        "disableConfigurationCache": true
+        "disableConfigurationCache": true,
+        "clientTask": "runClient",
+        "serverTask": "runServer",
+        "stressProfile": "none",
+        "optionalClientProfile": "mod-suppressed"
       }
     }
   },
@@ -175,7 +199,11 @@
             "commandMarkers": "legacy-response",
             "audioProfile": "legacy-openal",
             "logProfile": "legacy-fml",
-            "disableConfigurationCache": false
+            "disableConfigurationCache": false,
+            "clientTask": "runProductionClient",
+            "serverTask": "runProductionServer",
+            "stressProfile": "forge-1.7.10",
+            "optionalClientProfile": "loader-only"
           },
           "path": "platforms/mc1.7.10/forge",
           "artifact": "jammarr-1.1.0+mc1.7.10-forge.jar"

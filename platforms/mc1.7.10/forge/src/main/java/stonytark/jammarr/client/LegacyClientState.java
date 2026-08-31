@@ -49,6 +49,8 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
     private String notice = "";
     private boolean serverHelloReceived;
     private boolean audioNegotiated;
+    private boolean acceptanceDeathLogged;
+    private int acceptanceDimension = Integer.MIN_VALUE;
 
     @Override public void accept(LegacyPacketTypes.Type<?> type, Object message) {
         Minecraft minecraft = Minecraft.getMinecraft();
@@ -129,6 +131,7 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
             Jammarr.LOGGER.info("Acceptance client issued non-operator command probes");
         }
         runAcceptanceControl();
+        logAcceptanceLifecycle();
         logAcceptanceAudioState();
         long now = System.currentTimeMillis();
         long syncIntervalMs = clock.sampleCount() < ClockSynchronizer.STARTUP_SAMPLE_TARGET ? 500L : 10_000L;
@@ -156,6 +159,8 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
     }
 
     void stop() {
+        LegacyScreen openScreen = screen();
+        if (openScreen != null) openScreen.disconnected();
         audio.stop(); clock.reset(); notice = ""; helloSent = false; helloEligibleAt = 0L; commandProbeSent = false;
         serverHelloReceived = false; audioNegotiated = false;
         operatorProbeSent = false; lastTimeSync = 0L;
@@ -163,6 +168,8 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
         acceptanceScreenOpened = false; acceptanceScreenLogged = false; acceptanceScreenTicks = 0;
         acceptanceConfigScreenOpened = false; acceptanceConfigScreenLogged = false; acceptanceConfigScreenTicks = 0;
         acceptanceControl.reset();
+        acceptanceDeathLogged = false;
+        acceptanceDimension = Integer.MIN_VALUE;
         playback = emptyPlayback(); station = emptyStation();
         browse = new ControlPackets.BrowseResults(ControlPackets.BrowseKind.SEARCH, "", 0,
                 false, Collections.<StationModels.MediaItem>emptyList());
@@ -265,6 +272,23 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
             } else if ("reload".equals(command)) {
                 Minecraft.getMinecraft().refreshResources();
                 Jammarr.LOGGER.info("Acceptance resource reload complete: success=true");
+            } else if (command.startsWith("browse:search:")) {
+                LegacyScreen screen = acceptanceScreen();
+                screen.acceptanceSearch(command.substring("browse:search:".length()));
+            } else if ("browse:queue".equals(command)) {
+                acceptanceScreen().acceptanceQueuePage();
+            } else if ("browse:cancel".equals(command)) {
+                LegacyScreen screen = screen();
+                if (screen != null) screen.acceptanceCancelBrowse();
+            } else if ("browse:expire".equals(command)) {
+                LegacyScreen screen = screen();
+                if (screen != null) screen.acceptanceExpireBrowse();
+            } else if ("lifecycle:respawn".equals(command)) {
+                if (Minecraft.getMinecraft().thePlayer == null) {
+                    throw new IllegalStateException("No player is available to respawn");
+                }
+                Minecraft.getMinecraft().thePlayer.respawnPlayer();
+                Jammarr.LOGGER.info("Acceptance lifecycle respawn requested");
             } else if ("fault:underrun".equals(command)) {
                 audio.acceptanceUnderrun();
             } else if ("fault:drift".equals(command)) {
@@ -280,6 +304,21 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
         } catch (RuntimeException error) {
             Jammarr.LOGGER.error("Acceptance control failed: " + command, error);
         }
+    }
+
+    private void logAcceptanceLifecycle() {
+        if (!ProtocolLimits.audioProbeEnabled() || Minecraft.getMinecraft().thePlayer == null) return;
+        int dimension = Minecraft.getMinecraft().thePlayer.dimension;
+        if (dimension != acceptanceDimension) {
+            acceptanceDimension = dimension;
+            Jammarr.LOGGER.info("Acceptance lifecycle dimension active: {}", dimension);
+        }
+        if (Minecraft.getMinecraft().thePlayer.isDead) {
+            if (!acceptanceDeathLogged) {
+                acceptanceDeathLogged = true;
+                Jammarr.LOGGER.info("Acceptance lifecycle death screen reached");
+            }
+        } else acceptanceDeathLogged = false;
     }
 
     StatePackets.PlaybackState playback() { return playback; }
@@ -329,6 +368,13 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
     private LegacyScreen screen() {
         return Minecraft.getMinecraft().currentScreen instanceof LegacyScreen
                 ? (LegacyScreen) Minecraft.getMinecraft().currentScreen : null;
+    }
+    private LegacyScreen acceptanceScreen() {
+        LegacyScreen current = screen();
+        if (current != null) return current;
+        LegacyScreen opened = new LegacyScreen(this);
+        Minecraft.getMinecraft().displayGuiScreen(opened);
+        return opened;
     }
     private void screenChanged() { LegacyScreen screen = screen(); if (screen != null) screen.stateChanged(); }
     private void screenResultsChanged() { LegacyScreen screen = screen(); if (screen != null) screen.resultsChanged(); }

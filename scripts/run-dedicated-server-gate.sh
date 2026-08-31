@@ -4,10 +4,12 @@ set -uo pipefail
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 output_root=${JAMMARR_GATE_OUTPUT_ROOT:-"$repo_root/build/dedicated-server-gate"}
 mkdir -p "$output_root"
-gate_lock="${output_root}.lock"
+output_root=$(cd "$output_root" && pwd)
+mkdir -p "$repo_root/build"
+gate_lock="$repo_root/build/.dedicated-server-gate.lock"
 exec 9>"$gate_lock"
 if ! flock -n 9; then
-  echo "Another Jammarr dedicated-server gate is already using the shared runtime evidence directory" >&2
+  echo "Another Jammarr dedicated-server gate is already using the shared Minecraft runtime" >&2
   exit 2
 fi
 fake_plex_token="jammarr-dedicated-gate-token"
@@ -70,13 +72,17 @@ declare -A target_command_markers=()
 declare -A target_audio_profile=()
 declare -A target_log_profile=()
 declare -A target_disable_configuration_cache=()
+declare -A target_client_task=()
+declare -A target_server_task=()
+declare -A target_stress_profile=()
+declare -A target_optional_client_profile=()
 declare -A target_companion_label=()
 declare -A target_companion_path=()
 declare -A target_companion_java=()
 declare -A target_companion_runtime_java=()
 declare -A target_companion_task=()
 targets=()
-while IFS='|' read -r label target_dir build_java port control command_markers audio_profile log_profile disable_configuration_cache; do
+while IFS='|' read -r label target_dir build_java port control command_markers audio_profile log_profile disable_configuration_cache client_task server_task stress_profile optional_client_profile; do
   case "$build_java" in
     8) java_home=$java8_home ;;
     17) java_home=$java17_home ;;
@@ -93,6 +99,10 @@ while IFS='|' read -r label target_dir build_java port control command_markers a
   target_audio_profile["$label"]=$audio_profile
   target_log_profile["$label"]=$log_profile
   target_disable_configuration_cache["$label"]=$disable_configuration_cache
+  target_client_task["$label"]=$client_task
+  target_server_task["$label"]=$server_task
+  target_stress_profile["$label"]=$stress_profile
+  target_optional_client_profile["$label"]=$optional_client_profile
 done < <(python3 "$repo_root/scripts/target-matrix.py" gate-lines "$repo_root/gradle/targets.json")
 if (( ${#targets[@]} == 0 )); then
   echo "Target manifest generated no dedicated-server runtimes" >&2
@@ -164,9 +174,25 @@ command_client_gate=${JAMMARR_COMMAND_CLIENT_GATE:-false}
 audio_client_gate=${JAMMARR_AUDIO_CLIENT_GATE:-false}
 audio_scenario_gate=${JAMMARR_AUDIO_SCENARIO_GATE:-false}
 client_companion_gate=${JAMMARR_CLIENT_COMPANION_GATE:-false}
+legacy_persistence_gate=${JAMMARR_LEGACY_PERSISTENCE_GATE:-false}
+legacy_cold_start_count=${JAMMARR_LEGACY_COLD_STARTS:-0}
+legacy_browse_stress_gate=${JAMMARR_LEGACY_BROWSE_STRESS_GATE:-false}
 network_profile=${JAMMARR_NETWORK_PROFILE:-direct}
 fabric_loader_version=${JAMMARR_FABRIC_LOADER_VERSION:-}
 quilt_modmenu_gate=${JAMMARR_QUILT_MODMENU_GATE:-false}
+
+if [[ ! "$legacy_cold_start_count" =~ ^[0-9]+$ ]] || (( legacy_cold_start_count > 100 )); then
+  echo "JAMMARR_LEGACY_COLD_STARTS must be an integer from 0 through 100" >&2
+  exit 2
+fi
+if (( legacy_cold_start_count > 0 )) && [[ "$audio_client_gate" != "true" ]]; then
+  echo "JAMMARR_LEGACY_COLD_STARTS requires JAMMARR_AUDIO_CLIENT_GATE=true" >&2
+  exit 2
+fi
+if [[ "$legacy_browse_stress_gate" == "true" && "$audio_client_gate" != "true" ]]; then
+  echo "JAMMARR_LEGACY_BROWSE_STRESS_GATE=true requires JAMMARR_AUDIO_CLIENT_GATE=true" >&2
+  exit 2
+fi
 
 restore_server_config() {
   if [[ -z "$active_config" ]]; then return; fi
@@ -461,7 +487,7 @@ run_optional_client() {
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS='-Djammarr.acceptance.enabled=true -Djammarr.acceptance.suppressClientHello=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
       LIBGL_ALWAYS_SOFTWARE=1 \
-      ./gradlew runClient --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
+      ./gradlew "${target_client_task[$label]}" --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
       "${runtime_args[@]}" \
       -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="127.0.0.1:${port}" \
@@ -491,7 +517,10 @@ run_optional_client() {
       result=1
     else
       {
-        if uses_legacy_fml_log "$label"; then
+        if [[ ${target_optional_client_profile[$label]} == "loader-only" ]]; then
+          grep -F "$username joined the game" "$server_console" | tail -n 1
+          printf '%s\n' 'Production loader client launched without the Jammarr artifact.'
+        elif uses_legacy_fml_log "$label"; then
           grep -F 'Server side modded connection established' "$server_console" | tail -n 1
           grep -F 'Client side modded connection established' "$client_console" | tail -n 1
         elif uses_legacy_babric_log "$label"; then
@@ -654,7 +683,7 @@ run_delayed_hello_client() {
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS="-Djammarr.acceptance.enabled=true -Djammarr.acceptance.clientHelloDelayMs=${delayed_hello_ms} -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true" \
       LIBGL_ALWAYS_SOFTWARE=1 \
-      ./gradlew runClient --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
+      ./gradlew "${target_client_task[$label]}" --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
       "${runtime_args[@]}" \
       -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="127.0.0.1:${port}" \
@@ -759,7 +788,7 @@ run_acceptance_client_once() {
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS="$java_tool_options" \
       LIBGL_ALWAYS_SOFTWARE=1 \
-      ./gradlew runClient --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
+      ./gradlew "${target_client_task[$label]}" --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
       "${runtime_args[@]}" \
       -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="127.0.0.1:${port}" \
@@ -862,7 +891,7 @@ run_command_client() {
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS='-Djammarr.acceptance.enabled=true -Djammarr.acceptance.commandProbe=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
       LIBGL_ALWAYS_SOFTWARE=1 \
-      ./gradlew runClient --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
+      ./gradlew "${target_client_task[$label]}" --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
       "${runtime_args[@]}" \
       -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="127.0.0.1:${port}" \
@@ -1050,7 +1079,7 @@ start_audio_client() {
   [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
   [[ "$label" == *-quilt && "$quilt_modmenu_gate" == true ]] && runtime_args+=(-PjammarrIncludeModMenu=true)
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
-  [[ "$role" == "leader" ]] && leader=true
+  [[ "$role" == "leader" || "$role" == cold-* ]] && leader=true
   if disables_configuration_cache "$label"; then
     cache_args+=(--no-configuration-cache)
   fi
@@ -1123,7 +1152,7 @@ start_audio_client() {
       JAVA_TOOL_OPTIONS="-Djammarr.acceptance.enabled=true -Djammarr.acceptance.audioProbe=true -Djammarr.acceptance.audioLeader=$leader -Djammarr.acceptance.audioControlFile=$control_file -Djammarr.acceptance.pcmTraceDir=$client_dir/pcm-trace -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true" \
       ALSA_CONFIG_PATH="$client_dir/alsa.conf" ALSOFT_CONF="$client_dir/alsoft.conf" \
       ALSOFT_DRIVERS="$alsoft_drivers" PULSE_SINK="$pulse_sink" LIBGL_ALWAYS_SOFTWARE=1 \
-      ./gradlew runClient --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
+      ./gradlew "${target_client_task[$label]}" --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
       "${runtime_args[@]}" \
       -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="127.0.0.1:${port}" \
@@ -1344,6 +1373,19 @@ wait_for_marker_after() {
   done
 }
 
+wait_for_latest_marker() {
+  local file=$1
+  local marker_prefix=$2
+  local expected=$3
+  local timeout=${4:-60}
+  local deadline=$((SECONDS + timeout))
+  while ! grep -F "$marker_prefix" "$file" 2>/dev/null | tail -n 1 | grep -Fq "$expected"; do
+    if (( SECONDS >= deadline )); then return 1; fi
+    sleep 1
+  done
+}
+
+scenario_follower_pid=""
 run_audio_control_scenarios() {
   local label=$1
   local target_dir=$2
@@ -1363,6 +1405,7 @@ run_audio_control_scenarios() {
   local raw="$output_root/$label.audio-scenario.s16le"
   local metrics="$output_root/$label.audio-scenario.metrics.txt"
   local first result=0
+  scenario_follower_pid=$follower_pid
 
   : > "$scenario_evidence"
   if uses_console_control "$label"; then
@@ -1633,6 +1676,7 @@ run_audio_control_scenarios() {
   active_audio_client_pids=("$leader_pid")
   if ! launch_audio_client "$label" "$target_dir" "$java_home" "$port" follower JammarrAudioB "$sink_follower"; then return 1; fi
   follower_pid=$ready_audio_client_pid
+  scenario_follower_pid=$follower_pid
   sleep 1
   capture_audio_sink "$sink_follower" "$raw" 4
   if ! audio_capture_is_audible "$raw" "$metrics"; then
@@ -1647,6 +1691,328 @@ run_audio_control_scenarios() {
   fi
   printf 'Final clear left shared playback and client audio idle.\n' >> "$scenario_evidence"
   return "$result"
+}
+
+run_legacy_cold_start_stress() {
+  local label=$1
+  local target_dir=$2
+  local java_home=$3
+  local port=$4
+  local sink=$5
+  local leader_pid=$6
+  local follower_pid=$7
+  local rcon_port=$8
+  local rcon_password=$9
+  local fifo_fd=${10}
+  local server_log=${11}
+  local evidence="$output_root/$label.cold-start-stress.evidence.txt"
+  local resources="$output_root/$label.cold-start-stress.resources.tsv"
+  local raw="$output_root/$label.cold-start-stress.s16le"
+  local metrics="$output_root/$label.cold-start-stress.metrics.txt"
+  local index role username pid client_log first reload result=0 client_java server_java
+
+  local leader_log="$output_root/$label.audio-leader.console.log"
+  local follower_log="$output_root/$label.audio-follower.console.log"
+  first=$(wc -l < "$leader_log")
+  if uses_console_control "$label"; then
+    printf 'jammarr clear\n' >&"$fifo_fd"
+  elif ! run_minecraft_rcon 127.0.0.1 "$rcon_port" "$rcon_password" \
+      'jammarr clear' > /dev/null; then
+    return 1
+  fi
+  if ! wait_for_marker_after "$leader_log" "$first" \
+      'Acceptance playback state: status=IDLE' 60; then
+    echo "$label: cold-start precondition could not clear shared playback" >&2
+    return 1
+  fi
+  first=$(wc -l < "$follower_log")
+  printf 'stall\n' > "$fake_plex_state"
+  send_audio_control "$label" follower 'browse:search:disconnect-cycle'
+  if ! wait_for_marker_after "$follower_log" "$first" \
+      'Acceptance control applied: browse:search:disconnect-cycle' 30; then
+    printf 'online\n' > "$fake_plex_state"
+    echo "$label: follower did not begin the pending browse disconnect cycle" >&2
+    return 1
+  fi
+  if uses_console_control "$label"; then
+    printf 'kick JammarrAudioB Jammarr acceptance disconnect cycle\n' >&"$fifo_fd"
+  elif ! run_minecraft_rcon 127.0.0.1 "$rcon_port" "$rcon_password" \
+      'kick JammarrAudioB Jammarr acceptance disconnect cycle' > /dev/null; then
+    printf 'online\n' > "$fake_plex_state"
+    return 1
+  fi
+  if ! wait_for_marker_after "$follower_log" "$first" \
+      'Acceptance browse request completed: disconnect' 30; then
+    printf 'online\n' > "$fake_plex_state"
+    echo "$label: pending browse did not terminate on client disconnect" >&2
+    return 1
+  fi
+  printf 'online\n' > "$fake_plex_state"
+  terminate_client_launch "$follower_pid" 20 || return 1
+  # The browse timeout/cancellation probes deliberately leave loopback HTTP
+  # requests sleeping for 30 seconds. Drain that deterministic window before
+  # the final validation so a late completion cannot overwrite READY after
+  # the first cold client has sent its one automatic queue request.
+  sleep 35
+  first=$(wc -l < "$server_log")
+  if uses_console_control "$label"; then
+    printf 'jammarr reload\n' >&"$fifo_fd"
+  elif ! run_minecraft_rcon 127.0.0.1 "$rcon_port" "$rcon_password" \
+      'jammarr reload' > /dev/null; then
+    return 1
+  fi
+  if ! wait_for_marker_after "$server_log" "$first" \
+      'Jammarr connected to Plex; sonic capability is READY' 60; then
+    echo "$label: Plex did not recover before the cold-start loop" >&2
+    return 1
+  fi
+  terminate_client_launch "$leader_pid" 20 || return 1
+  active_audio_client_pids=()
+  : > "$evidence"
+  printf 'cycle\trole\tpid\trss_kib\tthreads\tfd_count\telapsed_seconds\n' > "$resources"
+
+  for ((index = 1; index <= legacy_cold_start_count; index++)); do
+    printf -v role 'cold-%02d' "$index"
+    printf -v username 'JammarrCold%02d' "$index"
+    client_log="$output_root/$label.audio-$role.console.log"
+    if ! launch_audio_client "$label" "$target_dir" "$java_home" "$port" \
+        "$role" "$username" "$sink"; then
+      echo "$label: cold-start client $index did not reach audible playback" >&2
+      return 1
+    fi
+    pid=$ready_audio_client_pid
+    sleep 1
+    capture_audio_sink "$sink" "$raw" 4
+    if ! audio_capture_is_audible "$raw" "$metrics"; then
+      echo "$label: cold-start client $index reached PLAYING without audible output" >&2
+      return 1
+    fi
+
+    if (( index == 1 )); then
+      first=$(wc -l < "$client_log")
+      if uses_console_control "$label"; then
+        printf 'jammarr acceptance-dimension %s -1\n' "$username" >&"$fifo_fd"
+      elif ! run_minecraft_rcon 127.0.0.1 "$rcon_port" "$rcon_password" \
+          "jammarr acceptance-dimension $username -1" > /dev/null; then
+        return 1
+      fi
+      if ! wait_for_latest_marker "$client_log" \
+          'Acceptance lifecycle dimension active:' 'Acceptance lifecycle dimension active: -1' 60; then
+        echo "$label: cold-start client did not enter the Nether during active playback" >&2
+        return 1
+      fi
+      sleep 1
+      capture_audio_sink "$sink" "$raw" 4
+      if ! audio_capture_is_audible "$raw" "$metrics"; then
+        echo "$label: Nether dimension transfer did not preserve audible playback" >&2
+        return 1
+      fi
+
+      first=$(wc -l < "$client_log")
+      if uses_console_control "$label"; then
+        printf 'jammarr acceptance-dimension %s 0\n' "$username" >&"$fifo_fd"
+      elif ! run_minecraft_rcon 127.0.0.1 "$rcon_port" "$rcon_password" \
+          "jammarr acceptance-dimension $username 0" > /dev/null; then
+        return 1
+      fi
+      if ! wait_for_latest_marker "$client_log" \
+          'Acceptance lifecycle dimension active:' 'Acceptance lifecycle dimension active: 0' 60; then
+        echo "$label: cold-start client did not return to the Overworld during active playback" >&2
+        return 1
+      fi
+      sleep 1
+      capture_audio_sink "$sink" "$raw" 4
+      if ! audio_capture_is_audible "$raw" "$metrics"; then
+        echo "$label: Overworld return did not preserve audible playback" >&2
+        return 1
+      fi
+
+      first=$(wc -l < "$client_log")
+      if uses_console_control "$label"; then
+        printf 'jammarr acceptance-kill %s\n' "$username" >&"$fifo_fd"
+      elif ! run_minecraft_rcon 127.0.0.1 "$rcon_port" "$rcon_password" \
+          "jammarr acceptance-kill $username" > /dev/null; then
+        return 1
+      fi
+      if ! wait_for_marker_after "$client_log" "$first" \
+          'Acceptance lifecycle death screen reached' 60; then
+        echo "$label: cold-start client did not reach the death state" >&2
+        return 1
+      fi
+      send_audio_control "$label" "$role" 'lifecycle:respawn'
+      if ! wait_for_marker_after "$client_log" "$first" \
+          'Acceptance lifecycle respawn requested' 30; then
+        echo "$label: cold-start client did not request respawn" >&2
+        return 1
+      fi
+      sleep 3
+      capture_audio_sink "$sink" "$raw" 4
+      if ! audio_capture_is_audible "$raw" "$metrics"; then
+        echo "$label: death/respawn cycle did not recover audible playback" >&2
+        return 1
+      fi
+      printf 'Active playback survived Nether/Overworld and death/respawn cycles.\n' >> "$evidence"
+    fi
+
+    for reload in 1 2; do
+      first=$(wc -l < "$client_log")
+      send_audio_control "$label" "$role" reload
+      if ! wait_for_marker_after "$client_log" "$first" \
+          'Acceptance resource reload complete: success=true' 120 \
+          || ! wait_for_marker_after "$client_log" "$first" \
+          'Acceptance audio state: PLAYING' 120; then
+        echo "$label: cold-start client $index did not recover from sound reload $reload" >&2
+        return 1
+      fi
+      sleep 1
+      capture_audio_sink "$sink" "$raw" 4
+      if ! audio_capture_is_audible "$raw" "$metrics"; then
+        echo "$label: cold-start client $index reload $reload recovered without audible output" >&2
+        return 1
+      fi
+    done
+
+    if grep -Eiq 'Only one OpenAL context|Switching to No Sound|Silent Mode|SoundSystem did not load|UnsatisfiedLinkError|Unreported exception thrown|#@!@# Game crashed!|Description: Unexpected error' \
+        "$client_log"; then
+      echo "$label: cold-start client $index logged an OpenAL, native-linkage, or crash failure" >&2
+      return 1
+    fi
+    client_java=$(minecraft_java_pid "$pid" || true)
+    server_java=$(ss -ltnp "sport = :$port" \
+      | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' | head -n 1)
+    if [[ -z "$client_java" || -z "$server_java" ]]; then
+      echo "$label: could not resolve the production client/server Java processes for resource evidence" >&2
+      return 1
+    fi
+    read -r client_rss client_threads client_elapsed < <(ps -o rss=,nlwp=,etimes= -p "$client_java")
+    read -r server_rss server_threads server_elapsed < <(ps -o rss=,nlwp=,etimes= -p "$server_java")
+    printf '%d\tclient\t%s\t%s\t%s\t%s\t%s\n' "$index" "$client_java" \
+      "$client_rss" "$client_threads" "$(find "/proc/$client_java/fd" -mindepth 1 -maxdepth 1 | wc -l)" \
+      "$client_elapsed" >> "$resources"
+    printf '%d\tserver\t%s\t%s\t%s\t%s\t%s\n' "$index" "$server_java" \
+      "$server_rss" "$server_threads" "$(find "/proc/$server_java/fd" -mindepth 1 -maxdepth 1 | wc -l)" \
+      "$server_elapsed" >> "$resources"
+    first=$(wc -l < "$client_log")
+    if uses_console_control "$label"; then
+      printf 'jammarr clear\n' >&"$fifo_fd"
+    elif ! run_minecraft_rcon 127.0.0.1 "$rcon_port" "$rcon_password" \
+        'jammarr clear' > /dev/null; then
+      echo "$label: server control could not clear playback after cold start $index" >&2
+      return 1
+    fi
+    if ! wait_for_marker_after "$client_log" "$first" \
+        'Acceptance playback state: status=IDLE' 60; then
+      echo "$label: cold-start client $index could not clear playback before teardown" >&2
+      return 1
+    fi
+    terminate_client_launch "$pid" 20 || return 1
+    active_audio_client_pids=()
+    if group_alive "$pid"; then
+      echo "$label: cold-start client $index left a process group alive" >&2
+      return 1
+    fi
+    {
+      printf 'Cold start %d/%d: production client reached audible PLAYING and recovered two audible sound reloads.\n' \
+        "$index" "$legacy_cold_start_count"
+      grep -F 'Acceptance resource reload complete: success=true' "$client_log" | tail -n 2
+    } >> "$evidence"
+  done
+
+  printf 'Completed %d production-client cold starts with %d audible sound reloads and clean teardown.\n' \
+    "$legacy_cold_start_count" "$((legacy_cold_start_count * 2))" >> "$evidence"
+  {
+    printf 'Retained per-cycle client/server RSS, thread, file-descriptor, and elapsed-time samples.\n'
+    printf 'Server keep-up warnings: %d\n' "$(grep -Eic "Can't keep up|server is overloaded" "$output_root/$label.console.log" || true)"
+  } >> "$evidence"
+  return "$result"
+}
+
+run_legacy_browse_stress() {
+  local label=$1
+  local leader_log="$output_root/$label.audio-leader.console.log"
+  local server_log=$2
+  local fifo_fd=$3
+  local rcon_port=$4
+  local rcon_password=$5
+  local evidence="$output_root/$label.browse-stress.evidence.txt"
+  local first
+  : > "$evidence"
+
+  first=$(wc -l < "$leader_log")
+  send_audio_control "$label" leader 'browse:search:Gate'
+  if ! wait_for_marker_after "$leader_log" "$first" \
+      'Acceptance browse request completed: kind=SEARCH query=Gate items=8' 60; then
+    echo "$label: Search tab did not complete a successful request" >&2; return 1
+  fi
+  printf 'Search success reached a terminal state with eight results.\n' >> "$evidence"
+
+  first=$(wc -l < "$leader_log")
+  send_audio_control "$label" leader 'browse:search:no-match'
+  if ! wait_for_marker_after "$leader_log" "$first" \
+      'Acceptance browse request completed: kind=SEARCH query=no-match items=0' 60; then
+    echo "$label: Search tab did not complete an empty request" >&2; return 1
+  fi
+  printf 'Search empty result reached a terminal state.\n' >> "$evidence"
+
+  first=$(wc -l < "$leader_log")
+  send_audio_control "$label" leader 'browse:queue'
+  if ! wait_for_marker_after "$leader_log" "$first" \
+      'Acceptance Queue tab completed locally:' 30; then
+    echo "$label: Queue tab did not complete its local snapshot" >&2; return 1
+  fi
+  printf 'Queue snapshot completed without a network wait.\n' >> "$evidence"
+
+  printf 'offline\n' > "$fake_plex_state"
+  first=$(wc -l < "$leader_log")
+  send_audio_control "$label" leader 'browse:search:failure-cycle'
+  if ! wait_for_marker_after "$leader_log" "$first" \
+      'Acceptance browse request completed: error' 60; then
+    printf 'online\n' > "$fake_plex_state"
+    echo "$label: Search tab did not terminate after a Plex failure" >&2; return 1
+  fi
+  printf 'Search Plex failure reached a terminal error state.\n' >> "$evidence"
+
+  first=$(wc -l < "$server_log")
+  printf 'online\n' > "$fake_plex_state"
+  if uses_console_control "$label"; then
+    printf 'jammarr reload\n' >&"$fifo_fd"
+  else
+    run_minecraft_rcon 127.0.0.1 "$rcon_port" "$rcon_password" 'jammarr reload' > /dev/null || return 1
+  fi
+  if ! wait_for_marker_after "$server_log" "$first" \
+      'Jammarr connected to Plex; sonic capability is READY' 60; then
+    echo "$label: Plex did not recover after browse failure" >&2; return 1
+  fi
+
+  printf 'stall\n' > "$fake_plex_state"
+  first=$(wc -l < "$leader_log")
+  send_audio_control "$label" leader 'browse:search:timeout-cycle'
+  if ! wait_for_marker_after "$leader_log" "$first" \
+      'Acceptance control applied: browse:search:timeout-cycle' 30; then
+    printf 'online\n' > "$fake_plex_state"; return 1
+  fi
+  send_audio_control "$label" leader 'browse:expire'
+  if ! wait_for_marker_after "$leader_log" "$first" \
+      'Acceptance browse request completed: timeout' 30; then
+    printf 'online\n' > "$fake_plex_state"
+    echo "$label: Search tab remained pending after its timeout" >&2; return 1
+  fi
+  printf 'Search timeout reached a terminal retryable state.\n' >> "$evidence"
+
+  first=$(wc -l < "$leader_log")
+  send_audio_control "$label" leader 'browse:search:cancellation-cycle'
+  if ! wait_for_marker_after "$leader_log" "$first" \
+      'Acceptance control applied: browse:search:cancellation-cycle' 30; then
+    printf 'online\n' > "$fake_plex_state"; return 1
+  fi
+  send_audio_control "$label" leader 'browse:cancel'
+  if ! wait_for_marker_after "$leader_log" "$first" \
+      'Acceptance browse request completed: cancellation' 30; then
+    printf 'online\n' > "$fake_plex_state"
+    echo "$label: Search tab remained pending after cancellation" >&2; return 1
+  fi
+  printf 'online\n' > "$fake_plex_state"
+  printf 'Search cancellation reached a terminal state.\n' >> "$evidence"
 }
 
 run_two_client_audio() {
@@ -1729,6 +2095,13 @@ run_two_client_audio() {
       > "$raw_follower" &
     recorder_pid=$!; active_audio_recorder_pids+=("$recorder_pid")
     sleep "$capture_seconds"
+    if ! ss -ltnH "sport = :$port" | grep -q . \
+        || grep -Fq 'Client disconnected with reason:' \
+          "$output_root/$label.audio-leader.console.log" \
+          "$output_root/$label.audio-follower.console.log"; then
+      echo "$label: server or client disconnected during deterministic audio capture; refusing to classify trailing recorder silence as an audio-timing defect" >&2
+      result=1
+    fi
   fi
 
   for recorder_pid in "${active_audio_recorder_pids[@]}"; do
@@ -1791,6 +2164,22 @@ run_two_client_audio() {
     if ! run_audio_control_scenarios "$label" "$target_dir" "$java_home" "$client_port" \
         "$sink_leader" "$sink_follower" "$leader_pid" "$follower_pid" \
         "$rcon_port" "$rcon_password" "$fifo_fd" "$server_log"; then
+      result=1
+    elif [[ -n "$scenario_follower_pid" ]]; then
+      follower_pid=$scenario_follower_pid
+    fi
+  fi
+  if (( result == 0 )) && [[ "$legacy_browse_stress_gate" == "true"
+      && ${target_stress_profile[$label]} != "none" ]]; then
+    if ! run_legacy_browse_stress "$label" "$server_log" "$fifo_fd" "$rcon_port" "$rcon_password"; then
+      result=1
+    fi
+  fi
+  if (( result == 0 && legacy_cold_start_count > 0 )) \
+      && [[ ${target_stress_profile[$label]} != "none" ]]; then
+    if ! run_legacy_cold_start_stress "$label" "$target_dir" "$java_home" "$client_port" \
+        "$sink_leader" "$leader_pid" "$follower_pid" "$rcon_port" "$rcon_password" "$fifo_fd" \
+        "$server_log"; then
       result=1
     fi
   fi
@@ -1895,6 +2284,20 @@ process_tree_pids() {
   ' | sort -rn
 }
 
+minecraft_java_pid() {
+  local root=$1
+  local candidate command
+  while read -r candidate; do
+    [[ -r "/proc/$candidate/cmdline" ]] || continue
+    command=$(tr '\0' ' ' < "/proc/$candidate/cmdline")
+    if [[ "$command" == *java* && ( "$command" == *net.minecraft* || "$command" == *launchwrapper* ) ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done < <({ printf '%s\n' "$root"; process_tree_pids "$root"; } | sort -un)
+  return 1
+}
+
 stop_process_tree() {
   local root=$1
   local signal=$2
@@ -1974,10 +2377,7 @@ run_invalid_config_check_once() {
   local port=$5
   local level_name=$6
   local console_log="$output_root/$label.invalid-config.console.log"
-  local latest_log="$run_dir/logs/latest.log"
-  local mod_log
-  mod_log=$(mod_log_path "$label" "$run_dir")
-  local pid result=0
+  local pid result=0 marker_seen=0
   local -a cache_args=()
   local -a runtime_args=(-PjammarrServerGameDir="$run_dir")
   [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
@@ -1992,7 +2392,7 @@ run_invalid_config_check_once() {
     exec setsid env JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAMMARR_PLEX_TOKEN="$fake_plex_token" \
       JAVA_TOOL_OPTIONS="-Djammarr.acceptance.enabled=true -Djammarr.acceptance.audioProbe=true -Djammarr.acceptance.helloTimeoutMs=${hello_timeout_ms}" \
-      ./gradlew runServer --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
+      ./gradlew "${target_server_task[$label]}" --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
       "${runtime_args[@]}" \
       < /dev/null > "$console_log" 2>&1
   ) &
@@ -2012,38 +2412,54 @@ run_invalid_config_check_once() {
     return 1
   fi
 
-  local deadline=$((SECONDS + 600))
-  while group_alive "$pid"; do
-    if grep -Fq 'Invalid Jammarr configuration value for plexUrl' "$console_log" "$mod_log" 2>/dev/null; then
+  # A Gradle JavaExec task may run inside a single-use daemon which is not a
+  # descendant of the wrapper's setsid process. Consequently the wrapper's
+  # process group can disappear while Minecraft is still starting. Only this
+  # launch's freshly truncated console and the actual listening socket are
+  # authoritative here; latest.log and the FML log can contain rejection text
+  # from an earlier probe.
+  local deadline=$((SECONDS + 180))
+  while (( SECONDS < deadline )); do
+    if grep -Fq 'Invalid Jammarr configuration value for plexUrl' "$console_log" 2>/dev/null; then
+      marker_seen=1
       break
     fi
-    if (( SECONDS >= deadline )); then
-      echo "$label: invalid-configuration rejection timed out" >&2
+    if grep -Eq 'Done \([^)]*\)! For help' "$console_log" 2>/dev/null; then
+      echo "$label: server became ready despite the invalid Jammarr configuration" >&2
+      result=1
+      break
+    fi
+    if grep -Eq 'Failed to get asset:|SocketTimeoutException|HttpTimeoutException|Could not download' \
+        "$console_log" 2>/dev/null && ! kill -0 "$pid" 2>/dev/null; then
+      restore_server_config
+      return 75
+    fi
+    sleep 1
+  done
+  if (( marker_seen == 0 && result == 0 )); then
+    echo "$label: invalid-configuration rejection timed out" >&2
+    result=1
+  fi
+
+  local shutdown_deadline=$((SECONDS + 60))
+  while ss -ltnH "sport = :$port" | grep -q .; do
+    if (( SECONDS >= shutdown_deadline )); then
+      echo "$label: server did not fail closed after rejecting invalid Jammarr configuration" >&2
       result=1
       break
     fi
     sleep 1
   done
-
-  if ! wait_for_group_exit "$pid" 60; then
-    echo "$label: server did not fail closed after rejecting invalid Jammarr configuration" >&2
-    stop_group "$pid" TERM
-    wait_for_group_exit "$pid" 10 || stop_group "$pid" KILL
-    result=1
-  fi
+  stop_listening_port "$port"
+  stop_group "$pid" TERM
+  wait_for_group_exit "$pid" 10 || stop_group "$pid" KILL
   wait "$pid" 2>/dev/null || true
   active_server_pid=""
-  if ! grep -Fq 'Invalid Jammarr configuration value for plexUrl' "$latest_log" "$mod_log" "$console_log" 2>/dev/null \
-      && grep -Eq 'Failed to get asset:|SocketTimeoutException|HttpTimeoutException|Could not download' \
-        "$console_log" 2>/dev/null; then
-    restore_server_config
-    return 75
-  fi
-  if ! grep -Fq 'Invalid Jammarr configuration value for plexUrl' "$latest_log" "$mod_log" "$console_log" 2>/dev/null; then
+  if (( marker_seen == 0 )); then
     echo "$label: invalid configuration failure did not identify the rejected key" >&2
     result=1
   fi
-  if grep -Fq 'private-pass' "$latest_log" "$mod_log" "$console_log" 2>/dev/null; then
+  if grep -Fq 'private-pass' "$console_log" 2>/dev/null; then
     echo "$label: invalid configuration diagnostics leaked a credential" >&2
     result=1
   fi
@@ -2105,6 +2521,103 @@ backup_server_properties() {
   active_properties="$properties"
   active_properties_backup=$(mktemp "$output_root/$label.server-properties.XXXXXX")
   cp -- "$active_properties" "$active_properties_backup"
+}
+
+run_legacy_persistence_reload() {
+  local label=$1
+  local target_dir=$2
+  local run_dir=$3
+  local java_home=$4
+  local port=$5
+  local console_log="$output_root/$label.persistence-reload.console.log"
+  local evidence="$output_root/$label.persistence-reload.evidence.txt"
+  local mod_log
+  mod_log=$(mod_log_path "$label" "$run_dir")
+  local fifo_dir fifo fifo_fd pid server_pid server_group deadline result=0
+  local -a cache_args=()
+  local -a runtime_args=(-PjammarrServerGameDir="$run_dir")
+  [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
+  [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] \
+    && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
+  disables_configuration_cache "$label" && cache_args+=(--no-configuration-cache)
+
+  fifo_dir=$(mktemp -d "$output_root/$label.persistence-fifo.XXXXXX")
+  fifo="$fifo_dir/stdin"
+  mkfifo "$fifo"
+  exec {fifo_fd}<>"$fifo"
+  : > "$console_log"
+  (
+    cd "$target_dir" || exit 1
+    exec setsid env JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
+      JAMMARR_PLEX_TOKEN="$fake_plex_token" \
+      JAVA_TOOL_OPTIONS="-Djammarr.acceptance.enabled=true -Djammarr.acceptance.audioProbe=true -Djammarr.acceptance.persistenceRead=true -Djammarr.acceptance.helloTimeoutMs=${hello_timeout_ms}" \
+      ./gradlew "${target_server_task[$label]}" --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
+      "${runtime_args[@]}" < "$fifo" > "$console_log" 2>&1
+  ) &
+  pid=$!
+  active_server_pid=$pid
+
+  deadline=$((SECONDS + 180))
+  while ! grep -Fq 'Acceptance schema-4 persistence fixture reloaded from the production world' \
+      "$console_log" "$mod_log" 2>/dev/null; do
+    if ! kill -0 "$pid" 2>/dev/null || (( SECONDS >= deadline )); then
+      echo "$label: production persistence reload did not verify the saved schema-4 fixture" >&2
+      result=1
+      break
+    fi
+    sleep 1
+  done
+
+  if (( result == 0 )); then
+    printf 'stop\n' >&"$fifo_fd"
+  else
+    stop_process_tree "$pid" TERM
+  fi
+  server_pid=$(ss -ltnp "sport = :$port" \
+    | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' | head -n 1)
+  server_group=""
+  if [[ -n "$server_pid" ]]; then
+    server_group=$(ps -o pgid= -p "$server_pid" | tr -d '[:space:]')
+  fi
+  if [[ "$server_group" =~ ^[0-9]+$ ]] && (( server_group > 1 )); then
+    active_server_group=$server_group
+    wait_for_group_exit "$server_group" 60 || result=1
+  else
+    wait_for_process_tree_exit "$pid" 60 || result=1
+  fi
+  if (( result != 0 )); then
+    [[ -n "$server_group" ]] && stop_group "$server_group" KILL
+    stop_process_tree "$pid" KILL
+  fi
+  wait "$pid" 2>/dev/null || true
+  active_server_pid=""
+  active_server_group=""
+  exec {fifo_fd}>&-
+  rm -f -- "$fifo"
+  rmdir -- "$fifo_dir"
+
+  if grep -Eq 'AbstractMethodError|NoSuchMethodError|production Forge 1\.7\.10 did not reload|Encountered an unexpected exception' \
+      "$console_log" "$mod_log" 2>/dev/null; then
+    echo "$label: production persistence reload hit a linkage or state failure" >&2
+    result=1
+  fi
+  if ! grep -q 'FMLServerStoppedEvent' "$mod_log" 2>/dev/null; then
+    echo "$label: production persistence reload did not shut down cleanly" >&2
+    result=1
+  fi
+  if ss -ltnH "sport = :$port" | grep -q .; then
+    echo "$label: production persistence reload left port $port open" >&2
+    result=1
+  fi
+  if (( result == 0 )); then
+    {
+      grep -F 'Acceptance schema-4 persistence fixture reloaded from the production world' \
+        "$console_log" "$mod_log" | tail -n 1
+      grep -F 'FMLServerStoppedEvent' "$mod_log" | tail -n 1
+      printf '%s\n' 'Final reobfuscated artifact persisted and reloaded schema-4 state across a clean server restart.'
+    } > "$evidence"
+  fi
+  return "$result"
 }
 
 run_target() {
@@ -2209,7 +2722,7 @@ run_target() {
     exec setsid env JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAMMARR_PLEX_TOKEN="$fake_plex_token" \
       JAVA_TOOL_OPTIONS="-Djammarr.acceptance.enabled=true -Djammarr.acceptance.audioProbe=true -Djammarr.acceptance.helloTimeoutMs=${hello_timeout_ms}" \
-      ./gradlew runServer --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
+      ./gradlew "${target_server_task[$label]}" --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
       "${runtime_args[@]}" \
       < "$fifo" > "$console_log" 2>&1
   ) &
@@ -2302,6 +2815,28 @@ run_target() {
     # Let the server finish its disconnect/player-removal tick before the
     # shutdown probe begins.
     sleep 2
+  fi
+
+  if (( result == 0 )) && [[ "$legacy_persistence_gate" == "true"
+      && ${target_stress_profile[$label]} != "none" ]]; then
+    if uses_console_control "$label"; then
+      printf 'jammarr acceptance-persistence-fixture\n' >&"$fifo_fd"
+      printf 'save-all\n' >&"$fifo_fd"
+    elif ! run_minecraft_rcon 127.0.0.1 "$rcon_port" "$rcon_password" \
+        'jammarr acceptance-persistence-fixture' > /dev/null \
+        || ! run_minecraft_rcon 127.0.0.1 "$rcon_port" "$rcon_password" save-all > /dev/null; then
+      result=1
+    fi
+    local persistence_deadline=$((SECONDS + 30))
+    while ! grep -Fq 'Acceptance schema-4 persistence fixture marked dirty' \
+        "$server_evidence_log" "$console_log" 2>/dev/null; do
+      if (( SECONDS >= persistence_deadline )); then
+        echo "$label: production persistence fixture was not marked dirty" >&2
+        result=1
+        break
+      fi
+      sleep 1
+    done
   fi
 
   if uses_console_control "$label"; then
@@ -2418,6 +2953,12 @@ run_target() {
   if [[ -n "$server_group" ]] && group_alive "$server_group"; then
     echo "$label: process group $server_group remains alive after shutdown" >&2
     result=1
+  fi
+  if (( result == 0 )) && [[ "$legacy_persistence_gate" == "true"
+      && ${target_stress_profile[$label]} != "none" ]]; then
+    if ! run_legacy_persistence_reload "$label" "$target_dir" "$run_dir" "$java_home" "$port"; then
+      result=1
+    fi
   fi
   active_game_port=""
   active_rcon_port=""

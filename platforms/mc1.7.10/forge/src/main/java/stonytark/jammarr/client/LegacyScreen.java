@@ -4,6 +4,8 @@ import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.GuiTextField;
 import org.lwjgl.input.Keyboard;
+import stonytark.jammarr.Jammarr;
+import stonytark.jammarr.core.client.PendingBrowseRequest;
 import stonytark.jammarr.core.model.StationModels;
 import stonytark.jammarr.core.platform.JammarrSettings;
 import stonytark.jammarr.core.protocol.ControlPackets;
@@ -45,10 +47,7 @@ final class LegacyScreen extends GuiScreen {
     private LegacyTextFieldState searchEditState;
     private String searchQuery = "";
     private String notice = "";
-    private boolean requestPending;
-    private ControlPackets.BrowseKind pendingKind;
-    private String pendingQuery = "";
-    private int pendingPage;
+    private final PendingBrowseRequest pendingBrowse = new PendingBrowseRequest();
     private long clearArmedUntil;
     private long startNowArmedUntil;
 
@@ -114,7 +113,7 @@ final class LegacyScreen extends GuiScreen {
 
     private void addResultButtons(int left, int top, int panel) {
         ControlPackets.BrowseResults results = state.browse();
-        if (view.browseKind == null || results.kind() != view.browseKind || requestPending) return;
+        if (view.browseKind == null || results.kind() != view.browseKind || pendingBrowse.active()) return;
         int rows = Math.min(MAX_VISIBLE_ROWS, results.items().size());
         for (int row = 0; row < rows; row++) {
             int y = top + row * 22;
@@ -170,7 +169,8 @@ final class LegacyScreen extends GuiScreen {
     @Override protected void actionPerformed(GuiButton button) {
         if (!button.enabled) return;
         if (button.id >= TAB_BASE && button.id < TAB_BASE + View.values().length) {
-            view = View.values()[button.id - TAB_BASE]; requestPending = false; notice = ""; state.clearNotice();
+            cancelPendingBrowse("tab change");
+            view = View.values()[button.id - TAB_BASE]; notice = ""; state.clearNotice();
             if (view.browseKind != null) request(0); else initGui();
             return;
         }
@@ -277,19 +277,19 @@ final class LegacyScreen extends GuiScreen {
     }
 
     private void request(int page) {
-        if (view.browseKind == null || requestPending) return;
+        if (view.browseKind == null || pendingBrowse.active()) return;
         if (search != null) searchQuery = search.getText().trim();
         if (view.browseKind == ControlPackets.BrowseKind.QUEUE) {
-            requestPending = false; state.showQueuePage(page); initGui(); return;
+            state.showQueuePage(page); initGui(); return;
         }
         if ((view == View.SEARCH || view == View.ADVENTURE) && searchQuery.length() < 2) {
-            requestPending = false; notice = "Enter at least two characters";
+            notice = "Enter at least two characters";
             state.clearBrowse(ControlPackets.BrowseKind.SEARCH, searchQuery); initGui(); return;
         }
-        pendingKind = view.browseKind;
-        pendingQuery = pendingKind == ControlPackets.BrowseKind.SEARCH ? searchQuery : "";
-        pendingPage = Math.max(0, page);
-        requestPending = true;
+        ControlPackets.BrowseKind pendingKind = view.browseKind;
+        String pendingQuery = pendingKind == ControlPackets.BrowseKind.SEARCH ? searchQuery : "";
+        int pendingPage = Math.max(0, page);
+        pendingBrowse.begin(pendingKind, pendingQuery, pendingPage, monotonicMillis());
         LegacyNetwork.sendToServer(LegacyPacketTypes.BROWSE_REQUEST,
                 new ControlPackets.BrowseRequest(pendingKind, pendingQuery, pendingPage));
         initGui();
@@ -318,12 +318,58 @@ final class LegacyScreen extends GuiScreen {
 
     void resultsChanged() {
         ControlPackets.BrowseResults result = state.browse();
-        if (requestPending && result.kind() == pendingKind && result.page() == pendingPage
-                && result.query().equals(pendingQuery)) requestPending = false;
+        if (pendingBrowse.complete(result) && Boolean.getBoolean("jammarr.acceptance.enabled")) {
+            Jammarr.LOGGER.info("Acceptance browse request completed: kind={} query={} items={}",
+                    result.kind(), result.query(), result.items().size());
+        }
         initGui();
     }
-    void requestFailed() { requestPending = false; initGui(); }
+    void requestFailed() {
+        if (pendingBrowse.fail() && Boolean.getBoolean("jammarr.acceptance.enabled")) {
+            Jammarr.LOGGER.info("Acceptance browse request completed: error");
+        }
+        initGui();
+    }
     void stateChanged() { initGui(); }
+
+    void disconnected() {
+        cancelPendingBrowse("disconnect");
+    }
+
+    void acceptanceSearch(String query) {
+        String requested = query == null ? "" : query;
+        if (search != null) search.setText(requested);
+        view = View.SEARCH;
+        searchQuery = requested;
+        searchEditState = search == null ? null : LegacyTextFieldState.capture(search);
+        initGui();
+        request(0);
+    }
+
+    void acceptanceQueuePage() {
+        view = View.QUEUE;
+        initGui();
+        request(0);
+        if (Boolean.getBoolean("jammarr.acceptance.enabled")) {
+            Jammarr.LOGGER.info("Acceptance Queue tab completed locally: items={}", state.browse().items().size());
+        }
+    }
+
+    void acceptanceCancelBrowse() { cancelPendingBrowse("cancellation"); initGui(); }
+
+    void acceptanceExpireBrowse() {
+        if (pendingBrowse.expire(monotonicMillis() + PendingBrowseRequest.DEFAULT_TIMEOUT_MS)) {
+            notice = "Request timed out; try again";
+            Jammarr.LOGGER.info("Acceptance browse request completed: timeout");
+            initGui();
+        }
+    }
+
+    private void cancelPendingBrowse(String reason) {
+        if (pendingBrowse.cancel() && Boolean.getBoolean("jammarr.acceptance.enabled")) {
+            Jammarr.LOGGER.info("Acceptance browse request completed: {}", reason);
+        }
+    }
 
     @Override protected void keyTyped(char character, int key) {
         if (search != null && search.textboxKeyTyped(character, key)) return;
@@ -334,8 +380,20 @@ final class LegacyScreen extends GuiScreen {
         super.mouseClicked(x, y, button);
         if (search != null) search.mouseClicked(x, y, button);
     }
-    @Override public void updateScreen() { if (search != null) search.updateCursorCounter(); }
-    @Override public void onGuiClosed() { Keyboard.enableRepeatEvents(false); }
+    @Override public void updateScreen() {
+        if (search != null) search.updateCursorCounter();
+        if (pendingBrowse.expire(monotonicMillis())) {
+            notice = "Request timed out; try again";
+            if (Boolean.getBoolean("jammarr.acceptance.enabled")) {
+                Jammarr.LOGGER.info("Acceptance browse request completed: timeout");
+            }
+            initGui();
+        }
+    }
+    @Override public void onGuiClosed() {
+        cancelPendingBrowse("screen close");
+        Keyboard.enableRepeatEvents(false);
+    }
     @Override public boolean doesGuiPauseGame() { return false; }
 
     @Override public void drawScreen(int mouseX, int mouseY, float partialTicks) {
@@ -355,7 +413,7 @@ final class LegacyScreen extends GuiScreen {
         else drawResults(left, top, panel);
         String shownNotice = empty(notice) ? (empty(state.notice()) ? playback.statusMessage() : state.notice()) : notice;
         if (!empty(shownNotice)) drawCenteredString(fontRendererObj, trim(shownNotice, width - 20), width / 2, height - 40, 0xFFB36B);
-        if (requestPending) drawCenteredString(fontRendererObj, "Searching...", width / 2, height / 2, 0xA0D8FF);
+        if (pendingBrowse.active()) drawCenteredString(fontRendererObj, "Searching...", width / 2, height / 2, 0xA0D8FF);
         if (view.browseKind != null && view != View.QUEUE) {
             drawCenteredString(fontRendererObj, "+ Queue   R Radio   M Mix   A Adventure", width / 2, 56, 0x9FAFCF);
         }
@@ -409,7 +467,7 @@ final class LegacyScreen extends GuiScreen {
 
     private void drawResults(int left, int top, int panel) {
         ControlPackets.BrowseResults results = state.browse();
-        if (view.browseKind == null || results.kind() != view.browseKind || requestPending) return;
+        if (view.browseKind == null || results.kind() != view.browseKind || pendingBrowse.active()) return;
         for (int row = 0; row < Math.min(MAX_VISIBLE_ROWS, results.items().size()); row++) {
             StationModels.MediaItem item = results.items().get(row);
             int queueIndex = results.page() * 20 + row;
@@ -421,6 +479,7 @@ final class LegacyScreen extends GuiScreen {
     }
 
     private String trim(String value, int pixels) { return fontRendererObj.trimStringToWidth(value, Math.max(10, pixels)); }
+    private static long monotonicMillis() { return System.nanoTime() / 1_000_000L; }
     static String tooltip(int id) { return LegacyUiTooltips.tooltip(id); }
     private static boolean empty(String value) { return value == null || value.isEmpty(); }
     private static String time(long millis) {

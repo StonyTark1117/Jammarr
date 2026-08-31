@@ -57,6 +57,7 @@ final class LegacyAudioPlayer {
     private long lastRecoveryMs;
     private long lastManifestRequestMs;
     private long lastHealthSentMs;
+    private long lastBackendDiagnosticsMs;
     private String lastHealthState = "";
     private int recoveryAttempts;
     private int receivedChunks;
@@ -182,6 +183,12 @@ final class LegacyAudioPlayer {
             startSource(current, now);
         }
         if (started && openAlStream != null) {
+            if (ProtocolLimits.audioProbeEnabled() && now - lastBackendDiagnosticsMs >= 1_000L) {
+                lastBackendDiagnosticsMs = now;
+                Jammarr.LOGGER.info("Acceptance legacy backend: {} queuedLeadMs={} decodedMs={}",
+                        openAlStream.acceptanceDiagnostics(),
+                        Math.max(0L, queuedUntilLocalMs - now), decoder.bufferedMillis());
+            }
             if (!manifest.paused()) {
                 boolean terminal = decoder.finished() && window.complete() && now >= queuedUntilLocalMs;
                 boolean backendPlaying = openAlStream.playing();

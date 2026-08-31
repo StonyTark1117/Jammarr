@@ -3,12 +3,15 @@ package stonytark.jammarr.server;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.ChatComponentText;
+import net.minecraft.util.DamageSource;
 import stonytark.jammarr.Jammarr;
 import stonytark.jammarr.core.platform.CoreLogger;
 import stonytark.jammarr.core.protocol.ControlPackets;
 import stonytark.jammarr.core.protocol.JammarrMessage;
 import stonytark.jammarr.core.protocol.StatePackets;
 import stonytark.jammarr.core.protocol.TransportPackets;
+import stonytark.jammarr.core.model.QueueTrack;
+import stonytark.jammarr.core.model.StationModels;
 import stonytark.jammarr.core.server.CoordinatorRuntime;
 import stonytark.jammarr.core.server.GlobalPlaybackCoordinator;
 import stonytark.jammarr.network.LegacyNetwork;
@@ -25,8 +28,15 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 public final class LegacyGlobalPlayer implements AutoCloseable, LegacyNetwork.ServerListener {
     private final Queue<Runnable> mainThreadActions = new ConcurrentLinkedQueue<Runnable>();
     private final GlobalPlaybackCoordinator<EntityPlayerMP> delegate;
+    private final LegacySavedData savedData;
+    private final MinecraftServer server;
 
     public LegacyGlobalPlayer(final MinecraftServer server) throws IOException {
+        this.server = server;
+        savedData = LegacySavedData.get(server);
+        if (Boolean.getBoolean("jammarr.acceptance.persistenceRead")) {
+            verifyAcceptancePersistenceFixture();
+        }
         delegate = new GlobalPlaybackCoordinator<EntityPlayerMP>(new CoordinatorRuntime<EntityPlayerMP>() {
             @Override public UUID playerId(EntityPlayerMP player) { return player.getUniqueID(); }
             @Override public boolean isOperator(EntityPlayerMP player, int permissionLevel) {
@@ -66,7 +76,7 @@ public final class LegacyGlobalPlayer implements AutoCloseable, LegacyNetwork.Se
                     @Override public void warn(String message, Throwable error) { Jammarr.LOGGER.warn(message, error); }
                 };
             }
-        }, LegacySavedData.get(server));
+        }, savedData);
         LegacyNetwork.setServerListener(this);
     }
 
@@ -98,6 +108,74 @@ public final class LegacyGlobalPlayer implements AutoCloseable, LegacyNetwork.Se
     public String stationStatus() { return delegate.stationStatus(); }
     public long stationGeneration() { return delegate.stationGeneration(); }
     public String diagnostics() { return delegate.diagnostics(); }
+
+    public void acceptanceDimension(String username, int dimension) {
+        if (!Boolean.getBoolean("jammarr.acceptance.enabled")) {
+            throw new IllegalStateException("Dimension cycling is acceptance-only");
+        }
+        EntityPlayerMP player = server.getConfigurationManager().func_152612_a(username);
+        if (player == null) throw new IllegalArgumentException("Unknown acceptance player " + username);
+        server.getConfigurationManager().transferPlayerToDimension(player, dimension);
+        Jammarr.LOGGER.info("Acceptance lifecycle dimension transfer: player={} dimension={}",
+                username, dimension);
+    }
+
+    public void acceptanceKill(String username) {
+        if (!Boolean.getBoolean("jammarr.acceptance.enabled")) {
+            throw new IllegalStateException("Death cycling is acceptance-only");
+        }
+        EntityPlayerMP player = server.getConfigurationManager().func_152612_a(username);
+        if (player == null) throw new IllegalArgumentException("Unknown acceptance player " + username);
+        player.attackEntityFrom(DamageSource.outOfWorld, Float.MAX_VALUE);
+        Jammarr.LOGGER.info("Acceptance lifecycle death triggered: player={}", username);
+    }
+
+    public void installAcceptancePersistenceFixture() {
+        if (!Boolean.getBoolean("jammarr.acceptance.enabled")) {
+            throw new IllegalStateException("Persistence fixtures are acceptance-only");
+        }
+        savedData.clearAll();
+        savedData.queue().add(new QueueTrack("persistence-next", "Persistence Next",
+                "Gate Artist", "Gate Album", 12_345L));
+        savedData.current(new QueueTrack("persistence-current", "Persistence Current",
+                        "Gate Artist", "Gate Album", 23_456L),
+                StatePackets.PlaybackOrigin.ADVENTURE, "Persistence Adventure");
+        savedData.station(new StationModels.StationDefinition(
+                StationModels.StationType.SONIC_ADVENTURE, "Persistence Route",
+                java.util.Arrays.asList(
+                        new StationModels.StationSeed(StationModels.ItemKind.TRACK,
+                                "persistence-current", "Persistence Current", "Gate Artist"),
+                        new StationModels.StationSeed(StationModels.ItemKind.TRACK,
+                                "persistence-next", "Persistence Next", "Gate Artist")), 17L));
+        savedData.autoplayEnabled(true);
+        savedData.remember(new QueueTrack("persistence-history", "Persistence History",
+                "Gate Artist", "Gate Album", 34_567L));
+        savedData.update(4_321L, true);
+        // Exercise the stable shared contract through the final reobfuscated
+        // class, not only WorldSavedData's MCP-named method.
+        savedData.markChanged();
+        Jammarr.LOGGER.info("Acceptance schema-4 persistence fixture marked dirty");
+    }
+
+    private void verifyAcceptancePersistenceFixture() {
+        boolean valid = savedData.current() != null
+                && "persistence-current".equals(savedData.current().key())
+                && savedData.currentOrigin() == StatePackets.PlaybackOrigin.ADVENTURE
+                && "Persistence Adventure".equals(savedData.currentSourceName())
+                && savedData.queue().size() == 1
+                && "persistence-next".equals(savedData.queue().get(0).key())
+                && savedData.station().type() == StationModels.StationType.SONIC_ADVENTURE
+                && savedData.station().generation() == 17L
+                && savedData.station().seeds().size() == 2
+                && savedData.autoplayEnabled()
+                && savedData.history().size() == 1
+                && "persistence-history".equals(savedData.history().get(0).key())
+                && savedData.checkpointMs() == 4_321L
+                && savedData.paused();
+        if (!valid) throw new IllegalStateException(
+                "Production Forge 1.7.10 did not reload the schema-4 persistence fixture");
+        Jammarr.LOGGER.info("Acceptance schema-4 persistence fixture reloaded from the production world");
+    }
 
     private static void sendCore(EntityPlayerMP player, JammarrMessage message) {
         if (message instanceof ControlPackets.BrowseResults) send(player, LegacyPacketTypes.BROWSE_RESULTS, (ControlPackets.BrowseResults) message);

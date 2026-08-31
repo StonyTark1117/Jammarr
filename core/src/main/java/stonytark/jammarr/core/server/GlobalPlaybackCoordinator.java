@@ -303,12 +303,17 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
     }
 
     public void control(P player, ControlPackets.ControlRequest request) {
-        if (!operator(player)) return;
+        // A null actor represents an already-authorized dedicated-server
+        // console command. Network callers always provide a real player and
+        // therefore continue through the normal operator check.
+        if (player != null && !operator(player)) return;
         List<StatePackets.QueueEntry> visible = visibleQueue();
         if (request.index() >= 0 && !blank(request.expectedKey())
                 && (request.index() >= visible.size()
                 || !visible.get(request.index()).key().equals(request.expectedKey()))) {
-            sendError(player, StatePackets.ErrorCode.INVALID_REQUEST, "The queue changed; refresh and try again");
+            if (player != null) {
+                sendError(player, StatePackets.ErrorCode.INVALID_REQUEST, "The queue changed; refresh and try again");
+            }
             return;
         }
         switch (request.action()) {
@@ -318,13 +323,15 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
             case CLEAR:
                 mutationGeneration.incrementAndGet();
                 generated.clear(); prefetched = null; suspendedGeneration = -1L;
-                saved.clearAll(); stopAudio(); generationMessage = ""; chat(player, "Jammarr playback cleared");
+                saved.clearAll(); stopAudio(); generationMessage = "";
                 break;
             case REMOVE:
                 int pendingIndex = pendingIndex(request.index());
                 if (pendingIndex < 0 || pendingIndex >= saved.queue().size()) {
-                    sendError(player, StatePackets.ErrorCode.INVALID_REQUEST,
-                            "Only pending manual requests can be removed");
+                    if (player != null) {
+                        sendError(player, StatePackets.ErrorCode.INVALID_REQUEST,
+                                "Only pending manual requests can be removed");
+                    }
                     return;
                 }
                 saved.queue().remove(pendingIndex); saved.markChanged(); prefetched = null; prefetchNext();
@@ -334,7 +341,7 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
             default: return;
         }
         String result = controlMessage(request.action());
-        chat(player, "Jammarr: " + result);
+        if (player != null) chat(player, "Jammarr: " + result);
         broadcastState(result);
     }
 

@@ -49,6 +49,14 @@ final class LegacyOpenAlStream implements AutoCloseable {
     void gain(float value) { if (!closed) AL10.alSourcef(source, AL10.AL_GAIN, value); }
     boolean playing() { return !closed && AL10.alGetSourcei(source, AL10.AL_SOURCE_STATE) == AL10.AL_PLAYING; }
 
+    String acceptanceDiagnostics() {
+        if (closed) return "closed";
+        return "state=" + AL10.alGetSourcei(source, AL10.AL_SOURCE_STATE)
+                + " queued=" + AL10.alGetSourcei(source, AL10.AL_BUFFERS_QUEUED)
+                + " processed=" + AL10.alGetSourcei(source, AL10.AL_BUFFERS_PROCESSED)
+                + " error=" + AL10.alGetError();
+    }
+
     private void reclaimProcessed() {
         int processed = AL10.alGetSourcei(source, AL10.AL_BUFFERS_PROCESSED);
         while (processed-- > 0) reusable.addLast(AL10.alSourceUnqueueBuffers(source));

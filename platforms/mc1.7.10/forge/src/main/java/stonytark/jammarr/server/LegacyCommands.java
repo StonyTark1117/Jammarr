@@ -44,6 +44,39 @@ public final class LegacyCommands extends CommandBase {
             return;
         }
         String action = arguments[0].toLowerCase(java.util.Locale.ROOT);
+        if ("acceptance-persistence-fixture".equals(action)
+                && Boolean.getBoolean("jammarr.acceptance.enabled")) {
+            requireOperator(sender);
+            coordinator.installAcceptancePersistenceFixture();
+            reply(sender, "Acceptance schema-4 persistence fixture installed");
+            return;
+        }
+        if ("acceptance-dimension".equals(action)
+                && Boolean.getBoolean("jammarr.acceptance.enabled")) {
+            requireOperator(sender);
+            if (arguments.length != 3) {
+                throw new CommandException("Usage: /jammarr acceptance-dimension <player> <-1|0>");
+            }
+            int dimension;
+            try { dimension = Integer.parseInt(arguments[2]); }
+            catch (NumberFormatException invalid) { throw new CommandException("Dimension must be -1 or 0"); }
+            if (dimension != -1 && dimension != 0) throw new CommandException("Dimension must be -1 or 0");
+            try { coordinator.acceptanceDimension(arguments[1], dimension); }
+            catch (IllegalArgumentException invalid) { throw new CommandException(invalid.getMessage()); }
+            reply(sender, "Acceptance dimension transfer requested");
+            return;
+        }
+        if ("acceptance-kill".equals(action)
+                && Boolean.getBoolean("jammarr.acceptance.enabled")) {
+            requireOperator(sender);
+            if (arguments.length != 2) {
+                throw new CommandException("Usage: /jammarr acceptance-kill <player>");
+            }
+            try { coordinator.acceptanceKill(arguments[1]); }
+            catch (IllegalArgumentException invalid) { throw new CommandException(invalid.getMessage()); }
+            reply(sender, "Acceptance death triggered");
+            return;
+        }
         if ("status".equals(action)) { reply(sender, coordinator.status()); return; }
         if ("reload".equals(action)) { requireOperator(sender); coordinator.validatePlex(); reply(sender, "Jammarr Plex validation started"); return; }
         if ("cache".equals(action)) { requireOperator(sender); reply(sender, "Jammarr cache: " + coordinator.cacheSize() / 1024L / 1024L + " MiB"); return; }
@@ -51,7 +84,9 @@ public final class LegacyCommands extends CommandBase {
         if ("pause".equals(action) || "resume".equals(action) || "skip".equals(action) || "clear".equals(action)) {
             requireOperator(sender);
             ControlPackets.ControlAction control = ControlPackets.ControlAction.valueOf(action.toUpperCase(java.util.Locale.ROOT));
-            coordinator.control(getCommandSenderAsPlayer(sender), new ControlPackets.ControlRequest(control, -1, ""));
+            EntityPlayerMP player = sender instanceof EntityPlayerMP ? (EntityPlayerMP) sender : null;
+            coordinator.control(player, new ControlPackets.ControlRequest(control, -1, ""));
+            if (player == null) reply(sender, "Jammarr: " + action + " accepted");
             return;
         }
         if ("station".equals(action)) { station(sender, arguments); return; }

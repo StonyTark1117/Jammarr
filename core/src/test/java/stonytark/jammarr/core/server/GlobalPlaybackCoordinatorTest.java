@@ -172,6 +172,25 @@ class GlobalPlaybackCoordinatorTest {
         }
     }
 
+    @Test void dedicatedConsoleClearDoesNotDereferenceANullActor() throws Exception {
+        JammarrSettings.installServer(new TestSettings());
+        TestRuntime runtime = new TestRuntime(temporary);
+        MemoryStore store = new MemoryStore();
+        GlobalPlaybackCoordinator<TestPlayer> coordinator =
+                new GlobalPlaybackCoordinator<TestPlayer>(runtime, store, new FakePlex());
+        try {
+            await(() -> coordinator.diagnostics().contains("Plex=ONLINE"));
+            coordinator.control(null,
+                    new ControlPackets.ControlRequest(ControlPackets.ControlAction.CLEAR, -1, ""));
+
+            assertNull(store.current());
+            assertTrue(store.queue().isEmpty());
+            assertEquals(0, runtime.chatCalls.get());
+        } finally {
+            coordinator.close();
+        }
+    }
+
     private static void await(BooleanSupplier condition) throws InterruptedException {
         long deadline = System.currentTimeMillis() + 3_000L;
         while (!condition.getAsBoolean() && System.currentTimeMillis() < deadline) Thread.sleep(10L);
@@ -193,6 +212,7 @@ class GlobalPlaybackCoordinatorTest {
         private final TestPlayer listener = new TestPlayer("listener", false);
         private final List<Sent> sent = new CopyOnWriteArrayList<Sent>();
         private final AtomicInteger executions = new AtomicInteger();
+        private final AtomicInteger chatCalls = new AtomicInteger();
         private TestRuntime(Path temporary) { cache = temporary.resolve("cache"); }
         @Override public UUID playerId(TestPlayer player) { return player.id; }
         @Override public boolean isOperator(TestPlayer player, int permissionLevel) { return player.operator; }
@@ -201,7 +221,10 @@ class GlobalPlaybackCoordinatorTest {
         @Override public Path cacheDirectory() { return cache; }
         @Override public void execute(Runnable action) { executions.incrementAndGet(); action.run(); }
         @Override public void send(TestPlayer player, JammarrMessage message) { sent.add(new Sent(player, message)); }
-        @Override public void chat(TestPlayer player, String message) {}
+        @Override public void chat(TestPlayer player, String message) {
+            assertNotNull(player, "console controls must not be routed through player chat");
+            chatCalls.incrementAndGet();
+        }
         @Override public CoreLogger logger() { return CoreLogger.NO_OP; }
         private <T> T last(TestPlayer player, Class<T> type) {
             for (int index = sent.size() - 1; index >= 0; index--) {
