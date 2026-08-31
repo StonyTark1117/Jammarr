@@ -23,7 +23,7 @@ class DiscPanelReconcilerTests(unittest.TestCase):
         self.assertEqual(len(profiles), 99)
         self.assertEqual(len({profile.name for profile in profiles}), 99)
         self.assertEqual(
-            [profile.runtime for profile in profiles if profile.provisioning == "custom"],
+            [profile.runtime for profile in profiles if profile.provisioning != "native"],
             [
                 "b1.7.3-babric",
                 "1.6.4-fabric",
@@ -42,6 +42,22 @@ class DiscPanelReconcilerTests(unittest.TestCase):
         self.assertEqual(profiles["1.20.4-forge"].docker_image, "java17")
         self.assertEqual(profiles["1.21.11-neoforge"].docker_image, "java21")
         self.assertEqual(profiles["26.2-quilt"].docker_image, "java25")
+
+    def test_custom_profiles_use_pinned_fabric_bootstraps(self) -> None:
+        profiles = {
+            profile.runtime: profile
+            for profile in reconcile_discopanel.desired_profiles(Path("gradle/targets.json"))
+        }
+        babric = profiles["b1.7.3-babric"]
+        self.assertEqual(babric.panel_loader, "MOD_LOADER_FABRIC")
+        self.assertEqual(babric.provisioning, "custom-url")
+        self.assertIn("0.16.9", dict(babric.environment)["FABRIC_LAUNCHER_URL"])
+        ornithe = profiles["1.6.4-ornithe"]
+        self.assertEqual(ornithe.provisioning, "custom-upload")
+        self.assertEqual(
+            dict(ornithe.environment),
+            {"FABRIC_LAUNCHER": "fabric-server-launch.jar"},
+        )
 
     def test_port_allocator_skips_existing_ports(self) -> None:
         self.assertEqual(
@@ -70,6 +86,27 @@ class DiscPanelReconcilerTests(unittest.TestCase):
         self.assertEqual(reconcile_discopanel.drift(profile, server), [])
         server["status"] = "SERVER_STATUS_RUNNING"
         self.assertRegex(reconcile_discopanel.drift(profile, server)[0], "status")
+
+    def test_custom_drift_requires_pinned_environment(self) -> None:
+        profile = next(
+            profile
+            for profile in reconcile_discopanel.desired_profiles(Path("gradle/targets.json"))
+            if profile.runtime == "1.6.4-fabric"
+        )
+        server = {
+            "mcVersion": "1.6.4",
+            "modLoader": "MOD_LOADER_FABRIC",
+            "dockerImage": "java8",
+            "memory": 4096,
+            "status": "SERVER_STATUS_STOPPED",
+            "dockerOverrides": {"environment": dict(profile.environment)},
+        }
+        self.assertEqual(reconcile_discopanel.drift(profile, server), [])
+        server["dockerOverrides"]["environment"] = {}
+        self.assertRegex(
+            reconcile_discopanel.drift(profile, server)[0],
+            "docker environment FABRIC_LAUNCHER_URL",
+        )
 
 
 if __name__ == "__main__":
