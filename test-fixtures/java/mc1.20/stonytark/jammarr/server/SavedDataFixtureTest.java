@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SavedDataFixtureTest {
@@ -18,6 +19,20 @@ class SavedDataFixtureTest {
         assertSchemaOne(roundTrip("schema-1.snbt"));
         assertSchemaTwo(roundTrip("schema-2.snbt"));
         assertSchemaThree(roundTrip("schema-3.snbt"));
+    }
+
+    @Test void clearAllRemovesPlaybackHistoryWithTheRestOfGlobalState() throws Exception {
+        JammarrSavedData state = roundTrip("schema-3.snbt");
+
+        state.clearAll();
+
+        assertTrue(state.queue().isEmpty());
+        assertTrue(state.history().isEmpty());
+        assertNull(state.current());
+        assertEquals(JammarrPayloads.PlaybackOrigin.NONE, state.currentOrigin());
+        assertFalse(state.autoplayEnabled());
+        assertEquals(0L, state.checkpointMs());
+        assertFalse(state.paused());
     }
 
     private static JammarrSavedData roundTrip(String fixture) throws Exception {

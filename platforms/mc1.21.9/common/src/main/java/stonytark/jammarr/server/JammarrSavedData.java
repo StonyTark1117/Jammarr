@@ -72,7 +72,7 @@ public final class JammarrSavedData extends SavedData {
     }
 
     public void clearAll() {
-        queue.clear(); current = null;
+        queue.clear(); history.clear(); current = null;
         currentOrigin = JammarrPayloads.PlaybackOrigin.NONE; currentSourceName = "";
         station = StationDefinition.none(station.generation() + 1); autoplayEnabled = false;
         checkpointMs = 0; paused = false; setDirty();

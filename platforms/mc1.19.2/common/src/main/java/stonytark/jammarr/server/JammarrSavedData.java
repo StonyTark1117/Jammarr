@@ -54,7 +54,7 @@ public final class JammarrSavedData extends SavedData {
         setDirty();
     }
     public void clearAll() {
-        queue.clear(); current = null;
+        queue.clear(); history.clear(); current = null;
         currentOrigin = stonytark.jammarr.network.JammarrPayloads.PlaybackOrigin.NONE; currentSourceName = "";
         station = StationDefinition.none(station.generation() + 1); autoplayEnabled = false;
         checkpointMs = 0; paused = false; setDirty();

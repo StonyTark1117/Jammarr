@@ -93,6 +93,7 @@ public final class LegacySavedData extends PersistentState implements PlaybackSt
 
     public void clearAll() {
         queue.clear();
+        history.clear();
         current = null;
         currentOrigin = StatePackets.PlaybackOrigin.NONE;
         currentSourceName = "";

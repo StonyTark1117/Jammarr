@@ -15,6 +15,7 @@ import java.util.Arrays;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class LegacySavedDataTest {
@@ -53,6 +54,26 @@ class LegacySavedDataTest {
         assertEquals("history", restored.history().get(0).key());
         assertEquals(1_234L, restored.checkpointMs());
         assertTrue(restored.paused());
+    }
+
+    @Test
+    void clearAllRemovesPlaybackHistoryWithTheRestOfGlobalState() {
+        LegacySavedData state = new LegacySavedData();
+        state.queue().add(track("queued"));
+        state.current(track("current"), StatePackets.PlaybackOrigin.MANUAL, "Manual request");
+        state.remember(track("history"));
+        state.autoplayEnabled(true);
+        state.update(1_234L, true);
+
+        state.clearAll();
+
+        assertTrue(state.queue().isEmpty());
+        assertTrue(state.history().isEmpty());
+        assertNull(state.current());
+        assertEquals(StatePackets.PlaybackOrigin.NONE, state.currentOrigin());
+        assertFalse(state.autoplayEnabled());
+        assertEquals(0L, state.checkpointMs());
+        assertFalse(state.paused());
     }
 
     @Test

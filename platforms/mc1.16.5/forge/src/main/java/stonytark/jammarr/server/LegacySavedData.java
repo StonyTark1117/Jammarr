@@ -87,6 +87,7 @@ public final class LegacySavedData extends WorldSavedData implements PlaybackSto
 
     public void clearAll() {
         queue.clear();
+        history.clear();
         current = null;
         currentOrigin = StatePackets.PlaybackOrigin.NONE;
         currentSourceName = "";

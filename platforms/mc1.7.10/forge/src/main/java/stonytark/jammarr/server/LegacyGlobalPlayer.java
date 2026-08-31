@@ -134,6 +134,11 @@ public final class LegacyGlobalPlayer implements AutoCloseable, LegacyNetwork.Se
         if (!Boolean.getBoolean("jammarr.acceptance.enabled")) {
             throw new IllegalStateException("Persistence fixtures are acceptance-only");
         }
+        // This fixture is installed immediately before the acceptance server
+        // saves and stops. Quiesce the coordinator first so its periodic live
+        // timeline checkpoint cannot replace the deliberately non-zero,
+        // paused schema-4 values before they reach WorldSavedData.
+        delegate.close();
         savedData.clearAll();
         savedData.queue().add(new QueueTrack("persistence-next", "Persistence Next",
                 "Gate Artist", "Gate Album", 12_345L));

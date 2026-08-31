@@ -17,6 +17,20 @@ class SavedDataFixtureTest {
         assertSchemaThree(roundTrip("schema-3.snbt"));
     }
 
+    @Test void clearAllRemovesPlaybackHistoryWithTheRestOfGlobalState() throws Exception {
+        JammarrSavedData state = roundTrip("schema-3.snbt");
+
+        state.clearAll();
+
+        assertTrue(state.queue().isEmpty());
+        assertTrue(state.history().isEmpty());
+        assertNull(state.current());
+        assertEquals(JammarrPayloads.PlaybackOrigin.NONE, state.currentOrigin());
+        assertFalse(state.autoplayEnabled());
+        assertEquals(0L, state.checkpointMs());
+        assertFalse(state.paused());
+    }
+
     private static JammarrSavedData roundTrip(String fixture) throws Exception {
         JammarrSavedData migrated = JammarrSavedData.load(read(fixture), null);
         CompoundTag canonical = migrated.save(new CompoundTag(), null);

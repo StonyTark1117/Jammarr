@@ -87,6 +87,7 @@ public final class LegacySavedData extends SavedData implements PlaybackStore {
 
     public void clearAll() {
         queue.clear();
+        history.clear();
         current = null;
         currentOrigin = StatePackets.PlaybackOrigin.NONE;
         currentSourceName = "";
