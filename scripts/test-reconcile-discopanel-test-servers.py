@@ -56,7 +56,11 @@ class DiscPanelReconcilerTests(unittest.TestCase):
         self.assertEqual(ornithe.provisioning, "custom-upload")
         self.assertEqual(
             dict(ornithe.environment),
-            {"FABRIC_LAUNCHER": "fabric-server-launch.jar"},
+            {
+                "FABRIC_LAUNCHER": (
+                    "1.6.4-ornithe-server-bootstrap/fabric-server-launch.jar"
+                )
+            },
         )
 
     def test_port_allocator_skips_existing_ports(self) -> None:

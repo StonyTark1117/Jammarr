@@ -65,11 +65,15 @@ CUSTOM_RUNTIME_CONFIG = {
     },
     "1.6.4-ornithe": {
         "provisioning": "custom-upload",
-        "environment": {"FABRIC_LAUNCHER": "fabric-server-launch.jar"},
+        "environment": {
+            "FABRIC_LAUNCHER": "1.6.4-ornithe-server-bootstrap/fabric-server-launch.jar"
+        },
     },
     "1.8.9-ornithe": {
         "provisioning": "custom-upload",
-        "environment": {"FABRIC_LAUNCHER": "fabric-server-launch.jar"},
+        "environment": {
+            "FABRIC_LAUNCHER": "1.8.9-ornithe-server-bootstrap/fabric-server-launch.jar"
+        },
     },
 }
 ORNITHE_INSTALLER_URL = (
@@ -199,6 +203,26 @@ class DiscPanel:
 
     def get_server(self, server_id: str) -> dict[str, Any]:
         return self.call("ServerService", "GetServer", {"id": server_id})["server"]
+
+    def update_server(self, profile: Profile, server: dict[str, Any]) -> dict[str, Any]:
+        return self.call(
+            "ServerService",
+            "UpdateServer",
+            {
+                "id": server["id"],
+                "name": server["name"],
+                "description": server.get("description", ""),
+                "port": int(server["port"]),
+                "maxPlayers": int(server.get("maxPlayers", 5)),
+                "memory": int(server.get("memory", 4096)),
+                "modLoader": profile.panel_loader,
+                "mcVersion": profile.minecraft,
+                "dockerImage": profile.docker_image,
+                "autoStart": False,
+                "detached": True,
+                "dockerOverrides": {"environment": dict(profile.environment)},
+            },
+        )
 
     def list_files(self, server_id: str, path: str = "") -> list[dict[str, Any]]:
         return list(
@@ -401,9 +425,22 @@ def prepare_ornithe_archive(profile: Profile, output_dir: Path, java: str) -> Pa
     return archive_path
 
 
-def has_ornithe_bootstrap(panel: DiscPanel, server_id: str) -> bool:
+def ornithe_bootstrap_dir(profile: Profile) -> str:
+    return f"{profile.runtime}-server-bootstrap"
+
+
+def has_ornithe_bootstrap(
+    panel: DiscPanel, server_id: str, profile: Profile
+) -> bool:
     names = {str(entry.get("name", "")) for entry in panel.list_files(server_id)}
-    return "fabric-server-launch.jar" in names and "libraries" in names
+    bootstrap_dir = ornithe_bootstrap_dir(profile)
+    if bootstrap_dir not in names:
+        return False
+    nested_names = {
+        str(entry.get("name", ""))
+        for entry in panel.list_files(server_id, bootstrap_dir)
+    }
+    return "fabric-server-launch.jar" in nested_names and "libraries" in nested_names
 
 
 def install_ornithe_bootstrap(
@@ -417,12 +454,14 @@ def install_ornithe_bootstrap(
     archive = prepare_ornithe_archive(profile, output_dir, java)
     panel.upload_file(server_id, archive, "")
     panel.extract_archive(server_id, archive.name, timeout_seconds)
-    if not has_ornithe_bootstrap(panel, server_id):
+    if not has_ornithe_bootstrap(panel, server_id, profile):
         raise RuntimeError(f"DiscPanel omitted extracted Ornithe bootstrap for {profile.runtime}")
     local_launcher: bytes
     with zipfile.ZipFile(archive) as source:
         local_launcher = source.read("fabric-server-launch.jar")
-    remote_launcher = panel.get_file(server_id, "fabric-server-launch.jar")
+    remote_launcher = panel.get_file(
+        server_id, f"{ornithe_bootstrap_dir(profile)}/fabric-server-launch.jar"
+    )
     if hashlib.sha256(remote_launcher).digest() != hashlib.sha256(local_launcher).digest():
         raise RuntimeError(f"DiscPanel launcher digest mismatch for {profile.runtime}")
 
@@ -482,6 +521,7 @@ def reconcile(args: argparse.Namespace) -> int:
     missing_native: list[Profile] = []
     missing_custom: list[Profile] = []
     incomplete_custom: list[tuple[Profile, str]] = []
+    repairable_custom: list[tuple[Profile, dict[str, Any]]] = []
     drifted: list[tuple[Profile, list[str]]] = []
     for profile in profiles:
         server = by_name.get(profile.name)
@@ -492,9 +532,16 @@ def reconcile(args: argparse.Namespace) -> int:
             server = panel.get_server(str(server["id"]))
         differences = drift(profile, server)
         if differences:
-            drifted.append((profile, differences))
+            if (
+                profile.provisioning != "native"
+                and is_stopped(server)
+                and all(item.startswith("docker environment ") for item in differences)
+            ):
+                repairable_custom.append((profile, server))
+            else:
+                drifted.append((profile, differences))
         elif profile.provisioning == "custom-upload" and not has_ornithe_bootstrap(
-            panel, str(server["id"])
+            panel, str(server["id"]), profile
         ):
             incomplete_custom.append((profile, str(server["id"])))
         else:
@@ -504,7 +551,7 @@ def reconcile(args: argparse.Namespace) -> int:
         f"DiscPanel Jammarr matrix: desired={len(profiles)} present={len(present)} "
         f"missing_native={len(missing_native)} missing_custom={len(missing_custom)} "
         f"incomplete_custom={len(incomplete_custom)} "
-        f"drifted={len(drifted)}"
+        f"repairable_custom={len(repairable_custom)} drifted={len(drifted)}"
     )
     for profile, differences in drifted:
         print(f"DRIFT {profile.runtime}: {'; '.join(differences)}")
@@ -512,6 +559,8 @@ def reconcile(args: argparse.Namespace) -> int:
         print(f"MISSING custom Fabric-derived runtime: {profile.runtime}")
     for profile, _ in incomplete_custom:
         print(f"INCOMPLETE custom bootstrap required: {profile.runtime}")
+    for profile, _ in repairable_custom:
+        print(f"REPAIRABLE custom environment: {profile.runtime}")
 
     if args.json:
         print(json.dumps({
@@ -520,6 +569,7 @@ def reconcile(args: argparse.Namespace) -> int:
             "missingNative": [profile.runtime for profile in missing_native],
             "missingCustom": [profile.runtime for profile in missing_custom],
             "incompleteCustom": [profile.runtime for profile, _ in incomplete_custom],
+            "repairableCustom": [profile.runtime for profile, _ in repairable_custom],
             "drifted": {profile.runtime: differences for profile, differences in drifted},
         }, indent=2, sort_keys=True))
 
@@ -536,7 +586,33 @@ def reconcile(args: argparse.Namespace) -> int:
             )
         for profile, _ in incomplete_custom:
             print(f"WOULD_UPLOAD_BOOTSTRAP {profile.runtime}")
+        for profile, _ in repairable_custom:
+            print(f"WOULD_REPAIR_CUSTOM {profile.runtime}")
         return 0
+
+    if args.apply_custom:
+        for profile, server in repairable_custom:
+            print(f"REPAIR_CUSTOM {profile.runtime}", flush=True)
+            panel.update_server(profile, server)
+            updated = panel.get_server(str(server["id"]))
+            differences = drift(profile, updated)
+            if differences:
+                raise RuntimeError(
+                    f"DiscPanel custom repair drifted for {profile.runtime}: "
+                    f"{'; '.join(differences)}"
+                )
+            if profile.provisioning == "custom-upload" and not has_ornithe_bootstrap(
+                panel, str(server["id"]), profile
+            ):
+                install_ornithe_bootstrap(
+                    panel,
+                    str(server["id"]),
+                    profile,
+                    args.custom_output_dir,
+                    args.java,
+                    args.extract_timeout,
+                )
+            print(f"REPAIRED_CUSTOM {profile.runtime}", flush=True)
 
     selected_missing = []
     if args.apply_native:
