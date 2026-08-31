@@ -149,14 +149,16 @@ def preflight(
     return server
 
 
-def run(args: argparse.Namespace) -> int:
-    token = os.environ.get(args.token_env)
-    if not token:
-        raise SystemExit(f"set {args.token_env} in the process environment")
-    version, target, profile = exact_target(args)
+def run_target(
+    args: argparse.Namespace,
+    panel: Any,
+    version: str,
+    target: Any,
+    profile: Any,
+) -> int:
+    """Run one already-resolved target without re-reading the release bundle."""
     if args.apply and args.confirm_runtime != args.runtime:
         raise SystemExit(f"--apply requires --confirm-runtime {args.runtime}")
-    panel = reconciler.DiscPanel(args.url, token, args.request_timeout)
     server = preflight(panel, version, target, profile)
     server_id = str(server["id"])
     print(
@@ -265,6 +267,15 @@ def run(args: argparse.Namespace) -> int:
     if run_error is not None:
         raise run_error
     return 0
+
+
+def run(args: argparse.Namespace) -> int:
+    token = os.environ.get(args.token_env)
+    if not token:
+        raise SystemExit(f"set {args.token_env} in the process environment")
+    version, target, profile = exact_target(args)
+    panel = reconciler.DiscPanel(args.url, token, args.request_timeout)
+    return run_target(args, panel, version, target, profile)
 
 
 def parse_args() -> argparse.Namespace:

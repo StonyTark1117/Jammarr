@@ -31,6 +31,7 @@
 - Pass fresh final-artifact live-Plex server canaries for Beta 1.7.3 Babric, Forge 1.6.4, Fabric 1.20.1, and NeoForge 26.2 with clean stopped-state teardown; classify the first Babric and Forge attempts as dependency/download bootstrap failures rather than mod failures.
 - Generate a checksum-pinned DiscPanel dependency manifest covering 53 Fabric, Quilt, Babric, Legacy Fabric, and Ornithe runtime profiles with 75 exact dependency placements, including only the version-compatible OSL modules used by each Ornithe generation.
 - Deploy and remotely verify all 75 pinned runtime-dependency placements across the 53 dependency-bearing DiscPanel profiles, reusing 11 already-exact files, staging the other 64 without starting a server, and finish with all 99 profiles stopped and autostart disabled.
+- Add a manifest-derived, resumable DiscPanel server-smoke matrix runner that resolves the release once, audits the complete stopped/autostart state before and after every sequential runtime, accepts resume evidence only for the exact candidate, and writes a sanitized aggregate result; all 99 live profiles pass its no-start preflight.
 
 ## 1.0.2 - 2026-08-28
 
