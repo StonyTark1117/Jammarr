@@ -26,6 +26,9 @@
 - Add a guarded live-Plex DiscPanel configurator that keeps credentials environment-only, blanks the library setting to exercise the `Music` metadata fallback, preserves existing canonical configs by default, and never starts a server.
 - Configure 78 stopped DiscPanel profiles for live-Plex fallback testing while preserving 21 pre-existing configs, then validate the final 1.12.2 Forge artifact through a real Plex connection and clean server stop after recovering from a transient upstream installer timeout.
 - Add a dry-run-by-default, single-runtime DiscPanel server smoke gate with exact artifact/hash/loader preflight, post-snapshot log evidence that rejects replayed historical lines, installer-failure classification, and guaranteed stopped-state teardown.
+- Make the DiscPanel smoke gate accept both explicit legacy initialization lines and modern Jammarr Plex startup markers after exact remote-artifact preflight, and fail early when a started profile returns to STOPPED before acceptance.
+- Add a checksum-pinned, dry-run-by-default DiscPanel runtime-dependency deployer and stage the required StationAPI 2.0.0-alpha.6.2 dependency on the stopped Beta 1.7.3 Babric profile without replacing Jammarr or starting the server.
+- Pass fresh final-artifact live-Plex server canaries for Beta 1.7.3 Babric, Forge 1.6.4, Fabric 1.20.1, and NeoForge 26.2 with clean stopped-state teardown; classify the first Babric and Forge attempts as dependency/download bootstrap failures rather than mod failures.
 
 ## 1.0.2 - 2026-08-28
 

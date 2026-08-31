@@ -56,6 +56,18 @@ class DiscPanelServerSmokeTests(unittest.TestCase):
         self.assertTrue(result["installer_failure"])
         self.assertFalse(result["jammarr_initialized"])
 
+    def test_modern_plex_marker_proves_exact_preflighted_candidate_active(self) -> None:
+        result = smoke.startup_evidence(
+            [
+                'Done (6.495s)! For help, type "help"',
+                "Jammarr connected to Plex; sonic capability is READY",
+            ],
+            "1.1.0",
+        )
+        self.assertTrue(result["minecraft_ready"])
+        self.assertTrue(result["jammarr_initialized"])
+        self.assertTrue(result["plex_connected"])
+
 
 if __name__ == "__main__":
     unittest.main()

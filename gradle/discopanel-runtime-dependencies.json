@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "runtimes": {
+    "b1.7.3-babric": [
+      {
+        "id": "stationapi",
+        "filename": "StationAPI-2.0.0-alpha.6.2.jar",
+        "url": "https://maven.glass-launcher.net/releases/net/modificationstation/StationAPI/2.0.0-alpha.6.2/StationAPI-2.0.0-alpha.6.2.jar",
+        "sha256": "fd557e5d05630e79913e9cf422804039be0117b45a1e9f0e03dcc89eddc22602",
+        "ownedPrefixes": [
+          "stationapi-"
+        ]
+      }
+    ]
+  }
+}

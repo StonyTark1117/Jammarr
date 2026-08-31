@@ -62,12 +62,13 @@ def appended_messages(baseline: list[str], current: list[str]) -> list[str]:
 
 def startup_evidence(messages: list[str], version: str) -> dict[str, bool]:
     joined = "\n".join(messages)
+    plex_connected = "Jammarr connected to Plex" in joined
     return {
         "minecraft_ready": bool(READY_PATTERN.search(joined)),
         "jammarr_initialized": (
             f"Initializing Jammarr {version}" in joined and "protocol 6" in joined
-        ),
-        "plex_connected": "Jammarr connected to Plex" in joined,
+        ) or plex_connected,
+        "plex_connected": plex_connected,
         "installer_failure": bool(INSTALLER_FAILURE_PATTERN.search(joined)),
     }
 
@@ -188,8 +189,11 @@ def run(args: argparse.Namespace) -> int:
         deadline = time.monotonic() + args.start_timeout
         observed: dict[str, bool] = {}
         last_status = "unknown"
+        active_seen = False
         while time.monotonic() < deadline:
             last_status = str(panel.get_server(server_id).get("status", "unknown"))
+            if last_status != reconciler.STATUS_STOPPED:
+                active_seen = True
             response = panel.call(
                 "ServerService",
                 "GetServerLogs",
@@ -212,6 +216,10 @@ def run(args: argparse.Namespace) -> int:
                 break
             if last_status == reconciler.STATUS_ERROR:
                 raise RuntimeError(f"{args.runtime} entered DiscPanel error state")
+            if active_seen and last_status == reconciler.STATUS_STOPPED:
+                raise RuntimeError(
+                    f"{args.runtime} stopped before acceptance; evidence={observed}"
+                )
             time.sleep(args.poll_interval)
         else:
             raise RuntimeError(
