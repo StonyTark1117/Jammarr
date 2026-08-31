@@ -3,7 +3,7 @@
 Back up the world and configuration before changing Minecraft versions or loaders.
 
 1. Stop the server cleanly.
-2. Install the Jammarr artifact matching the destination Minecraft version and loader on the server and every client. On every supported Quilt target, use the destination version's `-fabric.jar` plus upstream Fabric API.
+2. Install the Jammarr artifact matching the destination Minecraft version and loader on the server and every client. On every supported Quilt target, use the destination version's `-fabric.jar` plus upstream Fabric API. The Minecraft 1.8.9 LiteLoader `.litemod` is client-only and must connect to a server using the matching Forge Jammarr artifact; do not install it as a standalone server mod.
 3. Keep `world/serverconfig/jammarr-server.toml` with the world and keep each client's `config/jammarr-client.toml` locally.
 4. Start the server and inspect `/jammarr diagnostics` before allowing players to queue music.
 

@@ -28,9 +28,11 @@ def plannedArtifacts = targetManifest.targets.collectMany { target ->
          quiltCompatible: loader.quiltCompatible as Boolean,
          verificationTask: loader.verificationTask as String,
          artifactProfile: (loader.artifactProfile ?: 'modern') as String,
+         runtimeMode: (loader.runtimeMode ?: 'full') as String,
+         pairedServerLoader: loader.pairedServerLoader as String,
          disableConfigurationCache: ((loader.runtimeCapabilities ?: [:]).containsKey('disableConfigurationCache')
                  ? loader.runtimeCapabilities.disableConfigurationCache
-                 : targetManifest.runtimeGate.defaults[loader.id].disableConfigurationCache) as Boolean,
+                 : targetManifest.runtimeGate.defaults[loader.id]?.disableConfigurationCache ?: false) as Boolean,
          projectPath: loader.path as String,
          filename: loader.artifact as String]
     }
@@ -71,7 +73,8 @@ def javaHomes = [
 
 def versionTaskKey = { String minecraft -> minecraft.replace('.', '') }
 def loaderTaskName = { String loader -> loader == 'neoforge' ? 'NeoForge' : loader.capitalize() }
-def runtimeCount = implementedArtifacts.size() + implementedArtifacts.count { it.quiltCompatible }
+def runtimeCount = implementedArtifacts.count { it.runtimeMode == 'full' }
+        + implementedArtifacts.count { it.runtimeMode == 'full' && it.quiltCompatible }
 def quiltRuntimeCount = implementedArtifacts.count { it.quiltCompatible }
 def fabricRuntimeCount = implementedArtifacts.count { it.loader == 'fabric' }
 Map<String, TaskProvider> verifyTargetTasks = [:]
@@ -144,6 +147,8 @@ def canonicalArtifacts = implementedArtifacts.collect { artifact ->
     String base = artifact.projectPath == '.' ? '' : "${artifact.projectPath}/"
     [minecraft: artifact.minecraft, java: artifact.java, loader: artifact.loader,
      quiltCompatible: artifact.quiltCompatible,
+     runtimeMode: artifact.runtimeMode, pairedServerLoader: artifact.pairedServerLoader,
+     filename: artifact.filename,
      path: "${base}build/libs/${artifact.filename}"]
 }
 
@@ -174,7 +179,7 @@ def sha256 = { File file ->
 
 def prebuiltArtifactDirectory = providers.gradleProperty('jammarrPrebuiltArtifactDir')
 def canonicalArtifactSource = { artifact ->
-    String filename = "jammarr-${mod_version}+mc${artifact.minecraft}-${artifact.loader}.jar"
+    String filename = artifact.filename
     if (prebuiltArtifactDirectory.isPresent()) {
         return layout.projectDirectory.dir(prebuiltArtifactDirectory.get()).file(filename).asFile
     }
@@ -198,7 +203,7 @@ def indexRelease = tasks.register('indexReleaseArtifacts') {
         canonicalArtifacts.each { artifact ->
             File source = canonicalArtifactSource(artifact)
             if (!source.isFile()) throw new GradleException("Missing release artifact ${artifact.path}")
-            String expected = "jammarr-${mod_version}+mc${artifact.minecraft}-${artifact.loader}.jar"
+            String expected = artifact.filename
             if (source.name != expected) throw new GradleException("Non-canonical artifact name ${source.name}; expected ${expected}")
             File target = new File(releaseDirectory, expected)
             java.nio.file.Files.copy(source.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
@@ -210,6 +215,8 @@ def indexRelease = tasks.register('indexReleaseArtifacts') {
                     ? ['fabric', 'quilt'] : [artifact.loader as String]
             manifestArtifacts << [productVersion: mod_version, minecraftVersion: artifact.minecraft,
                                   loader: artifact.loader, javaVersion: artifact.java,
+                                  runtimeMode: artifact.runtimeMode,
+                                  pairedServerLoader: artifact.pairedServerLoader,
                                   compatibleLoaders: compatibleLoaders,
                                   dependencies: dependencies, filename: expected, sha256: sha256(target)]
         }
@@ -228,7 +235,7 @@ def indexRelease = tasks.register('indexReleaseArtifacts') {
 
 def assembleRelease = tasks.register('assembleReleaseArtifacts') {
     group = 'verification'
-    description = "Builds all ${implementedArtifacts.size()} implemented runtime JARs, then indexes the release manifest/checksums."
+    description = "Builds all ${implementedArtifacts.size()} implemented release artifacts, then indexes the release manifest/checksums."
     dependsOn(tasks.named('verifyAllTargets'), indexRelease)
 }
 indexRelease.configure {
@@ -244,7 +251,7 @@ tasks.register('releaseMatrixGate') {
 
 tasks.register('inspectReleaseArtifacts', Exec) {
     group = 'verification'
-    description = "Inspects metadata, bytecode, key mappings, libraries, assets, notices, credentials, and checksums in all ${implementedArtifacts.size()} release JARs."
+    description = "Inspects metadata, bytecode, key mappings, libraries, assets, notices, credentials, and checksums in all ${implementedArtifacts.size()} release artifacts."
     dependsOn(assembleRelease)
     workingDir(layout.projectDirectory)
     commandLine('python3', 'scripts/inspect-release-artifacts.py', layout.buildDirectory.dir('releases').get().asFile.absolutePath)

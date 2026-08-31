@@ -1,0 +1,6 @@
+# This is a Gradle generated file for dependency locking.
+# Manual edits can break the build and are not advised.
+# This file is expected to be part of source control.
+de.sciss:jump3r:1.0.5
+deobf.com.mumfrey:liteloader:1.8.9-SNAPSHOT
+javazoom:jlayer:1.0.1

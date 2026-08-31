@@ -86,6 +86,48 @@ class TargetMatrixTests(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "missing runtime capabilities"):
             target_matrix.runtimes(manifest)
 
+    def test_client_companion_is_an_artifact_but_not_a_server_runtime(self) -> None:
+        manifest = fixture()
+        manifest["targets"][0]["loaders"].append(
+            {
+                "id": "liteloader",
+                "implemented": True,
+                "quiltCompatible": False,
+                "runtimeMode": "client-companion",
+                "pairedServerLoader": "forge",
+                "path": "platforms/liteloader",
+                "artifact": "client.litemod",
+            }
+        )
+        artifacts = target_matrix.implemented_artifacts(manifest)
+        runtimes = target_matrix.runtimes(manifest)
+        companions = target_matrix.client_companions(manifest)
+        self.assertEqual(artifacts[-1]["runtimeMode"], "client-companion")
+        self.assertEqual(artifacts[-1]["pairedServerLoader"], "forge")
+        self.assertNotIn("1.20.1-liteloader", [entry["name"] for entry in runtimes])
+        self.assertEqual(companions, [{
+            "name": "1.20.1-liteloader",
+            "pairedRuntime": "1.20.1-forge",
+            "path": "platforms/liteloader",
+            "buildJava": 21,
+        }])
+
+    def test_client_companion_requires_a_full_paired_server(self) -> None:
+        manifest = fixture()
+        manifest["targets"][0]["loaders"].append(
+            {
+                "id": "liteloader",
+                "implemented": True,
+                "quiltCompatible": False,
+                "runtimeMode": "client-companion",
+                "pairedServerLoader": "neoforge",
+                "path": "platforms/liteloader",
+                "artifact": "client.litemod",
+            }
+        )
+        with self.assertRaisesRegex(SystemExit, "missing full server target"):
+            target_matrix.client_companions(manifest)
+
 
 if __name__ == "__main__":
     unittest.main()

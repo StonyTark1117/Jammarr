@@ -8,7 +8,8 @@
 - Certify the 1.6.4 Legacy Fabric target with fail-closed configuration, protocol mismatch, command/UI, actual no-Jammarr client, synchronized two-client audio, recovery/station scenarios, and clean teardown gates.
 - Add and certify a separately pinned Minecraft 1.8.9 Ornithe generation-2 preview with Feather mappings, OSL networking and lifecycle integration, Java 8 bytecode/runtime, optional-client negotiation, command/UI coverage, synchronized two-client audio, recovery scenarios, and clean teardown.
 - Add and certify a separately pinned Minecraft 1.6.4 Ornithe generation-2 preview with Feather mappings, only the version-compatible OSL modules Jammarr uses, Java 8 bytecode/runtime, optional-client negotiation, command/UI coverage, synchronized two-client audio, recovery scenarios, and clean teardown.
-- Expand the candidate matrix to 74 artifacts and 98 loader/version runtimes while keeping Legacy Fabric, Ornithe, and Quilt compatibility boundaries explicit.
+- Add and runtime-certify a production-reobfuscated Minecraft 1.8.9 LiteLoader client companion, explicitly paired with a Forge server, with protocol-6 negotiation, audio playback, player/config UI coverage, and pinned upstream loader bytes. LiteLoader is not advertised as a dedicated-server runtime.
+- Expand the candidate matrix to 76 artifacts and 99 dedicated-server loader/version runtimes while keeping Babric, Legacy Fabric, LiteLoader, Ornithe, and Quilt compatibility boundaries explicit.
 
 ## 1.0.2 - 2026-08-28
 

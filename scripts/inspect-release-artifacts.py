@@ -22,7 +22,8 @@ CLASS_MAJOR = {7: 51, 8: 52, 17: 61, 21: 65, 25: 69}
 TARGETS = tuple(
     (target["minecraft"], loader["id"], target["java"]["runtime"],
      CLASS_MAJOR[loader.get("bytecodeJava", target["java"]["bytecode"])], loader.get("artifactProfile", "modern"),
-     bool(loader.get("quiltCompatible", False)))
+     bool(loader.get("quiltCompatible", False)), loader["artifact"],
+     loader.get("runtimeMode", "full"), loader.get("pairedServerLoader"))
     for target in TARGET_MANIFEST["targets"]
     for loader in target["loaders"]
     if loader["implemented"]
@@ -263,6 +264,7 @@ def verify_remappable_keybinding(archive: zipfile.ZipFile, minecraft: str,
     legacy_fabric = artifact_profile == "legacy-fabric-java8"
     legacy_ornithe = artifact_profile == "legacy-ornithe-java8"
     legacy_babric = artifact_profile == "legacy-babric-java17"
+    legacy_liteloader = artifact_profile == "legacy-liteloader-client-java8"
     class_name = ("stonytark/jammarr/client/LegacyClient.class" if legacy or minecraft == "1.16.5"
                   else "stonytark/jammarr/client/JammarrClient.class")
     try:
@@ -300,6 +302,22 @@ def verify_remappable_keybinding(archive: zipfile.ZipFile, minecraft: str,
         required = (b"KeyBindingRegisterEvent", b"register", b"KeyStateChangedEvent")
         if any(marker not in events for marker in required):
             fail(f"{filename} does not register and consume its StationAPI KeyBinding")
+        legacy_lang = archive.read("assets/jammarr/lang/en_US.lang")
+        if b"key.jammarr.open=" not in legacy_lang or b"key.categories.jammarr=" not in legacy_lang:
+            fail(f"{filename} is missing legacy Controls translations")
+        return
+
+    if legacy_liteloader:
+        # Minecraft member/type names are reobfuscated in the production
+        # .litemod, while LiteLoader API names and Jammarr's translation keys
+        # remain stable. Runtime acceptance proves the obfuscated key poll
+        # opens the screen; archive inspection proves registration and identity.
+        required = (b"com/mumfrey/liteloader/core/LiteLoader",
+                    b"com/mumfrey/liteloader/util/Input", b"registerKeyBinding",
+                    b"key.jammarr.open", b"key.categories.jammarr",
+                    b"stonytark/jammarr/client/LegacyScreen")
+        if any(marker not in client for marker in required):
+            fail(f"{filename} does not register and consume a LiteLoader KeyBinding")
         legacy_lang = archive.read("assets/jammarr/lang/en_US.lang")
         if b"key.jammarr.open=" not in legacy_lang or b"key.categories.jammarr=" not in legacy_lang:
             fail(f"{filename} is missing legacy Controls translations")
@@ -364,6 +382,15 @@ def verify_config_translations(archive: zipfile.ZipFile, minecraft: str,
 
 def verify_metadata(archive: zipfile.ZipFile, names: set[str], minecraft: str, loader: str,
                     java: int, artifact_profile: str, filename: str) -> None:
+    if loader == "liteloader":
+        metadata = json.loads(archive.read("litemod.json"))
+        if metadata.get("name") != "jammarr" or metadata.get("version") != PRODUCT_VERSION \
+                or metadata.get("mcversion") != minecraft:
+            fail(f"{filename} has incorrect LiteLoader identity/version")
+        if "mcmod.info" in names or "fabric.mod.json" in names or "jammarr.mixins.json" in names:
+            fail(f"{filename} advertises metadata for an unsupported loader")
+        return
+
     if loader in ("fabric", "ornithe", "babric"):
         metadata = json.loads(archive.read("fabric.mod.json"))
         if metadata.get("id") != "jammarr" or metadata.get("version") != PRODUCT_VERSION:
@@ -496,7 +523,8 @@ def verify_jar(path: Path, minecraft: str, loader: str, java: int,
             fail(f"{filename} is missing required entries: {sorted(missing)}")
         if loader in ("fabric", "ornithe", "babric") and "fabric.mod.json" not in names:
             fail(f"{filename} is missing Fabric-family metadata")
-        legacy_forge = artifact_profile.startswith("legacy-") and loader not in ("fabric", "ornithe", "babric")
+        legacy_liteloader = artifact_profile == "legacy-liteloader-client-java8"
+        legacy_forge = artifact_profile.startswith("legacy-") and loader not in ("fabric", "ornithe", "babric", "liteloader")
         if legacy_forge and "mcmod.info" not in names:
             fail(f"{filename} is missing legacy Forge metadata")
 
@@ -514,22 +542,25 @@ def verify_jar(path: Path, minecraft: str, loader: str, java: int,
         if main_major != expected_major:
             fail(f"{filename} targets class major {main_major}, expected {expected_major} for Java {java}")
 
-        legacy_flattened = legacy_forge or (minecraft == "1.16.5" and loader == "forge")
+        legacy_flattened = legacy_forge or legacy_liteloader or (minecraft == "1.16.5" and loader == "forge")
         if legacy_flattened:
             required_legacy = {
                 "assets/jammarr/lang/en_US.lang",
-                "stonytark/jammarr/core/server/ChunkTransferPolicy.class",
-                "stonytark/jammarr/core/server/CoordinatorRuntime.class",
-                "stonytark/jammarr/core/server/GlobalPlaybackCoordinator.class",
-                "stonytark/jammarr/core/server/PlaybackStore.class",
                 "stonytark/jammarr/network/LegacyNetwork.class",
-                "stonytark/jammarr/server/LegacyGlobalPlayer.class",
                 "stonytark/jammarr/client/LegacyAudioPlayer.class",
                 "stonytark/jammarr/client/LegacyScreen.class",
-                "stonytark/jammarr/server/LegacySavedData.class",
                 "javazoom/jl/decoder/Decoder.class",
                 "de/sciss/jump3r/mp3/Lame.class",
             }
+            if not legacy_liteloader:
+                required_legacy.update({
+                    "stonytark/jammarr/core/server/ChunkTransferPolicy.class",
+                    "stonytark/jammarr/core/server/CoordinatorRuntime.class",
+                    "stonytark/jammarr/core/server/GlobalPlaybackCoordinator.class",
+                    "stonytark/jammarr/core/server/PlaybackStore.class",
+                    "stonytark/jammarr/server/LegacyGlobalPlayer.class",
+                    "stonytark/jammarr/server/LegacySavedData.class",
+                })
             if required_legacy - names:
                 fail(f"{filename} is missing legacy runtime entries: {sorted(required_legacy - names)}")
             for name in names:
@@ -537,6 +568,13 @@ def verify_jar(path: Path, minecraft: str, loader: str, java: int,
                     major = class_major(archive.read(name), f"{filename}:{name}")
                     if major != expected_major:
                         fail(f"{filename}:{name} is class major {major}, expected major {expected_major}")
+            if legacy_liteloader:
+                if "stonytark/jammarr/LiteModJammarr.class" not in names:
+                    fail(f"{filename} is missing its LiteLoader client entrypoint")
+                if any(name.startswith("stonytark/jammarr/server/") for name in names):
+                    fail(f"{filename} contains server adapter classes despite being client-only")
+                verify_no_deployment_secrets(archive, filename)
+                return
             # The shared core is compiled against stable names while legacy Forge
             # reobfuscates Minecraft methods in adapters. Require each adapter to
             # declare its full shared contract so an inherited MCP-named method
@@ -609,10 +647,11 @@ def main() -> int:
     if manifest.get("productVersion") != PRODUCT_VERSION or manifest.get("protocolVersion") != PROTOCOL_VERSION:
         fail("release manifest has incorrect product or protocol version")
 
-    expected_names = {f"jammarr-{PRODUCT_VERSION}+mc{mc}-{loader}.jar" for mc, loader, _, _, _, _ in TARGETS}
-    actual_names = {path.name for path in release_dir.glob("*.jar")}
+    expected_names = {artifact for _, _, _, _, _, _, artifact, _, _ in TARGETS}
+    actual_names = {path.name for path in release_dir.iterdir()
+                    if path.is_file() and path.suffix in (".jar", ".litemod")}
     if actual_names != expected_names:
-        fail(f"release JAR set mismatch; missing={sorted(expected_names - actual_names)}, extra={sorted(actual_names - expected_names)}")
+        fail(f"release artifact set mismatch; missing={sorted(expected_names - actual_names)}, extra={sorted(actual_names - expected_names)}")
 
     entries = manifest.get("artifacts", [])
     if len(entries) != len(TARGETS) or {entry.get("filename") for entry in entries} != expected_names:
@@ -621,15 +660,14 @@ def main() -> int:
 
     sums = {}
     for line in sums_path.read_text("utf-8").splitlines():
-        match = re.fullmatch(r"([0-9a-f]{64})  (jammarr-[^/]+\.jar)", line)
+        match = re.fullmatch(r"([0-9a-f]{64})  (jammarr-[^/]+\.(?:jar|litemod))", line)
         if not match or match.group(2) in sums:
             fail(f"invalid SHA256SUMS line: {line!r}")
         sums[match.group(2)] = match.group(1)
     if set(sums) != expected_names:
         fail(f"SHA256SUMS does not cover exactly the {len(TARGETS)} canonical artifacts")
 
-    for minecraft, loader, java, major, artifact_profile, quilt_compatible in TARGETS:
-        filename = f"jammarr-{PRODUCT_VERSION}+mc{minecraft}-{loader}.jar"
+    for minecraft, loader, java, major, artifact_profile, quilt_compatible, filename, runtime_mode, paired_server in TARGETS:
         path = release_dir / filename
         digest = sha256(path)
         entry = manifest_by_name[filename]
@@ -640,6 +678,8 @@ def main() -> int:
         expected_loaders = ["fabric", "quilt"] if quilt_compatible else [loader]
         if entry.get("compatibleLoaders") != expected_loaders:
             fail(f"{filename} has incorrect compatible loader declaration")
+        if entry.get("runtimeMode") != runtime_mode or entry.get("pairedServerLoader") != paired_server:
+            fail(f"{filename} has incorrect runtime pairing declaration")
         if entry.get("productVersion") != PRODUCT_VERSION or entry.get("sha256") != digest or sums[filename] != digest:
             fail(f"{filename} manifest/checksum does not match artifact bytes")
         if not isinstance(entry.get("dependencies"), dict) or not entry["dependencies"]:

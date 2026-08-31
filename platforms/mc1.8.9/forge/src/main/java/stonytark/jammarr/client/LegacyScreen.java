@@ -365,9 +365,8 @@ final class LegacyScreen extends GuiScreen {
         for (Object item : buttonList) {
             GuiButton button = (GuiButton)item;
             String tooltip = tooltip(button.id);
-            if (tooltip != null && mouseX >= button.xPosition && mouseX < button.xPosition + button.width
-                    && mouseY >= button.yPosition && mouseY < button.yPosition + button.height) {
-                drawHoveringText(Collections.singletonList(tooltip), mouseX, mouseY, fontRendererObj);
+            if (tooltip != null && button.isMouseOver()) {
+                drawHoveringText(Collections.singletonList(tooltip), mouseX, mouseY);
                 break;
             }
         }

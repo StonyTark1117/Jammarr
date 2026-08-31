@@ -70,6 +70,8 @@ def implemented_artifacts(manifest: dict[str, Any]) -> list[dict[str, Any]]:
                     "buildJava": loader.get("buildJava", target["java"]["build"]),
                     "quiltCompatible": bool(loader.get("quiltCompatible", False)),
                     "gameTests": bool(loader.get("gameTests", False)),
+                    "runtimeMode": loader.get("runtimeMode", "full"),
+                    "pairedServerLoader": loader.get("pairedServerLoader"),
                     "runtimeCapabilities": loader.get("runtimeCapabilities", {}),
                 }
             )
@@ -104,6 +106,14 @@ def runtimes(manifest: dict[str, Any]) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     port = manifest["runtimeGate"]["basePort"]
     for artifact in implemented_artifacts(manifest):
+        if artifact["runtimeMode"] == "client-companion":
+            if not artifact["pairedServerLoader"]:
+                raise SystemExit(
+                    f"{artifact['name']} client companion is missing pairedServerLoader"
+                )
+            continue
+        if artifact["runtimeMode"] != "full":
+            raise SystemExit(f"{artifact['name']} has an invalid runtimeMode")
         runtime_loaders = [artifact["loader"]]
         if artifact["quiltCompatible"]:
             runtime_loaders.append("quilt")
@@ -131,6 +141,41 @@ def runtimes(manifest: dict[str, Any]) -> list[dict[str, Any]]:
     return result
 
 
+def client_companions(manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    artifacts = implemented_artifacts(manifest)
+    full_targets = {
+        (artifact["minecraft"], artifact["loader"]): artifact
+        for artifact in artifacts
+        if artifact["runtimeMode"] == "full"
+    }
+    companions: list[dict[str, Any]] = []
+    pairs: set[tuple[str, str]] = set()
+    for artifact in artifacts:
+        if artifact["runtimeMode"] != "client-companion":
+            continue
+        paired_loader = artifact["pairedServerLoader"]
+        pair = (artifact["minecraft"], paired_loader)
+        if pair not in full_targets:
+            raise SystemExit(
+                f"{artifact['name']} pairs with missing full server target "
+                f"{artifact['minecraft']}-{paired_loader}"
+            )
+        if pair in pairs:
+            raise SystemExit(
+                f"multiple client companions pair with {artifact['minecraft']}-{paired_loader}"
+            )
+        pairs.add(pair)
+        companions.append(
+            {
+                "name": artifact["name"],
+                "pairedRuntime": f"{artifact['minecraft']}-{paired_loader}",
+                "path": artifact["path"],
+                "buildJava": artifact["buildJava"],
+            }
+        )
+    return companions
+
+
 def compact_matrix(entries: list[dict[str, Any]]) -> str:
     return json.dumps({"include": entries}, separators=(",", ":"))
 
@@ -139,7 +184,13 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "mode",
-        choices=("artifact-matrix", "runtime-matrix", "gate-lines", "summary"),
+        choices=(
+            "artifact-matrix",
+            "runtime-matrix",
+            "gate-lines",
+            "companion-lines",
+            "summary",
+        ),
     )
     parser.add_argument(
         "manifest", nargs="?", type=Path, default=Path("gradle/targets.json")
@@ -148,6 +199,7 @@ def main() -> None:
     manifest = load_manifest(args.manifest)
     artifacts = implemented_artifacts(manifest)
     runtime_entries = runtimes(manifest)
+    companion_entries = client_companions(manifest)
 
     if args.mode == "artifact-matrix":
         print(
@@ -189,6 +241,15 @@ def main() -> None:
                 entry["audioProfile"],
                 entry["logProfile"],
                 str(entry["disableConfigurationCache"]).lower(),
+            )
+            print("|".join(map(str, values)))
+    elif args.mode == "companion-lines":
+        for entry in companion_entries:
+            values = (
+                entry["name"],
+                entry["pairedRuntime"],
+                entry["path"],
+                entry["buildJava"],
             )
             print("|".join(map(str, values)))
     else:
