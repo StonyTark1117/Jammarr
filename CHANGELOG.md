@@ -15,6 +15,7 @@
 - Make the root release matrix enable every manifest-declared LiteLoader paired-client gate instead of leaving those runtime checks opt-in.
 - Make global clear operations remove persisted repeat-suppression history on every saved-data implementation, matching the shared store contract and preventing cleared or restart-reset servers from retaining old playback history.
 - Deep-certify the final Forge 1.7.10 artifact with twenty cold-client cycles, forty audible sound reloads, all six deterministic impairment profiles, the 30-minute playback fixture, LiteLoader and no-mod client coverage, and a second production boot that reloads schema-4 state; final live-Plex acceptance remains pending.
+- Order resource processing before Java compilation in every Forge-family module that intentionally shares its classes/resources output, preventing clean or non-incremental builds from erasing compiled classes before tests and packaging.
 
 ## 1.0.2 - 2026-08-28
 

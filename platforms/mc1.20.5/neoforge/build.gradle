@@ -92,6 +92,8 @@ sourceSets {
 // FML 3 treats split development outputs as separate mod files and may select
 // only the resources directory, leaving the @Mod class undiscovered.
 sourceSets.main.output.resourcesDir = sourceSets.main.java.classesDirectory.get().asFile
+// processResources cleans this shared output, so emit classes only afterward.
+tasks.named('compileJava') { mustRunAfter(tasks.named('processResources')) }
 
 tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
 sourceSets.test.java {

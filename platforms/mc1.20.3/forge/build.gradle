@@ -42,6 +42,8 @@ minecraft {
 // Forge 49 scans each development classpath entry as a separate mod file, so
 // keep classes and metadata together just as they are in the distributable JAR.
 sourceSets.main.output.resourcesDir = sourceSets.main.java.classesDirectory.get().asFile
+// processResources cleans this shared output, so emit classes only afterward.
+tasks.named('compileJava') { mustRunAfter(tasks.named('processResources')) }
 
 repositories { mavenCentral() }
 

@@ -73,7 +73,7 @@ class PersistenceRateLimitTest {
         assertEquals(List.of("history"), restored.history().stream().map(QueueTrack::key).toList());
     }
 
-    @Test void globalClearRemovesPlaybackAndActiveSourceButRetainsRepeatHistory() {
+    @Test void globalClearRemovesPlaybackActiveSourceAndRepeatHistory() {
         JammarrSavedData data = new JammarrSavedData();
         data.current(new QueueTrack("current", "Current", "Artist", "Album", 1_000), JammarrPayloads.PlaybackOrigin.STATION);
         data.queue().add(new QueueTrack("manual", "Manual", "Artist", "Album", 1_000));
@@ -83,6 +83,6 @@ class PersistenceRateLimitTest {
         data.clearAll();
         assertNull(data.current()); assertTrue(data.queue().isEmpty()); assertFalse(data.autoplayEnabled());
         assertEquals(JammarrPayloads.StationType.NONE, data.station().type());
-        assertEquals(List.of("history"), data.history().stream().map(QueueTrack::key).toList());
+        assertTrue(data.history().isEmpty());
     }
 }
