@@ -139,6 +139,19 @@
           },
           "path": "platforms/mc1.6.4/ornithe",
           "artifact": "jammarr-1.1.0+mc1.6.4-ornithe.jar"
+        },
+        {
+          "id": "liteloader",
+          "status": "preview",
+          "implemented": true,
+          "quiltCompatible": false,
+          "verificationTask": "verifyLiteLoader164",
+          "artifactProfile": "legacy-liteloader-client-java8",
+          "runtimeMode": "client-companion",
+          "pairedServerLoader": "forge",
+          "clientTask": "runLiteLoaderClient",
+          "path": "platforms/mc1.6.4/liteloader",
+          "artifact": "jammarr-1.1.0+mc1.6.4-liteloader.litemod"
         }
       ]
     },

@@ -1,0 +1,8 @@
+{
+  "name": "jammarr",
+  "displayName": "Jammarr",
+  "version": "${modVersion}",
+  "author": "StonyTark",
+  "mcversion": "${minecraftVersion}",
+  "revision": "10"
+}

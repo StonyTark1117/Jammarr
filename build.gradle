@@ -266,6 +266,7 @@ tasks.register('verifyDedicatedServers', Exec) {
     environment('JAMMARR_COMMAND_CLIENT_GATE', 'true')
     environment('JAMMARR_AUDIO_CLIENT_GATE', 'true')
     environment('JAMMARR_AUDIO_SCENARIO_GATE', 'true')
+    environment('JAMMARR_CLIENT_COMPANION_GATE', 'true')
     commandLine('bash', 'scripts/run-dedicated-server-gate.sh', 'all')
 }
 

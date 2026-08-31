@@ -10,7 +10,9 @@
 - Add and certify a separately pinned Minecraft 1.6.4 Ornithe generation-2 preview with Feather mappings, only the version-compatible OSL modules Jammarr uses, Java 8 bytecode/runtime, optional-client negotiation, command/UI coverage, synchronized two-client audio, recovery scenarios, and clean teardown.
 - Add and runtime-certify a production-reobfuscated Minecraft 1.8.9 LiteLoader client companion, explicitly paired with a Forge server, with protocol-6 negotiation, audio playback, player/config UI coverage, and pinned upstream loader bytes. LiteLoader is not advertised as a dedicated-server runtime.
 - Add and runtime-certify a fully obfuscated Minecraft 1.7.10 LiteLoader client companion using checksum-pinned production Forge and LiteLoader distributions. The supported client requires Forge+LiteLoader coexistence and pairs only with the matching Forge server; standalone LiteLoader cannot complete Forge 1.7.10's FML handshake.
-- Expand the candidate matrix to 77 artifacts and 99 dedicated-server loader/version runtimes while keeping Babric, Legacy Fabric, LiteLoader, Ornithe, and Quilt compatibility boundaries explicit.
+- Add and runtime-certify a fully obfuscated Minecraft 1.6.4 LiteLoader client companion using official LiteLoader 1.6.4_01 and recommended Forge 9.11.1.1345. Its Java-7 class headers remain Java-8 runtime code compatible with Forge's ASM 4, and the production pair passes protocol, player/config UI, playable-audio, sustained-health, and teardown gates.
+- Expand the candidate matrix to 78 artifacts and 99 dedicated-server loader/version runtimes while keeping Babric, Legacy Fabric, LiteLoader, Ornithe, and Quilt compatibility boundaries explicit.
+- Make the root release matrix enable every manifest-declared LiteLoader paired-client gate instead of leaving those runtime checks opt-in.
 
 ## 1.0.2 - 2026-08-28
 

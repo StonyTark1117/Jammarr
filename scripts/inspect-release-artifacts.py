@@ -312,10 +312,16 @@ def verify_remappable_keybinding(archive: zipfile.ZipFile, minecraft: str,
         # .litemod, while LiteLoader API names and Jammarr's translation keys
         # remain stable. Runtime acceptance proves the obfuscated key poll
         # opens the screen; archive inspection proves registration and identity.
-        required = (b"com/mumfrey/liteloader/core/LiteLoader",
-                    b"com/mumfrey/liteloader/util/Input", b"registerKeyBinding",
-                    b"key.jammarr.open", b"key.categories.jammarr",
-                    b"stonytark/jammarr/client/LegacyScreen")
+        if minecraft == "1.6.4":
+            # LiteLoader 1.6.4 predates Input and custom Controls categories;
+            # its public registration method is LiteLoader.registerModKey.
+            required = (b"com/mumfrey/liteloader/core/LiteLoader", b"registerModKey",
+                        b"key.jammarr.open", b"stonytark/jammarr/client/LegacyScreen")
+        else:
+            required = (b"com/mumfrey/liteloader/core/LiteLoader",
+                        b"com/mumfrey/liteloader/util/Input", b"registerKeyBinding",
+                        b"key.jammarr.open", b"key.categories.jammarr",
+                        b"stonytark/jammarr/client/LegacyScreen")
         if any(marker not in client for marker in required):
             fail(f"{filename} does not register and consume a LiteLoader KeyBinding")
         legacy_lang = archive.read("assets/jammarr/lang/en_US.lang")
