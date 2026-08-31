@@ -68,6 +68,8 @@ def implemented_artifacts(manifest: dict[str, Any]) -> list[dict[str, Any]]:
                     "artifact": f"{loader['path']}/build/libs/{loader['artifact']}",
                     "path": loader["path"],
                     "buildJava": loader.get("buildJava", target["java"]["build"]),
+                    "runtimeJava": loader.get("runtimeJava", target["java"].get("runtime", target["java"]["build"])),
+                    "clientTask": loader.get("clientTask", "runClient"),
                     "quiltCompatible": bool(loader.get("quiltCompatible", False)),
                     "gameTests": bool(loader.get("gameTests", False)),
                     "runtimeMode": loader.get("runtimeMode", "full"),
@@ -171,6 +173,8 @@ def client_companions(manifest: dict[str, Any]) -> list[dict[str, Any]]:
                 "pairedRuntime": f"{artifact['minecraft']}-{paired_loader}",
                 "path": artifact["path"],
                 "buildJava": artifact["buildJava"],
+                "runtimeJava": artifact["runtimeJava"],
+                "clientTask": artifact["clientTask"],
             }
         )
     return companions
@@ -250,6 +254,8 @@ def main() -> None:
                 entry["pairedRuntime"],
                 entry["path"],
                 entry["buildJava"],
+                entry["runtimeJava"],
+                entry["clientTask"],
             )
             print("|".join(map(str, values)))
     else:

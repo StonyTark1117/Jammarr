@@ -73,6 +73,8 @@ declare -A target_disable_configuration_cache=()
 declare -A target_companion_label=()
 declare -A target_companion_path=()
 declare -A target_companion_java=()
+declare -A target_companion_runtime_java=()
+declare -A target_companion_task=()
 targets=()
 while IFS='|' read -r label target_dir build_java port control command_markers audio_profile log_profile disable_configuration_cache; do
   case "$build_java" in
@@ -96,7 +98,7 @@ if (( ${#targets[@]} == 0 )); then
   echo "Target manifest generated no dedicated-server runtimes" >&2
   exit 2
 fi
-while IFS='|' read -r companion_label paired_runtime companion_path companion_java; do
+while IFS='|' read -r companion_label paired_runtime companion_path companion_java companion_runtime_java companion_task; do
   if [[ -n ${target_companion_label[$paired_runtime]:-} ]]; then
     echo "Multiple client companions target $paired_runtime; the gate requires an unambiguous pair" >&2
     exit 2
@@ -104,6 +106,8 @@ while IFS='|' read -r companion_label paired_runtime companion_path companion_ja
   target_companion_label["$paired_runtime"]=$companion_label
   target_companion_path["$paired_runtime"]=$companion_path
   target_companion_java["$paired_runtime"]=$companion_java
+  target_companion_runtime_java["$paired_runtime"]=$companion_runtime_java
+  target_companion_task["$paired_runtime"]=$companion_task
 done < <(python3 "$repo_root/scripts/target-matrix.py" companion-lines "$repo_root/gradle/targets.json")
 
 uses_console_control() {
@@ -509,13 +513,15 @@ run_client_companion() {
   local companion_label=${target_companion_label[$server_label]:-}
   local relative_dir=${target_companion_path[$server_label]:-}
   local build_java=${target_companion_java[$server_label]:-}
+  local runtime_java=${target_companion_runtime_java[$server_label]:-}
+  local client_task=${target_companion_task[$server_label]:-runClient}
   local port=$2
   local companion_dir="$repo_root/$relative_dir"
   local scenario=paired-client username=LiteCompanion
   local client_dir="$output_root/$companion_label.$scenario"
   local client_console="$output_root/$companion_label.$scenario.console.log"
   local evidence="$output_root/$companion_label.$scenario.evidence.txt"
-  local java_home pid deadline result=0
+  local java_home runtime_java_home pid deadline result=0
 
   [[ -n "$companion_label" ]] || return 0
   case "$build_java" in
@@ -528,7 +534,18 @@ run_client_companion() {
       return 1
       ;;
   esac
-  if [[ ! -x "$java_home/bin/java" || ! -x "$companion_dir/gradlew" ]]; then
+  case "$runtime_java" in
+    8) runtime_java_home=$java8_home ;;
+    17) runtime_java_home=$java17_home ;;
+    21) runtime_java_home=$java21_home ;;
+    26) runtime_java_home=$java26_home ;;
+    *)
+      echo "$companion_label: no client-companion runtime JDK is configured for Java $runtime_java" >&2
+      return 1
+      ;;
+  esac
+  if [[ ! -x "$java_home/bin/java" || ! -x "$runtime_java_home/bin/java" \
+      || ! -x "$companion_dir/gradlew" ]]; then
     echo "$companion_label: paired-client runtime prerequisites are missing" >&2
     return 1
   fi
@@ -555,7 +572,7 @@ run_client_companion() {
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS='-Djammarr.acceptance.enabled=true -Djammarr.acceptance.audioProbe=true -Djammarr.acceptance.audioLeader=true -Djammarr.acceptance.commandProbe=true -Djammarr.acceptance.clientHelloDelayMs=1 -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
       LIBGL_ALWAYS_SOFTWARE=1 \
-      ./gradlew runClient --no-daemon --max-workers=2 --console=plain \
+      ./gradlew "$client_task" --no-daemon --max-workers=2 --console=plain \
       -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="127.0.0.1:${port}" \
       -PjammarrAcceptanceGameDir="$client_dir" \
@@ -571,7 +588,7 @@ run_client_companion() {
       || ! grep -Fq 'Acceptance legacy Jammarr screen remained open across client ticks' "$client_console" \
       || ! grep -Fq 'Acceptance legacy Jammarr config screen remained open across client ticks' "$client_console"; do
     if client_bootstrap_failed "$client_console" \
-        || grep -Eq 'ExceptionInInitializerError|Unreported exception thrown|Minecraft Crash Report' "$client_console" \
+        || grep -Eq 'ExceptionInInitializerError|Unreported exception thrown|#@!@# Game crashed!|Description: Unexpected error' "$client_console" \
         || ! group_alive "$pid" \
         || (( SECONDS >= deadline )); then
       echo "$companion_label: production client companion did not complete paired runtime acceptance; see $client_console" >&2

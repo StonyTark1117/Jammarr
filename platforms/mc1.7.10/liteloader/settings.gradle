@@ -1,0 +1,16 @@
+pluginManagement {
+    repositories {
+        maven {
+            name = 'GTNH Maven'
+            url = uri('https://nexus.gtnewhorizons.com/repository/public/')
+            mavenContent {
+                includeGroupByRegex('com\\.gtnewhorizons\\..+')
+                includeGroup('com.gtnewhorizons')
+            }
+        }
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'jammarr-mc1.7.10-liteloader'

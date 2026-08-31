@@ -9,7 +9,8 @@
 - Add and certify a separately pinned Minecraft 1.8.9 Ornithe generation-2 preview with Feather mappings, OSL networking and lifecycle integration, Java 8 bytecode/runtime, optional-client negotiation, command/UI coverage, synchronized two-client audio, recovery scenarios, and clean teardown.
 - Add and certify a separately pinned Minecraft 1.6.4 Ornithe generation-2 preview with Feather mappings, only the version-compatible OSL modules Jammarr uses, Java 8 bytecode/runtime, optional-client negotiation, command/UI coverage, synchronized two-client audio, recovery scenarios, and clean teardown.
 - Add and runtime-certify a production-reobfuscated Minecraft 1.8.9 LiteLoader client companion, explicitly paired with a Forge server, with protocol-6 negotiation, audio playback, player/config UI coverage, and pinned upstream loader bytes. LiteLoader is not advertised as a dedicated-server runtime.
-- Expand the candidate matrix to 76 artifacts and 99 dedicated-server loader/version runtimes while keeping Babric, Legacy Fabric, LiteLoader, Ornithe, and Quilt compatibility boundaries explicit.
+- Add and runtime-certify a fully obfuscated Minecraft 1.7.10 LiteLoader client companion using checksum-pinned production Forge and LiteLoader distributions. The supported client requires Forge+LiteLoader coexistence and pairs only with the matching Forge server; standalone LiteLoader cannot complete Forge 1.7.10's FML handshake.
+- Expand the candidate matrix to 77 artifacts and 99 dedicated-server loader/version runtimes while keeping Babric, Legacy Fabric, LiteLoader, Ornithe, and Quilt compatibility boundaries explicit.
 
 ## 1.0.2 - 2026-08-28
 

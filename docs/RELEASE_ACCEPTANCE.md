@@ -6,14 +6,14 @@ The automated root gate is:
 ./gradlew releaseMatrixGate --no-daemon --max-workers=1
 ```
 
-GitHub Actions runs the same release contract as 76 independent artifact jobs
+GitHub Actions runs the same release contract as 77 independent artifact jobs
 with fail-fast disabled. Fabric artifact jobs also cover their matching Quilt,
 Quilt with Mod Menu, and minimum-Fabric-Loader runtimes. The final `1.0 release
 gate` job downloads all successful release artifacts, rebuilds the manifest and checksums,
 and runs the centralized artifact inspector before publishing the candidate
 bundle.
 
-It must produce 75 JARs and one `.litemod` plus schema-2 `manifest.json` and `SHA256SUMS` under `build/releases/`, then exercise 99 dedicated-server runtimes. These counts are derived from `gradle/targets.json` and must change with the manifest rather than being maintained independently. Run `sha256sum -c SHA256SUMS` from that directory before publication.
+It must produce 75 JARs and two `.litemod` files plus schema-2 `manifest.json` and `SHA256SUMS` under `build/releases/`, then exercise 99 dedicated-server runtimes. These counts are derived from `gradle/targets.json` and must change with the manifest rather than being maintained independently. Run `sha256sum -c SHA256SUMS` from that directory before publication.
 
 The release gate observes each real client's decoded output through an isolated audio sink; PLAYING state or an allocated OpenAL source alone is not accepted. Its deterministic carrier includes pseudo-random marker identities every 250 ms, and the retained JSON reports onset, marker displacement, marker-sequence mismatches, simultaneous-marker overlap, silence gaps, and inter-client skew. The oracle first proves that deliberately injected early, late, replayed, reordered, and overlapping PCM fail those checks. It also starts every modern Fabric artifact under Loader 0.19.2 as well as the pinned 0.19.3, and repeats all five Quilt client/audio scenarios with the pinned Mod Menu installed. Retain a result for every loader before publishing a Minecraft family:
 
@@ -24,6 +24,7 @@ The release gate observes each real client's decoded output through an isolated 
 | 1.6.4 Legacy Fabric | automated gate 2026-08-30 | actual no-Jammarr client remains connected | real client gate | real client gate, including player/config UI | automated gate | pending | observable fake-Plex audio and recovery gate | candidate; live Plex pending |
 | 1.6.4 Ornithe | automated gate 2026-08-30 | actual no-Jammarr client remains connected | real client gate | real client gate, including player/config UI | automated gate | pending | observable fake-Plex audio and recovery gate | candidate; live Plex pending |
 | 1.7.10 Forge | automated gate | real no-hello client | real client gate | real client gate | automated gate | family smoke 2026-08-24 | observable audio gate | passed 2026-08-24 |
+| 1.7.10 LiteLoader+Forge client -> Forge server | paired Forge gate 2026-08-30 | production companion negotiates after Forge's modded handshake; no-hello client remains connected | protocol-6 real client gate | player/config UI real client gate | automated paired gate | pending | observable fake-Plex audio reaches PLAYING | candidate; live Plex pending |
 | 1.8.9 Forge | automated gate 2026-08-30 | unmodified client remains connected; suppressed hello times out of capability | real client gate | real client gate, including player/config UI | automated gate | pending | observable fake-Plex audio gate | candidate; live Plex pending |
 | 1.8.9 LiteLoader client -> Forge server | paired Forge gate 2026-08-30 | production companion negotiates after a vanilla-compatible join | protocol-6 real client gate | player/config UI real client gate | automated paired gate | pending | observable fake-Plex audio reaches PLAYING | candidate; live Plex pending |
 | 1.8.9 Legacy Fabric | automated gate 2026-08-30 | actual no-Jammarr client remains connected | real client gate | real client gate, including player/config UI | automated gate | pending | observable fake-Plex audio and recovery gate | candidate; live Plex pending |

@@ -32,7 +32,7 @@ def fixture() -> dict:
         "targets": [
             {
                 "minecraft": "1.20.1",
-                "java": {"build": 21},
+                "java": {"build": 21, "runtime": 17},
                 "loaders": [
                     {
                         "id": "fabric",
@@ -110,7 +110,28 @@ class TargetMatrixTests(unittest.TestCase):
             "pairedRuntime": "1.20.1-forge",
             "path": "platforms/liteloader",
             "buildJava": 21,
+            "runtimeJava": 17,
+            "clientTask": "runClient",
         }])
+
+    def test_client_companion_can_select_a_production_launch_task(self) -> None:
+        manifest = fixture()
+        manifest["targets"][0]["loaders"].append(
+            {
+                "id": "liteloader",
+                "implemented": True,
+                "quiltCompatible": False,
+                "runtimeMode": "client-companion",
+                "pairedServerLoader": "forge",
+                "clientTask": "runLiteLoaderClient",
+                "path": "platforms/liteloader",
+                "artifact": "client.litemod",
+            }
+        )
+        self.assertEqual(
+            target_matrix.client_companions(manifest)[0]["clientTask"],
+            "runLiteLoaderClient",
+        )
 
     def test_client_companion_requires_a_full_paired_server(self) -> None:
         manifest = fixture()

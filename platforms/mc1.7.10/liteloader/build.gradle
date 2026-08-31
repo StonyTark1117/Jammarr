@@ -1,0 +1,315 @@
+plugins {
+    id 'java-library'
+    id 'com.gtnewhorizons.retrofuturagradle' version '2.0.3'
+}
+
+def modVersionValue = providers.gradleProperty('mod_version').get()
+def minecraftVersionValue = providers.gradleProperty('minecraft_version').get()
+
+group = 'stonytark'
+version = modVersionValue
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(8)
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+minecraft {
+    mcVersion.set(minecraftVersionValue)
+    javaCompatibilityVersion.set(8)
+    jvmLanguageVersion.set(JavaLanguageVersion.of(8))
+    username.set('JammarrLiteLoader')
+}
+
+repositories { mavenCentral() }
+
+configurations {
+    embeddedLibraries
+    remapper
+    implementation.extendsFrom(embeddedLibraries)
+}
+
+dependencyLocking { lockAllConfigurations() }
+
+dependencies {
+    embeddedLibraries('javazoom:jlayer:1.0.1')
+    embeddedLibraries('de.sciss:jump3r:1.0.5')
+    runtimeOnly('org.lwjgl.lwjgl:lwjgl:2.9.1')
+    runtimeOnly('org.lwjgl.lwjgl:lwjgl_util:2.9.1')
+    remapper('net.md-5:SpecialSource:1.11.0')
+    testImplementation(platform('org.junit:junit-bom:5.10.2'))
+    testImplementation('org.junit.jupiter:junit-jupiter')
+    testRuntimeOnly('org.junit.platform:junit-platform-launcher')
+}
+
+def forgeSources = fileTree('../forge/src/main/java') {
+    include 'stonytark/jammarr/client/**'
+    include 'stonytark/jammarr/network/LegacyPacketTypes.java'
+    exclude 'stonytark/jammarr/client/LegacyClient.java'
+    exclude 'stonytark/jammarr/client/LegacyGuiFactory.java'
+    exclude 'stonytark/jammarr/client/LegacySoundAccess.java'
+}
+
+sourceSets {
+    main {
+        java.srcDirs = ['src/main/java', 'src/liteloaderApi/java', '../../../core/src/main/java']
+        resources {
+            srcDirs = ['src/main/resources', '../../../src/main/resources', '../forge/src/main/resources']
+            exclude 'jammarr.mixins.json', 'mcmod.info'
+        }
+    }
+    test {
+        java.srcDirs = ['../../../core/src/test/java']
+        resources {
+            srcDir '../../../test-fixtures'
+            exclude 'java/**'
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
+tasks.named('compileJava', JavaCompile) { source forgeSources }
+tasks.named('compileTestJava', JavaCompile) {
+    source fileTree('../forge/src/test/java') { include 'stonytark/jammarr/client/**' }
+}
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+    inputs.property('jammarrLiveTestEnabled', providers.environmentVariable('JAMMARR_LIVE_TEST').orElse('false'))
+    outputs.upToDateWhen { System.getenv('JAMMARR_LIVE_TEST') != 'true' }
+}
+
+def canonicalBaseName = "jammarr-${modVersionValue}+mc${minecraftVersionValue}-liteloader"
+
+tasks.named('processResources', ProcessResources) {
+    inputs.property('modVersion', modVersionValue)
+    inputs.property('minecraftVersion', minecraftVersionValue)
+    filesMatching('litemod.json') {
+        expand(modVersion: modVersionValue, minecraftVersion: minecraftVersionValue)
+    }
+}
+
+tasks.named('jar', Jar) {
+    archiveBaseName.set(canonicalBaseName)
+    archiveVersion.set('')
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+    from { configurations.embeddedLibraries.collect { zipTree(it) } }
+    exclude 'com/mumfrey/**', 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA',
+            'META-INF/INDEX.LIST', 'module-info.class'
+    from('../../../LICENSE') {
+        into 'META-INF'
+        rename { 'LICENSE-Jammarr-CC0-1.0.txt' }
+    }
+    from('../../../LICENSE-LGPL-2.1-or-later.txt') { into 'META-INF' }
+    from('../../../THIRD_PARTY_NOTICES.md') { into 'META-INF' }
+    manifest.attributes(
+            'ModType': 'LiteLoader',
+            'Implementation-Title': 'Jammarr',
+            'Implementation-Version': modVersionValue)
+}
+
+tasks.named('reobfJar') {
+    archiveBaseName.set("${canonicalBaseName}-srg")
+    archiveVersion.set('')
+    archiveExtension.set('jar')
+}
+
+def srgArchive = tasks.named('reobfJar').flatMap { it.archiveFile }
+def releaseArchive = layout.buildDirectory.file("libs/${canonicalBaseName}.litemod")
+def mappedArchive = layout.buildDirectory.file("tmp/obfuscateLiteMod/${canonicalBaseName}.jar")
+def productionLoader = layout.buildDirectory.file('liteloader-runtime/liteloader-1.7.10.jar')
+def productionForge = layout.buildDirectory.file(
+        'liteloader-runtime/forge-1.7.10-10.13.4.1614-1.7.10-universal.jar')
+
+def sha256 = { File file ->
+    java.security.MessageDigest digest = java.security.MessageDigest.getInstance('SHA-256')
+    file.withInputStream { stream ->
+        byte[] buffer = new byte[65536]
+        int count
+        while ((count = stream.read(buffer)) >= 0) if (count > 0) digest.update(buffer, 0, count)
+    }
+    digest.digest().collect { String.format('%02x', it & 0xff) }.join()
+}
+
+tasks.register('verifyToolchainLock') {
+    File wrapperJar = file('gradle/wrapper/gradle-wrapper.jar')
+    File wrapperProperties = file('gradle/wrapper/gradle-wrapper.properties')
+    inputs.files(wrapperJar, wrapperProperties)
+    doLast {
+        String expectedWrapper = '497c8c2a7e5031f6aa847f88104aa80a93532ec32ee17bdb8d1d2f67a194a9c7'
+        if (!wrapperJar.isFile() || sha256(wrapperJar) != expectedWrapper) {
+            throw new GradleException('LiteLoader 1.7.10 Gradle wrapper checksum does not match Gradle 9.5.0')
+        }
+        if (!wrapperProperties.getText('UTF-8').contains('gradle-9.5.0-bin.zip')) {
+            throw new GradleException('LiteLoader 1.7.10 Gradle distribution is not pinned to 9.5.0')
+        }
+    }
+}
+
+tasks.register('downloadProductionLiteLoader') {
+    outputs.file(productionLoader)
+    doLast {
+        File loader = productionLoader.get().asFile
+        loader.parentFile.mkdirs()
+        String expected = 'a30e91e7abfcf482fd740893a207e2e00eb6a24d3909bfa2939a13b3c1703b7b'
+        if (!loader.isFile() || sha256(loader) != expected) {
+            File pending = new File(loader.parentFile, loader.name + '.part')
+            pending.delete()
+            new URL('https://bmclapi2.bangbang93.com/maven/com/mumfrey/liteloader/1.7.10/liteloader-1.7.10.jar')
+                    .withInputStream { input -> pending.withOutputStream { output -> output << input } }
+            String digest = sha256(pending)
+            if (digest != expected) {
+                pending.delete()
+                throw new GradleException("LiteLoader production distribution has SHA-256 ${digest}, expected ${expected}")
+            }
+            java.nio.file.Files.move(pending.toPath(), loader.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
+}
+
+tasks.register('downloadProductionForge') {
+    outputs.file(productionForge)
+    doLast {
+        File forge = productionForge.get().asFile
+        forge.parentFile.mkdirs()
+        String expected = '00d1ca02192c7efb87da95552ebf247021f1e1d642f86d0a03076314def11529'
+        if (!forge.isFile() || sha256(forge) != expected) {
+            File pending = new File(forge.parentFile, forge.name + '.part')
+            pending.delete()
+            new URL('https://maven.minecraftforge.net/net/minecraftforge/forge/'
+                    + '1.7.10-10.13.4.1614-1.7.10/'
+                    + 'forge-1.7.10-10.13.4.1614-1.7.10-universal.jar')
+                    .withInputStream { input -> pending.withOutputStream { output -> output << input } }
+            String digest = sha256(pending)
+            if (digest != expected) {
+                pending.delete()
+                throw new GradleException("Forge production distribution has SHA-256 ${digest}, expected ${expected}")
+            }
+            java.nio.file.Files.move(pending.toPath(), forge.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
+}
+
+tasks.register('obfuscateLiteMod', JavaExec) {
+    dependsOn(tasks.named('reobfJar'))
+    inputs.file(srgArchive)
+    outputs.file(mappedArchive)
+    classpath = configurations.remapper
+    mainClass.set('net.md_5.specialsource.SpecialSource')
+    doFirst { mappedArchive.get().asFile.delete() }
+    args '--in-jar', srgArchive.get().asFile,
+            '--out-jar', mappedArchive.get().asFile,
+            '--srg-in', new File(gradle.gradleUserHomeDir,
+                    'caches/minecraft/net/minecraftforge/forge/1.7.10-10.13.4.1614-1.7.10/srgs/notch-srg.srg'),
+            '--reverse', '--only', 'stonytark/jammarr'
+}
+
+tasks.register('packageLiteMod', Zip) {
+    dependsOn(tasks.named('obfuscateLiteMod'))
+    inputs.file(mappedArchive)
+    destinationDirectory.set(layout.buildDirectory.dir('libs'))
+    archiveBaseName.set(canonicalBaseName)
+    archiveVersion.set('')
+    archiveExtension.set('litemod')
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+    from { zipTree(mappedArchive) }
+}
+
+def acceptanceServer = providers.gradleProperty('jammarrAcceptanceServer').orNull
+def acceptanceUsername = providers.gradleProperty('jammarrAcceptanceUsername').orNull
+def acceptanceGameDir = providers.gradleProperty('jammarrAcceptanceGameDir').orNull
+
+tasks.register('runLiteLoaderClient', JavaExec) {
+    dependsOn(tasks.named('downloadProductionLiteLoader'), tasks.named('downloadProductionForge'),
+            tasks.named('packageLiteMod'), tasks.named('extractNatives2'))
+    notCompatibleWithConfigurationCache('Production classpath replaces the RFG development outputs at execution time')
+    outputs.upToDateWhen { false }
+    javaLauncher.set(javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(8) })
+    mainClass.set('net.minecraft.launchwrapper.Launch')
+    doFirst {
+        File productionMinecraft = new File(gradle.gradleUserHomeDir,
+                'caches/minecraft/net/minecraft/minecraft/1.7.10/minecraft-1.7.10.jar')
+        File natives = new File(gradle.gradleUserHomeDir,
+                'caches/minecraft/net/minecraft/minecraft_natives/1.7.10')
+        if (!productionMinecraft.isFile() || !natives.isDirectory()) {
+            throw new GradleException('Production Minecraft 1.7.10 client or natives are missing')
+        }
+        Set<File> libraries = sourceSets.main.runtimeClasspath.files.findAll { candidate ->
+            !candidate.absolutePath.startsWith(layout.buildDirectory.get().asFile.absolutePath)
+        }
+        classpath = files(productionLoader, productionForge, productionMinecraft, libraries, releaseArchive)
+        jvmArgs "-Djava.library.path=${natives.absolutePath}"
+    }
+    args '--username', acceptanceUsername ?: 'JammarrLiteLoader',
+            '--version', '1.7.10',
+            '--accessToken', 'FML',
+            '--uuid', '00000000000000000000000000001710',
+            '--userProperties', '{}',
+            '--userType', 'legacy',
+            '--assetsDir', new File(gradle.gradleUserHomeDir, 'caches/minecraft/assets'),
+            '--assetIndex', '1.7.10',
+            '--tweakClass', 'cpw.mods.fml.common.launcher.FMLTweaker',
+            '--tweakClass', 'com.mumfrey.liteloader.launch.LiteLoaderTweaker'
+    if (acceptanceGameDir != null) {
+        workingDir(file(acceptanceGameDir))
+        args '--gameDir', acceptanceGameDir
+    }
+    if (acceptanceServer != null) {
+        int separator = acceptanceServer.lastIndexOf(':')
+        if (separator <= 0 || separator == acceptanceServer.length() - 1) {
+            throw new GradleException('jammarrAcceptanceServer must use host:port syntax')
+        }
+        args '--server', acceptanceServer.substring(0, separator),
+                '--port', acceptanceServer.substring(separator + 1)
+    }
+}
+
+tasks.register('verifyRelease') {
+    dependsOn(tasks.named('test'), tasks.named('packageLiteMod'),
+            tasks.named('downloadProductionLiteLoader'), tasks.named('downloadProductionForge'),
+            tasks.named('verifyToolchainLock'))
+    inputs.file(releaseArchive)
+    doLast {
+        File archive = releaseArchive.get().asFile
+        if (archive.name != "${canonicalBaseName}.litemod") {
+            throw new GradleException("Unexpected LiteLoader artifact name: ${archive.name}")
+        }
+        new java.util.zip.ZipFile(archive).withCloseable { zip ->
+            Set<String> found = zip.entries().collect { it.name } as Set
+            ['litemod.json', 'assets/jammarr/lang/en_us.json', 'assets/jammarr/lang/en_US.lang',
+             'jammarr.png', 'META-INF/LICENSE-Jammarr-CC0-1.0.txt',
+             'META-INF/LICENSE-LGPL-2.1-or-later.txt', 'META-INF/THIRD_PARTY_NOTICES.md',
+             'stonytark/jammarr/LiteModJammarr.class', 'stonytark/jammarr/Jammarr.class',
+             'stonytark/jammarr/network/LegacyNetwork.class',
+             'stonytark/jammarr/client/LegacyAudioPlayer.class',
+             'stonytark/jammarr/client/LegacyScreen.class',
+             'javazoom/jl/decoder/Decoder.class', 'de/sciss/jump3r/mp3/Lame.class'].each { entry ->
+                if (!found.contains(entry)) throw new GradleException("LiteLoader 1.7.10 archive is missing ${entry}")
+            }
+            if (found.any { it.startsWith('com/mumfrey/') || it.startsWith('stonytark/jammarr/server/') }) {
+                throw new GradleException('LiteLoader companion contains loader stubs or server implementation classes')
+            }
+            found.findAll { it.startsWith('stonytark/jammarr/') && it.endsWith('.class') }.each { entry ->
+                byte[] classBytes = zip.getInputStream(zip.getEntry(entry)).withCloseable { it.bytes }
+                if (classBytes.length < 8) throw new GradleException("Unable to inspect ${entry}")
+                int major = ((classBytes[6] & 0xff) << 8) | (classBytes[7] & 0xff)
+                if (major != 52) throw new GradleException("LiteLoader 1.7.10 archive contains non-Java-8 bytecode: ${entry}")
+                String constants = new String(classBytes, java.nio.charset.StandardCharsets.ISO_8859_1)
+                if (constants.contains('net/minecraft/')) {
+                    throw new GradleException("LiteLoader 1.7.10 archive retains a non-production Minecraft name: ${entry}")
+                }
+            }
+            def metadata = new groovy.json.JsonSlurper().parseText(
+                    zip.getInputStream(zip.getEntry('litemod.json')).getText('UTF-8'))
+            if (metadata.name != 'jammarr' || metadata.version != '1.1.0' || metadata.mcversion != '1.7.10') {
+                throw new GradleException('LiteLoader 1.7.10 metadata has the wrong identity or version')
+            }
+        }
+    }
+}

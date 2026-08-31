@@ -166,6 +166,19 @@
           },
           "path": "platforms/mc1.7.10/forge",
           "artifact": "jammarr-1.1.0+mc1.7.10-forge.jar"
+        },
+        {
+          "id": "liteloader",
+          "status": "preview",
+          "implemented": true,
+          "quiltCompatible": false,
+          "verificationTask": "verifyLiteLoader1710",
+          "artifactProfile": "legacy-liteloader-client-java8",
+          "runtimeMode": "client-companion",
+          "pairedServerLoader": "forge",
+          "clientTask": "runLiteLoaderClient",
+          "path": "platforms/mc1.7.10/liteloader",
+          "artifact": "jammarr-1.1.0+mc1.7.10-liteloader.litemod"
         }
       ]
     },
