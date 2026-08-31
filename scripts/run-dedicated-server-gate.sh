@@ -1171,6 +1171,16 @@ wait_for_audio_playing() {
   local initialized=0
   local initialization_deadline=$((SECONDS + 180))
   local deadline=$((SECONDS + 600))
+  # start_audio_client returns the PID of a subshell that immediately execs
+  # setsid. Under load, the first poll can run before setsid establishes the
+  # matching process group, which previously made a healthy launch look dead
+  # and could consume both retries before either JVM started. The server path
+  # already has this spawn barrier; apply the same bounded barrier to every
+  # audio-client launch and reconnect.
+  if ! wait_for_group_start "$pid" 10; then
+    echo "$label: $role client process group did not start; see $client_console" >&2
+    return 1
+  fi
   while ! grep -Fq 'Acceptance audio state: PLAYING' "$client_console" 2>/dev/null; do
     if grep -Fq 'Acceptance audio state:' "$client_console" 2>/dev/null; then initialized=1; fi
     if client_bootstrap_failed "$client_console"; then
