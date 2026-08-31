@@ -42,6 +42,7 @@ SERVER_FAILURE_PATTERN = re.compile(
     r"MixinApplyError|Exception in server tick loop|mc-server-runner\s+Done)",
     re.IGNORECASE,
 )
+RUN_START_PATTERN = re.compile(r"\[init\] Running as uid=", re.IGNORECASE)
 
 
 def log_messages(response: dict[str, Any]) -> list[str]:
@@ -52,17 +53,51 @@ def log_messages(response: dict[str, Any]) -> list[str]:
     ]
 
 
+def message_overlap_length(baseline: list[str], current: list[str]) -> int:
+    if not baseline:
+        return 0
+    if current[: len(baseline)] == baseline:
+        return len(baseline)
+    overlap_limit = min(len(baseline), len(current))
+    for overlap in range(overlap_limit, 0, -1):
+        if baseline[-overlap:] == current[:overlap]:
+            return overlap
+    return 0
+
+
 def appended_messages(baseline: list[str], current: list[str]) -> list[str]:
     """Return messages appended after a snapshot, tolerating tail-window rotation."""
     if not baseline:
         return current
-    if current[: len(baseline)] == baseline:
-        return current[len(baseline) :]
-    overlap_limit = min(len(baseline), len(current))
-    for overlap in range(overlap_limit, 0, -1):
-        if baseline[-overlap:] == current[:overlap]:
-            return current[overlap:]
-    return current
+    overlap = message_overlap_length(baseline, current)
+    return current[overlap:] if overlap else current
+
+
+def latest_run_segment(messages: list[str]) -> list[str]:
+    for index in range(len(messages) - 1, -1, -1):
+        if RUN_START_PATTERN.search(messages[index]):
+            return messages[index:]
+    return []
+
+
+def active_run_messages(
+    baseline: list[str], current: list[str], anchor_seen: bool
+) -> tuple[list[str], bool]:
+    """Select only the newly started container segment despite replay/rotation."""
+    overlap = message_overlap_length(baseline, current)
+    delta = appended_messages(baseline, current)
+    delta_segment = latest_run_segment(delta)
+    if delta_segment and (not baseline or overlap):
+        return delta_segment, True
+    current_segment = latest_run_segment(current)
+    if anchor_seen:
+        return (current_segment or delta), True
+    if current_segment and not SERVER_FAILURE_PATTERN.search("\n".join(current_segment)):
+        # The window may have rotated away every baseline line. A latest segment
+        # without a terminal marker is the active post-StartServer invocation;
+        # a completed segment is historical until a new anchor appears.
+        return current_segment, True
+    return [], False
 
 
 def startup_evidence(messages: list[str], version: str) -> dict[str, bool]:
@@ -198,6 +233,7 @@ def run_target(
         observed: dict[str, bool] = {}
         last_status = "unknown"
         active_seen = False
+        run_anchor_seen = False
         while time.monotonic() < deadline:
             last_status = str(panel.get_server(server_id).get("status", "unknown"))
             if last_status != reconciler.STATUS_STOPPED:
@@ -207,8 +243,10 @@ def run_target(
                 "GetServerLogs",
                 {"id": server_id, "tail": args.log_tail},
             )
-            current_messages = appended_messages(
-                baseline_messages, log_messages(response)
+            current_messages, run_anchor_seen = active_run_messages(
+                baseline_messages,
+                log_messages(response),
+                run_anchor_seen,
             )
             observed = startup_evidence(current_messages, version)
             if observed["installer_failure"]:
@@ -238,6 +276,7 @@ def run_target(
                 f"status={last_status} evidence={observed}"
             )
         result["evidence"] = observed
+        result["freshRunAnchor"] = run_anchor_seen
         result["runtimeStatusAtAcceptance"] = last_status
         print(
             f"SERVER_SMOKE_ACCEPTED {args.runtime} running=true fresh_logs=true "

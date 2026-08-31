@@ -32,6 +32,30 @@ class DiscPanelServerSmokeTests(unittest.TestCase):
             ["new-a", "new-b"],
         )
 
+    def test_active_run_ignores_replayed_completed_segment_after_rotation(self) -> None:
+        baseline = ["old prelude", "old failure", "mc-server-runner Done"]
+        current = [
+            "old failure with reformatted prefix",
+            "mc-server-runner Done",
+            "[init] Running as uid=1000 gid=1000",
+            "Loading Minecraft 1.8.9",
+        ]
+        messages, anchor_seen = smoke.active_run_messages(baseline, current, False)
+        self.assertTrue(anchor_seen)
+        self.assertEqual(
+            messages,
+            ["[init] Running as uid=1000 gid=1000", "Loading Minecraft 1.8.9"],
+        )
+
+    def test_active_run_waits_when_only_historical_failure_is_replayed(self) -> None:
+        messages, anchor_seen = smoke.active_run_messages(
+            ["old"],
+            ["[init] Running as uid=1000 gid=1000", "Minecraft server failed"],
+            False,
+        )
+        self.assertFalse(anchor_seen)
+        self.assertEqual(messages, [])
+
     def test_acceptance_requires_all_appended_server_markers(self) -> None:
         messages = [
             "Initializing Jammarr 1.1.0 for Forge 1.12.2 protocol 6",
