@@ -21,6 +21,7 @@
 - Add a manifest-driven DiscPanel reconciler with dry-run-by-default planning, exact stopped-state drift checks, sequential no-mod native instance creation, pinned Java images, and fail-closed handling for custom legacy loader distributions.
 - Reconcile the live DiscPanel matrix to all 99 manifest-derived runtime profiles, including checksum-pinned Babric and Legacy Fabric launchers plus inspected Ornithe generation-2 bootstrap distributions; leave every profile stopped with a unique port and verify all 78 newly created instances contain no mod records.
 - Add a dry-run-by-default DiscPanel release deployer that verifies all 78 indexed artifacts, maps the 75 server artifacts onto all 99 runtime profiles, refuses running, drifted, autostarted, duplicate, or partial deployments, verifies uploaded bytes, and retains the previously active Jammarr file as a disabled rollback without starting a server.
+- Stage the exact 1.1.0 release-candidate artifact on all 99 DiscPanel runtime profiles, verify every remote digest, retain 21 stable 1.0.2 rollback files disabled, and finish with no active older Jammarr artifact or deployment-created server start.
 
 ## 1.0.2 - 2026-08-28
 

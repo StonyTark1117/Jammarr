@@ -249,6 +249,20 @@ def deploy_target(
         raise RuntimeError(f"{target.runtime} did not remain stopped after deployment")
 
 
+def update_managed_description(
+    panel: Any, target: DeploymentTarget, server: dict[str, Any]
+) -> None:
+    fresh = panel.get_server(str(server["id"]))
+    if fresh.get("status") != reconciler.STATUS_STOPPED:
+        raise RuntimeError(f"{target.runtime} became active before description update")
+    panel.update_server_description(fresh, reconciler.MANAGED_DESCRIPTION)
+    updated = panel.get_server(str(server["id"]))
+    if updated.get("description") != reconciler.MANAGED_DESCRIPTION:
+        raise RuntimeError(f"{target.runtime} description update did not persist")
+    if updated.get("status") != reconciler.STATUS_STOPPED:
+        raise RuntimeError(f"{target.runtime} did not remain stopped after description update")
+
+
 def reconcile(args: argparse.Namespace) -> int:
     token = os.environ.get(args.token_env)
     if not token:
@@ -278,6 +292,7 @@ def reconcile(args: argparse.Namespace) -> int:
         by_name[name] = server
 
     plan: list[tuple[DeploymentTarget, dict[str, Any], list[dict[str, Any]]]] = []
+    description_updates: list[tuple[DeploymentTarget, dict[str, Any]]] = []
     already = 0
     for target in targets:
         summary = by_name.get(target.server_name)
@@ -304,6 +319,9 @@ def reconcile(args: argparse.Namespace) -> int:
             if actual != target.sha256:
                 raise RuntimeError(f"{target.runtime} active release digest does not match")
             already += 1
+            full_server = panel.get_server(server_id)
+            if full_server.get("description") != reconciler.MANAGED_DESCRIPTION:
+                description_updates.append((target, full_server))
             continue
         if expected_disabled:
             raise RuntimeError(
@@ -313,18 +331,27 @@ def reconcile(args: argparse.Namespace) -> int:
 
     print(
         f"DiscPanel release {expected_version}: selected={len(targets)} "
-        f"already_verified={already} deploy_required={len(plan)} apply={str(args.apply).lower()}"
+        f"already_verified={already} deploy_required={len(plan)} "
+        f"description_updates={len(description_updates)} apply={str(args.apply).lower()}"
     )
     if not args.apply:
         for target, _, enabled in plan:
             previous = str(enabled[0].get("fileName")) if enabled else "none"
             print(f"WOULD_DEPLOY {target.runtime} {target.filename} rollback={previous}")
+        for target, _ in description_updates:
+            print(f"WOULD_UPDATE_DESCRIPTION {target.runtime}")
         return 0
 
     for target, server, previous in plan:
         print(f"UPLOAD {target.runtime} {target.filename}", flush=True)
         deploy_target(panel, target, server, previous, expected_version)
+        full_server = panel.get_server(str(server["id"]))
+        if full_server.get("description") != reconciler.MANAGED_DESCRIPTION:
+            update_managed_description(panel, target, full_server)
         print(f"DEPLOYED_STOPPED {target.runtime} sha256={target.sha256}", flush=True)
+    for target, server in description_updates:
+        update_managed_description(panel, target, server)
+        print(f"UPDATED_DESCRIPTION_STOPPED {target.runtime}", flush=True)
     return 0
 
 

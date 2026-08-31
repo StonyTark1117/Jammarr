@@ -20,6 +20,10 @@ SPEC.loader.exec_module(reconcile_discopanel)
 
 
 class DiscPanelReconcilerTests(unittest.TestCase):
+    def test_managed_description_is_state_neutral(self) -> None:
+        self.assertNotIn("No 1.1.0", reconcile_discopanel.MANAGED_DESCRIPTION)
+        self.assertIn("ModService", reconcile_discopanel.MANAGED_DESCRIPTION)
+
     def test_manifest_produces_complete_runtime_matrix(self) -> None:
         profiles = reconcile_discopanel.desired_profiles(Path("gradle/targets.json"))
         self.assertEqual(len(profiles), 99)
@@ -166,6 +170,30 @@ class DiscPanelReconcilerTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(RuntimeError, "digest mismatch"):
                 reconcile_discopanel.verify_custom_url_launcher(profile)
+
+    def test_description_update_preserves_server_overrides(self) -> None:
+        panel = reconcile_discopanel.DiscPanel("http://example.invalid", "test")
+        server = {
+            "id": "server",
+            "name": "Jammarr Test",
+            "description": "old",
+            "port": 25565,
+            "maxPlayers": 5,
+            "memory": 4096,
+            "modLoader": "MOD_LOADER_FORGE",
+            "mcVersion": "1.7.10",
+            "dockerImage": "java8",
+            "status": "SERVER_STATUS_STOPPED",
+            "dockerOverrides": {"environment": {"PRIVATE_SENTINEL": "preserve-me"}},
+        }
+        with mock.patch.object(panel, "call", return_value={}) as call:
+            panel.update_server_description(server, "new")
+        service, method, payload = call.call_args.args
+        self.assertEqual((service, method), ("ServerService", "UpdateServer"))
+        self.assertEqual(payload["description"], "new")
+        self.assertEqual(payload["modLoader"], "forge")
+        self.assertEqual(payload["dockerOverrides"], server["dockerOverrides"])
+        self.assertFalse(payload["autoStart"])
 
 
 if __name__ == "__main__":

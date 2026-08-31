@@ -87,6 +87,10 @@ ORNITHE_INSTALLER_SHA256 = "86b01c48c605e35fba3f4012d2b951ca4ae5f0b7445df8d3152f
 ORNITHE_LOADER_VERSION = "0.19.5"
 STATUS_STOPPED = "SERVER_STATUS_STOPPED"
 STATUS_ERROR = "SERVER_STATUS_ERROR"
+MANAGED_DESCRIPTION = (
+    "Jammarr test runtime managed from gradle/targets.json; "
+    "artifact state is tracked separately by DiscPanel ModService."
+)
 
 
 @dataclass(frozen=True)
@@ -206,10 +210,7 @@ class DiscPanel:
             raise RuntimeError(f"refusing creation without a panel loader for {profile.runtime}")
         payload: dict[str, Any] = {
             "name": profile.name,
-            "description": (
-                "Jammarr 1.1.0 release-candidate test runtime; managed from "
-                "gradle/targets.json. No 1.1.0 mod artifact installed yet."
-            ),
+            "description": MANAGED_DESCRIPTION,
             "modLoader": profile.panel_loader,
             "mcVersion": profile.minecraft,
             "port": port,
@@ -252,6 +253,26 @@ class DiscPanel:
                 "dockerOverrides": {"environment": dict(profile.environment)},
             },
         )
+
+    def update_server_description(
+        self, server: dict[str, Any], description: str
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "id": server["id"],
+            "name": server["name"],
+            "description": description,
+            "port": int(server["port"]),
+            "maxPlayers": int(server.get("maxPlayers", 5)),
+            "memory": int(server.get("memory", 4096)),
+            "modLoader": str(server["modLoader"]).removeprefix("MOD_LOADER_").lower(),
+            "mcVersion": server["mcVersion"],
+            "dockerImage": server["dockerImage"],
+            "autoStart": bool(server.get("autoStart", False)),
+            "detached": bool(server.get("detached", True)),
+        }
+        if server.get("dockerOverrides") is not None:
+            payload["dockerOverrides"] = server["dockerOverrides"]
+        return self.call("ServerService", "UpdateServer", payload)
 
     def list_files(self, server_id: str, path: str = "") -> list[dict[str, Any]]:
         return list(
