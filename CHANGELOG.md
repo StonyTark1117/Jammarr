@@ -30,6 +30,7 @@
 - Add a checksum-pinned, dry-run-by-default DiscPanel runtime-dependency deployer and stage the required StationAPI 2.0.0-alpha.6.2 dependency on the stopped Beta 1.7.3 Babric profile without replacing Jammarr or starting the server.
 - Pass fresh final-artifact live-Plex server canaries for Beta 1.7.3 Babric, Forge 1.6.4, Fabric 1.20.1, and NeoForge 26.2 with clean stopped-state teardown; classify the first Babric and Forge attempts as dependency/download bootstrap failures rather than mod failures.
 - Generate a checksum-pinned DiscPanel dependency manifest covering 53 Fabric, Quilt, Babric, Legacy Fabric, and Ornithe runtime profiles with 75 exact dependency placements, including only the version-compatible OSL modules used by each Ornithe generation.
+- Deploy and remotely verify all 75 pinned runtime-dependency placements across the 53 dependency-bearing DiscPanel profiles, reusing 11 already-exact files, staging the other 64 without starting a server, and finish with all 99 profiles stopped and autostart disabled.
 
 ## 1.0.2 - 2026-08-28
 
