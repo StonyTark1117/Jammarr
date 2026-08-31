@@ -14,7 +14,6 @@ import importlib.util
 import json
 import os
 import sys
-import tempfile
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -70,6 +69,20 @@ def load_dependencies(path: Path, runtime: str) -> list[Dependency]:
         dependencies.append(dependency)
     if len({dependency.dependency_id for dependency in dependencies}) != len(dependencies):
         raise SystemExit(f"dependency manifest has duplicate IDs for {runtime}")
+    for candidate in dependencies:
+        owners = [
+            dependency.dependency_id
+            for dependency in dependencies
+            if any(
+                candidate.filename.lower().startswith(prefix)
+                for prefix in dependency.owned_prefixes
+            )
+        ]
+        if owners != [candidate.dependency_id]:
+            raise SystemExit(
+                f"dependency ownership is ambiguous for {runtime} "
+                f"{candidate.filename}: {owners}"
+            )
     return dependencies
 
 
@@ -81,22 +94,35 @@ def owns(dependency: Dependency, mod: dict[str, Any]) -> bool:
 def download_dependency(
     dependency: Dependency, directory: Path, timeout: int
 ) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
     target = directory / dependency.filename
+    if target.is_file() and deployment.file_sha256(target) == dependency.sha256:
+        return target
+    partial = target.with_suffix(target.suffix + ".partial")
+    partial.unlink(missing_ok=True)
     request = urllib.request.Request(
         dependency.url,
         headers={"User-Agent": "Jammarr-DiscPanel-Dependency-Deployer/1"},
     )
     digest = hashlib.sha256()
-    with urllib.request.urlopen(request, timeout=timeout) as response, target.open("wb") as output:
-        while chunk := response.read(1024 * 1024):
-            digest.update(chunk)
-            output.write(chunk)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response, partial.open(
+            "wb"
+        ) as output:
+            while chunk := response.read(1024 * 1024):
+                digest.update(chunk)
+                output.write(chunk)
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
     actual = digest.hexdigest()
     if actual != dependency.sha256:
+        partial.unlink(missing_ok=True)
         raise RuntimeError(
             f"download digest mismatch for {dependency.dependency_id}: "
             f"expected {dependency.sha256}, got {actual}"
         )
+    partial.replace(target)
     return target
 
 
@@ -170,14 +196,13 @@ def run(args: argparse.Namespace) -> int:
     if server.get("status") != reconciler.STATUS_STOPPED or server.get("autoStart"):
         raise RuntimeError(f"{args.runtime} must be stopped with autostart disabled")
 
-    with tempfile.TemporaryDirectory(prefix="jammarr-discopanel-deps-") as temporary:
-        directory = Path(temporary)
-        downloaded = {
-            dependency.dependency_id: download_dependency(
-                dependency, directory, args.download_timeout
-            )
-            for dependency in dependencies
-        }
+    downloaded = {
+        dependency.dependency_id: download_dependency(
+            dependency, args.download_cache, args.download_timeout
+        )
+        for dependency in dependencies
+    }
+    try:
         mods = panel.call(
             "ModService", "ListMods", {"serverId": str(server["id"])}
         ).get("mods", [])
@@ -230,6 +255,9 @@ def run(args: argparse.Namespace) -> int:
                 f"sha256={dependency.sha256}",
                 flush=True,
             )
+    finally:
+        for path in args.download_cache.glob("*.partial"):
+            path.unlink(missing_ok=True)
     return 0
 
 
@@ -248,6 +276,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--token-env", default="DISCOPANEL_TOKEN")
     parser.add_argument("--request-timeout", type=int, default=60)
     parser.add_argument("--download-timeout", type=int, default=180)
+    parser.add_argument(
+        "--download-cache",
+        type=Path,
+        default=Path("build/discopanel-runtime-dependencies"),
+    )
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--confirm-runtime")
     return parser.parse_args()

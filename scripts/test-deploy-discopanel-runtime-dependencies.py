@@ -31,6 +31,26 @@ class DiscPanelRuntimeDependencyTests(unittest.TestCase):
         self.assertEqual(len(dependencies[0].sha256), 64)
         self.assertTrue(dependencies[0].url.startswith("https://"))
 
+    def test_checked_in_manifest_covers_every_external_runtime_family(self) -> None:
+        path = Path("gradle/discopanel-runtime-dependencies.json")
+        manifest = json.loads(path.read_text("utf-8"))
+        self.assertEqual(len(manifest["runtimes"]), 53)
+        self.assertEqual(
+            sum(len(dependencies) for dependencies in manifest["runtimes"].values()),
+            75,
+        )
+        for runtime, count in {
+            "1.6.4-fabric": 1,
+            "1.8.9-fabric": 1,
+            "1.6.4-ornithe": 9,
+            "1.8.9-ornithe": 15,
+            "1.21.11-quilt": 1,
+            "26.2-fabric": 1,
+        }.items():
+            self.assertEqual(
+                len(dependency_deployment.load_dependencies(path, runtime)), count
+            )
+
     def test_dependency_ownership_is_case_insensitive_and_not_jammarr(self) -> None:
         dependency = dependency_deployment.Dependency(
             "stationapi",
@@ -73,6 +93,38 @@ class DiscPanelRuntimeDependencyTests(unittest.TestCase):
                 "utf-8",
             )
             with self.assertRaises(SystemExit):
+                dependency_deployment.load_dependencies(path, "test")
+
+    def test_manifest_rejects_overlapping_ownership_prefixes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "dependencies.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 1,
+                        "runtimes": {
+                            "test": [
+                                {
+                                    "id": "networking",
+                                    "filename": "networking-1.jar",
+                                    "url": "https://example.invalid/networking.jar",
+                                    "sha256": "0" * 64,
+                                    "ownedPrefixes": ["networking-"],
+                                },
+                                {
+                                    "id": "networking-impl",
+                                    "filename": "networking-impl-1.jar",
+                                    "url": "https://example.invalid/networking-impl.jar",
+                                    "sha256": "1" * 64,
+                                    "ownedPrefixes": ["networking-impl-"],
+                                },
+                            ]
+                        },
+                    }
+                ),
+                "utf-8",
+            )
+            with self.assertRaisesRegex(SystemExit, "ownership is ambiguous"):
                 dependency_deployment.load_dependencies(path, "test")
 
 

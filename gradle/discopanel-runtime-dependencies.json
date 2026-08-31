@@ -1,6 +1,776 @@
 {
   "schemaVersion": 1,
   "runtimes": {
+    "1.16.5-fabric": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.42.0+1.16.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.42.0+1.16/fabric-api-0.42.0+1.16.jar",
+        "sha256": "046d07bc088477a8e3511fb7d5f8d4e02b51e97769e4e5f2d7d48047806d4862",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.16.5-quilt": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.42.0+1.16.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.42.0+1.16/fabric-api-0.42.0+1.16.jar",
+        "sha256": "046d07bc088477a8e3511fb7d5f8d4e02b51e97769e4e5f2d7d48047806d4862",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.18.2-fabric": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.77.0+1.18.2.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.77.0+1.18.2/fabric-api-0.77.0+1.18.2.jar",
+        "sha256": "131c74c0409a004f5227781700de190e97630e0fe0a85dc9a3a88af2bbc5a38c",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.18.2-quilt": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.77.0+1.18.2.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.77.0+1.18.2/fabric-api-0.77.0+1.18.2.jar",
+        "sha256": "131c74c0409a004f5227781700de190e97630e0fe0a85dc9a3a88af2bbc5a38c",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.19.2-fabric": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.77.0+1.19.2.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.77.0+1.19.2/fabric-api-0.77.0+1.19.2.jar",
+        "sha256": "0fc62744a38f629fe0840893713e6a111ed1263719f93e499c990688811824ec",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.19.2-quilt": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.77.0+1.19.2.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.77.0+1.19.2/fabric-api-0.77.0+1.19.2.jar",
+        "sha256": "0fc62744a38f629fe0840893713e6a111ed1263719f93e499c990688811824ec",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.20-fabric": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.83.0+1.20.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.83.0+1.20/fabric-api-0.83.0+1.20.jar",
+        "sha256": "c0207a51c8aafebf25ae76732e2bebf76b87b2b9acdfba248cc0a3fc590a4717",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.20-quilt": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.83.0+1.20.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.83.0+1.20/fabric-api-0.83.0+1.20.jar",
+        "sha256": "c0207a51c8aafebf25ae76732e2bebf76b87b2b9acdfba248cc0a3fc590a4717",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.20.1-fabric": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.92.11+1.20.1.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.92.11+1.20.1/fabric-api-0.92.11+1.20.1.jar",
+        "sha256": "3278787c04ad636525b5c3400dff8302420f79279f6d51ce3edc0149060d12eb",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.20.1-quilt": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.92.11+1.20.1.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.92.11+1.20.1/fabric-api-0.92.11+1.20.1.jar",
+        "sha256": "3278787c04ad636525b5c3400dff8302420f79279f6d51ce3edc0149060d12eb",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.20.2-fabric": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.91.6+1.20.2.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.91.6+1.20.2/fabric-api-0.91.6+1.20.2.jar",
+        "sha256": "f907f05b8ecdc0f33e48a79eddc33748cf97d00083185ea3cb452bb3b2e11d19",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.20.2-quilt": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.91.6+1.20.2.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.91.6+1.20.2/fabric-api-0.91.6+1.20.2.jar",
+        "sha256": "f907f05b8ecdc0f33e48a79eddc33748cf97d00083185ea3cb452bb3b2e11d19",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.20.3-fabric": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.91.1+1.20.3.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.91.1+1.20.3/fabric-api-0.91.1+1.20.3.jar",
+        "sha256": "2c7343ccfc5febd948b2dd4e16a36652be0dfc56dd29156459dd13010624d6f7",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.20.3-quilt": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.91.1+1.20.3.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.91.1+1.20.3/fabric-api-0.91.1+1.20.3.jar",
+        "sha256": "2c7343ccfc5febd948b2dd4e16a36652be0dfc56dd29156459dd13010624d6f7",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.20.4-fabric": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.97.3+1.20.4.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.97.3+1.20.4/fabric-api-0.97.3+1.20.4.jar",
+        "sha256": "5c11c93b21e0fbcd83dd11c6059479143f3d422bceac4153c3e55806ba9371f1",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.20.4-quilt": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.97.3+1.20.4.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.97.3+1.20.4/fabric-api-0.97.3+1.20.4.jar",
+        "sha256": "5c11c93b21e0fbcd83dd11c6059479143f3d422bceac4153c3e55806ba9371f1",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.20.5-fabric": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.97.8+1.20.5.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.97.8+1.20.5/fabric-api-0.97.8+1.20.5.jar",
+        "sha256": "3c735640c97fbf054b9ff279c1798361c3bc8f65427b6813c8170c074099aacb",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.20.5-quilt": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.97.8+1.20.5.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.97.8+1.20.5/fabric-api-0.97.8+1.20.5.jar",
+        "sha256": "3c735640c97fbf054b9ff279c1798361c3bc8f65427b6813c8170c074099aacb",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.20.6-fabric": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.100.8+1.20.6.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.100.8+1.20.6/fabric-api-0.100.8+1.20.6.jar",
+        "sha256": "ef0da4eca8aa731469dde63dbee451bc6b0d5814bc140c747a7029b9bb2a8cef",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.20.6-quilt": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.100.8+1.20.6.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.100.8+1.20.6/fabric-api-0.100.8+1.20.6.jar",
+        "sha256": "ef0da4eca8aa731469dde63dbee451bc6b0d5814bc140c747a7029b9bb2a8cef",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.21-fabric": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.102.0+1.21.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.102.0+1.21/fabric-api-0.102.0+1.21.jar",
+        "sha256": "7ec0e5a11e77957fe1ed0328487921a8211bb7eace14298cd74635bec61a3f26",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.21-quilt": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.102.0+1.21.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.102.0+1.21/fabric-api-0.102.0+1.21.jar",
+        "sha256": "7ec0e5a11e77957fe1ed0328487921a8211bb7eace14298cd74635bec61a3f26",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.21.1-fabric": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.116.15+1.21.1.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.116.15+1.21.1/fabric-api-0.116.15+1.21.1.jar",
+        "sha256": "a61a10f730ab8aa45ff42486ee65699e6e51c28a0c168deb161e7d4029473aa3",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.21.1-quilt": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.116.15+1.21.1.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.116.15+1.21.1/fabric-api-0.116.15+1.21.1.jar",
+        "sha256": "a61a10f730ab8aa45ff42486ee65699e6e51c28a0c168deb161e7d4029473aa3",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.21.10-fabric": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.138.4+1.21.10.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.138.4+1.21.10/fabric-api-0.138.4+1.21.10.jar",
+        "sha256": "4dd5d07067d5cf3e874d2780806c3da223819d39b28d6296c1005a36f2d0a5e4",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.21.10-quilt": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.138.4+1.21.10.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.138.4+1.21.10/fabric-api-0.138.4+1.21.10.jar",
+        "sha256": "4dd5d07067d5cf3e874d2780806c3da223819d39b28d6296c1005a36f2d0a5e4",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.21.11-fabric": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.141.6+1.21.11.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.141.6+1.21.11/fabric-api-0.141.6+1.21.11.jar",
+        "sha256": "bdff7fd7e220085cfad2ff9b1f40dde6534ae0b96cf378f97a374bc54cb9ed0f",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.21.11-quilt": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.141.6+1.21.11.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.141.6+1.21.11/fabric-api-0.141.6+1.21.11.jar",
+        "sha256": "bdff7fd7e220085cfad2ff9b1f40dde6534ae0b96cf378f97a374bc54cb9ed0f",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.21.2-fabric": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.106.1+1.21.2.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.106.1+1.21.2/fabric-api-0.106.1+1.21.2.jar",
+        "sha256": "d306e1cf9348bc13292bbdcec19a417a50d6dc538121eec02d10704e6b9e2ee8",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.21.2-quilt": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.106.1+1.21.2.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.106.1+1.21.2/fabric-api-0.106.1+1.21.2.jar",
+        "sha256": "d306e1cf9348bc13292bbdcec19a417a50d6dc538121eec02d10704e6b9e2ee8",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.21.3-fabric": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.114.1+1.21.3.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.114.1+1.21.3/fabric-api-0.114.1+1.21.3.jar",
+        "sha256": "357a4fe24c7a7248320d2099b8567b65fd2f4271a3faf9c7f369dd2c18ab4157",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.21.3-quilt": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.114.1+1.21.3.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.114.1+1.21.3/fabric-api-0.114.1+1.21.3.jar",
+        "sha256": "357a4fe24c7a7248320d2099b8567b65fd2f4271a3faf9c7f369dd2c18ab4157",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.21.4-fabric": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.119.4+1.21.4.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.119.4+1.21.4/fabric-api-0.119.4+1.21.4.jar",
+        "sha256": "d183bacb845167f09264c2f90322b7ecffe8826debda6f60e597889264bef4af",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.21.4-quilt": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.119.4+1.21.4.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.119.4+1.21.4/fabric-api-0.119.4+1.21.4.jar",
+        "sha256": "d183bacb845167f09264c2f90322b7ecffe8826debda6f60e597889264bef4af",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.21.5-fabric": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.128.2+1.21.5.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.128.2+1.21.5/fabric-api-0.128.2+1.21.5.jar",
+        "sha256": "a82fd00827206e911936ed1e0ceaec6eb55d061ca5d3c5d63c7f0031426d29ae",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.21.5-quilt": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.128.2+1.21.5.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.128.2+1.21.5/fabric-api-0.128.2+1.21.5.jar",
+        "sha256": "a82fd00827206e911936ed1e0ceaec6eb55d061ca5d3c5d63c7f0031426d29ae",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.21.6-fabric": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.128.2+1.21.6.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.128.2+1.21.6/fabric-api-0.128.2+1.21.6.jar",
+        "sha256": "6e1d4547d7debd18da80532e561f02f167545219516af5b63c8a803a8f09822f",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.21.6-quilt": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.128.2+1.21.6.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.128.2+1.21.6/fabric-api-0.128.2+1.21.6.jar",
+        "sha256": "6e1d4547d7debd18da80532e561f02f167545219516af5b63c8a803a8f09822f",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.21.7-fabric": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.129.0+1.21.7.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.129.0+1.21.7/fabric-api-0.129.0+1.21.7.jar",
+        "sha256": "db5f16fe1aa577f46d363bf8d7a97054249f0962d82d0ef18d19ca4d5e162768",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.21.7-quilt": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.129.0+1.21.7.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.129.0+1.21.7/fabric-api-0.129.0+1.21.7.jar",
+        "sha256": "db5f16fe1aa577f46d363bf8d7a97054249f0962d82d0ef18d19ca4d5e162768",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.21.8-fabric": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.136.1+1.21.8.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.136.1+1.21.8/fabric-api-0.136.1+1.21.8.jar",
+        "sha256": "24c2c9c7fa1f969982ddf142a5f17b356b88a5eb1cb1ece9c287a588f3451233",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.21.8-quilt": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.136.1+1.21.8.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.136.1+1.21.8/fabric-api-0.136.1+1.21.8.jar",
+        "sha256": "24c2c9c7fa1f969982ddf142a5f17b356b88a5eb1cb1ece9c287a588f3451233",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.21.9-fabric": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.134.1+1.21.9.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.134.1+1.21.9/fabric-api-0.134.1+1.21.9.jar",
+        "sha256": "43e7bf24789b5d841690d942efc274478a50fbfd943e8838f8fbc4de8162a970",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.21.9-quilt": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.134.1+1.21.9.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.134.1+1.21.9/fabric-api-0.134.1+1.21.9.jar",
+        "sha256": "43e7bf24789b5d841690d942efc274478a50fbfd943e8838f8fbc4de8162a970",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "1.6.4-fabric": [
+      {
+        "id": "legacy-fabric-api",
+        "filename": "legacy-fabric-api-1.13.2+1.6.4.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-api/1.13.2+1.6.4/legacy-fabric-api-1.13.2+1.6.4.jar",
+        "sha256": "79f9763b9139f42aed31bf8f0677aeddf2de6e1bcb56cc0a813667efc9bcffcf",
+        "ownedPrefixes": [
+          "legacy-fabric-api-"
+        ]
+      }
+    ],
+    "1.6.4-ornithe": [
+      {
+        "id": "osl-core",
+        "filename": "core-0.10.0-alpha.5+mca1.0.1_01-mc14w26c.jar",
+        "url": "https://maven.ornithemc.net/releases/net/ornithemc/osl-gen2/core/0.10.0-alpha.5+mca1.0.1_01-mc14w26c/core-0.10.0-alpha.5+mca1.0.1_01-mc14w26c.jar",
+        "sha256": "630e1aa2e36579086a05ac0f206413a692d45ecd3c8dfaf32a5915b9e0819dc3",
+        "ownedPrefixes": [
+          "core-0.10.0-alpha.5+mca1.0.1_01-mc14w26c"
+        ]
+      },
+      {
+        "id": "osl-entrypoints",
+        "filename": "entrypoints-0.6.1+mc13w16a-mc1.14.4.jar",
+        "url": "https://maven.ornithemc.net/releases/net/ornithemc/osl-gen2/entrypoints/0.6.1+mc13w16a-mc1.14.4/entrypoints-0.6.1+mc13w16a-mc1.14.4.jar",
+        "sha256": "864686167fbc7dd54a8d8eb777631b1e403077345c0cd877179ab193d30bbdb2",
+        "ownedPrefixes": [
+          "entrypoints-0.6.1+mc13w16a-mc1.14.4"
+        ]
+      },
+      {
+        "id": "osl-executors",
+        "filename": "executors-0.1.0+mc12w18a-mc1.7.5.jar",
+        "url": "https://maven.ornithemc.net/releases/net/ornithemc/osl-gen2/executors/0.1.0+mc12w18a-mc1.7.5/executors-0.1.0+mc12w18a-mc1.7.5.jar",
+        "sha256": "8a0ab0865e80873448576d86d1d0be56866e3f3ccb5be8b70dcccb574f22dda0",
+        "ownedPrefixes": [
+          "executors-0.1.0+mc12w18a-mc1.7.5"
+        ]
+      },
+      {
+        "id": "osl-keybinds",
+        "filename": "keybinds-0.3.0+mcb1.8-pre1-mc1.6.4.jar",
+        "url": "https://maven.ornithemc.net/releases/net/ornithemc/osl-gen2/keybinds/0.3.0+mcb1.8-pre1-mc1.6.4/keybinds-0.3.0+mcb1.8-pre1-mc1.6.4.jar",
+        "sha256": "5b5bb47e3102b8296c3d3544e7a74b9415e26128276fc2605a64e75c4ba28bf8",
+        "ownedPrefixes": [
+          "keybinds-0.3.0+mcb1.8-pre1-mc1.6.4"
+        ]
+      },
+      {
+        "id": "osl-lifecycle-events",
+        "filename": "lifecycle-events-0.6.1+mc12w21a-mc1.6.4.jar",
+        "url": "https://maven.ornithemc.net/releases/net/ornithemc/osl-gen2/lifecycle-events/0.6.1+mc12w21a-mc1.6.4/lifecycle-events-0.6.1+mc12w21a-mc1.6.4.jar",
+        "sha256": "4cefa740c7f9ca46a8aa29b3dc8f1f1e554c63dddc5e1421272c6528572c5e72",
+        "ownedPrefixes": [
+          "lifecycle-events-0.6.1+mc12w21a-mc1.6.4"
+        ]
+      },
+      {
+        "id": "osl-networking",
+        "filename": "networking-0.10.0-alpha.3+mcb1.0-mc13w39b.jar",
+        "url": "https://maven.ornithemc.net/releases/net/ornithemc/osl-gen2/networking/0.10.0-alpha.3+mcb1.0-mc13w39b/networking-0.10.0-alpha.3+mcb1.0-mc13w39b.jar",
+        "sha256": "eb76162bc61400e7895a9b2f7ae101a76f906d61d2f6193fd83bd2d394d1bc67",
+        "ownedPrefixes": [
+          "networking-0.10.0-alpha.3+mcb1.0-mc13w39b"
+        ]
+      },
+      {
+        "id": "osl-networking-impl",
+        "filename": "networking-impl-0.2.0-alpha.5+mc12w21a-mc13w39b.jar",
+        "url": "https://maven.ornithemc.net/releases/net/ornithemc/osl-gen2/networking-impl/0.2.0-alpha.5+mc12w21a-mc13w39b/networking-impl-0.2.0-alpha.5+mc12w21a-mc13w39b.jar",
+        "sha256": "033424cd71478b2392b641e55267d0658dce7b2bf538b3037b35c272af5eda76",
+        "ownedPrefixes": [
+          "networking-impl-0.2.0-alpha.5+mc12w21a-mc13w39b"
+        ]
+      },
+      {
+        "id": "osl-resource-loader",
+        "filename": "resource-loader-0.8.0-alpha.5+mc13w26a-mc1.8.2-pre4.jar",
+        "url": "https://maven.ornithemc.net/releases/net/ornithemc/osl-gen2/resource-loader/0.8.0-alpha.5+mc13w26a-mc1.8.2-pre4/resource-loader-0.8.0-alpha.5+mc13w26a-mc1.8.2-pre4.jar",
+        "sha256": "ccb677d60fec93f6f107815da8389a74f518b5773277d8b15695672557158811",
+        "ownedPrefixes": [
+          "resource-loader-0.8.0-alpha.5+mc13w26a-mc1.8.2-pre4"
+        ]
+      },
+      {
+        "id": "osl-text-components",
+        "filename": "text-components-0.1.0-alpha.5+mca1.0.1_01-mc1.6.4.jar",
+        "url": "https://maven.ornithemc.net/releases/net/ornithemc/osl-gen2/text-components/0.1.0-alpha.5+mca1.0.1_01-mc1.6.4/text-components-0.1.0-alpha.5+mca1.0.1_01-mc1.6.4.jar",
+        "sha256": "bed8d076935a7591d4a7d23839dc8d11be4e910df4c305fe4546708dda102d3f",
+        "ownedPrefixes": [
+          "text-components-0.1.0-alpha.5+mca1.0.1_01-mc1.6.4"
+        ]
+      }
+    ],
+    "1.8.9-fabric": [
+      {
+        "id": "legacy-fabric-api",
+        "filename": "legacy-fabric-api-1.13.2+1.8.9.jar",
+        "url": "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-api/1.13.2+1.8.9/legacy-fabric-api-1.13.2+1.8.9.jar",
+        "sha256": "8351d0f9224aeaf5ede03392843d81c203c0a39ae054148b41927f9981954d07",
+        "ownedPrefixes": [
+          "legacy-fabric-api-"
+        ]
+      }
+    ],
+    "1.8.9-ornithe": [
+      {
+        "id": "osl-blocks",
+        "filename": "blocks-0.2.0-alpha.13+mc14w27a-mc15w35a.jar",
+        "url": "https://maven.ornithemc.net/releases/net/ornithemc/osl-gen2/blocks/0.2.0-alpha.13+mc14w27a-mc15w35a/blocks-0.2.0-alpha.13+mc14w27a-mc15w35a.jar",
+        "sha256": "cbf5ab6d5b0a6a711315fdeb9daa60e431295665e0765f10790c8a243c6e7538",
+        "ownedPrefixes": [
+          "blocks-0.2.0-alpha.13+mc14w27a-mc15w35a"
+        ]
+      },
+      {
+        "id": "osl-branding",
+        "filename": "branding-0.4.3+mc14w30a-mc16w05a.jar",
+        "url": "https://maven.ornithemc.net/releases/net/ornithemc/osl-gen2/branding/0.4.3+mc14w30a-mc16w05a/branding-0.4.3+mc14w30a-mc16w05a.jar",
+        "sha256": "27e724196523d758bc63527c7659f6f636542e62708d4e22c839e178c1ad3771",
+        "ownedPrefixes": [
+          "branding-0.4.3+mc14w30a-mc16w05a"
+        ]
+      },
+      {
+        "id": "osl-config",
+        "filename": "config-0.6.2+mc14w27a-mc15w39c.jar",
+        "url": "https://maven.ornithemc.net/releases/net/ornithemc/osl-gen2/config/0.6.2+mc14w27a-mc15w39c/config-0.6.2+mc14w27a-mc15w39c.jar",
+        "sha256": "c54efa36693717b03d5be7df64627e0fadda88716a9caf7fd4823723f9844e5d",
+        "ownedPrefixes": [
+          "config-0.6.2+mc14w27a-mc15w39c"
+        ]
+      },
+      {
+        "id": "osl-core",
+        "filename": "core-0.10.0-alpha.5+mc14w27a-mc1.14.4.jar",
+        "url": "https://maven.ornithemc.net/releases/net/ornithemc/osl-gen2/core/0.10.0-alpha.5+mc14w27a-mc1.14.4/core-0.10.0-alpha.5+mc14w27a-mc1.14.4.jar",
+        "sha256": "5f08584ca617ec1e92325d92498bd477372961664a3969b47a5f0448adf7e852",
+        "ownedPrefixes": [
+          "core-0.10.0-alpha.5+mc14w27a-mc1.14.4"
+        ]
+      },
+      {
+        "id": "osl-entrypoints",
+        "filename": "entrypoints-0.6.1+mc13w16a-mc1.14.4.jar",
+        "url": "https://maven.ornithemc.net/releases/net/ornithemc/osl-gen2/entrypoints/0.6.1+mc13w16a-mc1.14.4/entrypoints-0.6.1+mc13w16a-mc1.14.4.jar",
+        "sha256": "864686167fbc7dd54a8d8eb777631b1e403077345c0cd877179ab193d30bbdb2",
+        "ownedPrefixes": [
+          "entrypoints-0.6.1+mc13w16a-mc1.14.4"
+        ]
+      },
+      {
+        "id": "osl-executors",
+        "filename": "executors-0.1.0+mc14w21a-mc1.13.2.jar",
+        "url": "https://maven.ornithemc.net/releases/net/ornithemc/osl-gen2/executors/0.1.0+mc14w21a-mc1.13.2/executors-0.1.0+mc14w21a-mc1.13.2.jar",
+        "sha256": "0e55322a969d16609bc8e168f39af18ead5595747bccebdecde45d5b894b7c9f",
+        "ownedPrefixes": [
+          "executors-0.1.0+mc14w21a-mc1.13.2"
+        ]
+      },
+      {
+        "id": "osl-items",
+        "filename": "items-0.2.0-alpha.20+mc14w26a-mc17w46a.jar",
+        "url": "https://maven.ornithemc.net/releases/net/ornithemc/osl-gen2/items/0.2.0-alpha.20+mc14w26a-mc17w46a/items-0.2.0-alpha.20+mc14w26a-mc17w46a.jar",
+        "sha256": "9bc22dbae6b01c50216f782267b0f2d6c2691dd5c52af6adc76e36c99225d114",
+        "ownedPrefixes": [
+          "items-0.2.0-alpha.20+mc14w26a-mc17w46a"
+        ]
+      },
+      {
+        "id": "osl-keybinds",
+        "filename": "keybinds-0.3.0+mc13w36a-mc17w15a.jar",
+        "url": "https://maven.ornithemc.net/releases/net/ornithemc/osl-gen2/keybinds/0.3.0+mc13w36a-mc17w15a/keybinds-0.3.0+mc13w36a-mc17w15a.jar",
+        "sha256": "12d2582870ef4f72e8efce62685b50ed5d57a5039d87669afd9f2bc8a3dbf82f",
+        "ownedPrefixes": [
+          "keybinds-0.3.0+mc13w36a-mc17w15a"
+        ]
+      },
+      {
+        "id": "osl-lifecycle-events",
+        "filename": "lifecycle-events-0.6.1+mc13w36a-mc19w07a.jar",
+        "url": "https://maven.ornithemc.net/releases/net/ornithemc/osl-gen2/lifecycle-events/0.6.1+mc13w36a-mc19w07a/lifecycle-events-0.6.1+mc13w36a-mc19w07a.jar",
+        "sha256": "1bea5f2f37a1022e5ef544d665e95d8e491fad866dc730bd7b72dd120af213ad",
+        "ownedPrefixes": [
+          "lifecycle-events-0.6.1+mc13w36a-mc19w07a"
+        ]
+      },
+      {
+        "id": "osl-localization",
+        "filename": "localization-0.1.1-alpha.3+mc13w26a-mc18w01a.jar",
+        "url": "https://maven.ornithemc.net/releases/net/ornithemc/osl-gen2/localization/0.1.1-alpha.3+mc13w26a-mc18w01a/localization-0.1.1-alpha.3+mc13w26a-mc18w01a.jar",
+        "sha256": "5ad59401e2531deb365e3234484b07dbcb227ebfb736d6cafb14cdafa31f4930",
+        "ownedPrefixes": [
+          "localization-0.1.1-alpha.3+mc13w26a-mc18w01a"
+        ]
+      },
+      {
+        "id": "osl-networking",
+        "filename": "networking-0.10.0-alpha.3+mc13w41a-mc18w30b.jar",
+        "url": "https://maven.ornithemc.net/releases/net/ornithemc/osl-gen2/networking/0.10.0-alpha.3+mc13w41a-mc18w30b/networking-0.10.0-alpha.3+mc13w41a-mc18w30b.jar",
+        "sha256": "3b938ed55566ccf329f06980c3cea7d5f0428dd9101851e169c975633c0a35d2",
+        "ownedPrefixes": [
+          "networking-0.10.0-alpha.3+mc13w41a-mc18w30b"
+        ]
+      },
+      {
+        "id": "osl-networking-impl",
+        "filename": "networking-impl-0.2.0-alpha.5+mc14w31a-mc1.13-pre2.jar",
+        "url": "https://maven.ornithemc.net/releases/net/ornithemc/osl-gen2/networking-impl/0.2.0-alpha.5+mc14w31a-mc1.13-pre2/networking-impl-0.2.0-alpha.5+mc14w31a-mc1.13-pre2.jar",
+        "sha256": "00f978a23e29f5e526d296c2f0baf8b7b105e041663005e73678161440483e37",
+        "ownedPrefixes": [
+          "networking-impl-0.2.0-alpha.5+mc14w31a-mc1.13-pre2"
+        ]
+      },
+      {
+        "id": "osl-registries",
+        "filename": "registries-0.1.0-alpha.14+mc14w27a-mc17w46a.jar",
+        "url": "https://maven.ornithemc.net/releases/net/ornithemc/osl-gen2/registries/0.1.0-alpha.14+mc14w27a-mc17w46a/registries-0.1.0-alpha.14+mc14w27a-mc17w46a.jar",
+        "sha256": "13f9da72ffc38909c973f5abb459800d2ad2918b98768fc42f1a4daf4f07d387",
+        "ownedPrefixes": [
+          "registries-0.1.0-alpha.14+mc14w27a-mc17w46a"
+        ]
+      },
+      {
+        "id": "osl-resource-loader",
+        "filename": "resource-loader-0.8.0-alpha.5+mc1.8.2-pre5-mc1.12.2.jar",
+        "url": "https://maven.ornithemc.net/releases/net/ornithemc/osl-gen2/resource-loader/0.8.0-alpha.5+mc1.8.2-pre5-mc1.12.2/resource-loader-0.8.0-alpha.5+mc1.8.2-pre5-mc1.12.2.jar",
+        "sha256": "cd5aebda3b930c3f8910b143a2c6ca6f393db947d9ad16bcf486b189c600a118",
+        "ownedPrefixes": [
+          "resource-loader-0.8.0-alpha.5+mc1.8.2-pre5-mc1.12.2"
+        ]
+      },
+      {
+        "id": "osl-text-components",
+        "filename": "text-components-0.1.0-alpha.5+mc13w36a-mc1.14.4.jar",
+        "url": "https://maven.ornithemc.net/releases/net/ornithemc/osl-gen2/text-components/0.1.0-alpha.5+mc13w36a-mc1.14.4/text-components-0.1.0-alpha.5+mc13w36a-mc1.14.4.jar",
+        "sha256": "84f01ce74561b5c4b2ea26d311c506086f262c4a668b72426ed7a336743e31cf",
+        "ownedPrefixes": [
+          "text-components-0.1.0-alpha.5+mc13w36a-mc1.14.4"
+        ]
+      }
+    ],
+    "26.1.2-fabric": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.155.2+26.1.2.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.155.2+26.1.2/fabric-api-0.155.2+26.1.2.jar",
+        "sha256": "7196f2d8700cf906676db98cc13cd4b98267c4ca4ba3e8c516e62070b21a5a3a",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "26.1.2-quilt": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.155.2+26.1.2.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.155.2+26.1.2/fabric-api-0.155.2+26.1.2.jar",
+        "sha256": "7196f2d8700cf906676db98cc13cd4b98267c4ca4ba3e8c516e62070b21a5a3a",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "26.2-fabric": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.158.0+26.2.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.158.0+26.2/fabric-api-0.158.0+26.2.jar",
+        "sha256": "a4510eb2e9d4057ff20f751e420d0618598813ab9695b6f793a53c2883808dac",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
+    "26.2-quilt": [
+      {
+        "id": "fabric-api",
+        "filename": "fabric-api-0.158.0+26.2.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.158.0+26.2/fabric-api-0.158.0+26.2.jar",
+        "sha256": "a4510eb2e9d4057ff20f751e420d0618598813ab9695b6f793a53c2883808dac",
+        "ownedPrefixes": [
+          "fabric-api-"
+        ]
+      }
+    ],
     "b1.7.3-babric": [
       {
         "id": "stationapi",

@@ -29,6 +29,7 @@
 - Make the DiscPanel smoke gate accept both explicit legacy initialization lines and modern Jammarr Plex startup markers after exact remote-artifact preflight, and fail early when a started profile returns to STOPPED before acceptance.
 - Add a checksum-pinned, dry-run-by-default DiscPanel runtime-dependency deployer and stage the required StationAPI 2.0.0-alpha.6.2 dependency on the stopped Beta 1.7.3 Babric profile without replacing Jammarr or starting the server.
 - Pass fresh final-artifact live-Plex server canaries for Beta 1.7.3 Babric, Forge 1.6.4, Fabric 1.20.1, and NeoForge 26.2 with clean stopped-state teardown; classify the first Babric and Forge attempts as dependency/download bootstrap failures rather than mod failures.
+- Generate a checksum-pinned DiscPanel dependency manifest covering 53 Fabric, Quilt, Babric, Legacy Fabric, and Ornithe runtime profiles with 75 exact dependency placements, including only the version-compatible OSL modules used by each Ornithe generation.
 
 ## 1.0.2 - 2026-08-28
 
