@@ -33,6 +33,21 @@ LEGACY_FABRIC_BUNDLE = {
     "sha256": "397d009ebfee69fbd7d44e7387fe10c758e0d49b6ca8bb316d34ce1a8d37c03a",
 }
 
+# The full 1.8.9 bundle includes registry-sync Mixins which target registry
+# implementation names that the production dedicated-server remap does not
+# inherit from the mapped interface. Jammarr does not use registry sync. Keep
+# the descriptor plus the exact transitive closure of only the APIs it imports.
+LEGACY_FABRIC_CURATED_MODULES = {
+    "1.8.9": (
+        "legacy-fabric-api-base",
+        "legacy-fabric-command-api-v1",
+        "legacy-fabric-keybindings-api-v1",
+        "legacy-fabric-lifecycle-events-v1",
+        "legacy-fabric-networking-api-v1",
+        "legacy-fabric-resource-loader-v1",
+    ),
+}
+
 ORNITHE_MODULES = {
     "1.6.4-ornithe": {
         "core": "0.10.0-alpha.5+mca1.0.1_01-mc14w26c",
@@ -177,6 +192,97 @@ def legacy_fabric_bundle(
     }
 
 
+def legacy_fabric_curated_modules(
+    cache: Path, minecraft: str, version: str
+) -> list[dict[str, Any]]:
+    group = "net.legacyfabric.legacy-fabric-api"
+    aggregate = "legacy-fabric-api"
+    available = dict(legacy_fabric_module_coordinates(cache, minecraft, version))
+    roots = LEGACY_FABRIC_CURATED_MODULES.get(minecraft)
+    if not roots:
+        raise SystemExit(f"no curated Legacy Fabric API roots for {minecraft}")
+
+    namespace = {"m": "http://maven.apache.org/POM/4.0.0"}
+    selected: dict[str, str] = {}
+
+    def include(artifact: str, module_version: str) -> None:
+        existing = selected.get(artifact)
+        if existing:
+            if existing != module_version:
+                raise SystemExit(
+                    f"Legacy Fabric API selects conflicting {artifact} versions: "
+                    f"{existing} and {module_version}"
+                )
+            return
+        if available.get(artifact) != module_version:
+            raise SystemExit(
+                f"Legacy Fabric API {version} does not pin "
+                f"{artifact}:{module_version}"
+            )
+        selected[artifact] = module_version
+        root = ET.parse(cached_pom(cache, group, artifact, module_version)).getroot()
+        for element in root.findall("m:dependencies/m:dependency", namespace):
+            dependency_group = (
+                element.findtext("m:groupId", namespaces=namespace) or ""
+            )
+            dependency_artifact = (
+                element.findtext("m:artifactId", namespaces=namespace) or ""
+            )
+            dependency_version = (
+                element.findtext("m:version", namespaces=namespace) or ""
+            )
+            scope = element.findtext("m:scope", namespaces=namespace) or "compile"
+            if (
+                dependency_group != group
+                or not dependency_artifact.startswith("legacy-fabric-")
+                or not dependency_version
+                or scope != "compile"
+            ):
+                raise SystemExit(
+                    f"unexpected curated Legacy Fabric API dependency for "
+                    f"{artifact}: {dependency_group}:{dependency_artifact}:"
+                    f"{dependency_version}:{scope}"
+                )
+            include(dependency_artifact, dependency_version)
+
+    for artifact in roots:
+        module_version = available.get(artifact)
+        if not module_version:
+            raise SystemExit(
+                f"Legacy Fabric API {version} is missing curated root {artifact}"
+            )
+        include(artifact, module_version)
+
+    descriptor = dependency(
+        cache,
+        dependency_id="legacy-fabric-api",
+        repository="legacy-fabric",
+        group=group,
+        artifact=aggregate,
+        version=version,
+        owned_prefix=f"legacy-fabric-api-{version}.jar",
+    )
+    descriptor["ownedPrefixes"] = [
+        LEGACY_FABRIC_BUNDLE["filename"].lower(),
+        descriptor["filename"].lower(),
+    ]
+    descriptor["replacesMultipleActive"] = True
+
+    modules = []
+    for artifact, module_version in sorted(selected.items()):
+        module = dependency(
+            cache,
+            dependency_id=artifact,
+            repository="legacy-fabric",
+            group=group,
+            artifact=artifact,
+            version=module_version,
+            owned_prefix=f"{artifact}-{module_version}.jar",
+        )
+        modules.append(module)
+    return [descriptor, *modules]
+
+
 def generate(release_manifest: Path, cache: Path) -> dict[str, Any]:
     release = json.loads(release_manifest.read_text("utf-8"))
     if release.get("schemaVersion") != 2 or release.get("product") != "Jammarr":
@@ -215,9 +321,14 @@ def generate(release_manifest: Path, cache: Path) -> dict[str, Any]:
 
     for minecraft in ("1.6.4", "1.8.9"):
         version = f"1.13.2+{minecraft}"
-        runtimes[f"{minecraft}-fabric"] = [
-            legacy_fabric_bundle(cache, minecraft, version)
-        ]
+        if minecraft in LEGACY_FABRIC_CURATED_MODULES:
+            runtimes[f"{minecraft}-fabric"] = legacy_fabric_curated_modules(
+                cache, minecraft, version
+            )
+        else:
+            runtimes[f"{minecraft}-fabric"] = [
+                legacy_fabric_bundle(cache, minecraft, version)
+            ]
 
     for runtime, modules in ORNITHE_MODULES.items():
         runtimes[runtime] = [

@@ -37,11 +37,11 @@ class DiscPanelRuntimeDependencyTests(unittest.TestCase):
         self.assertEqual(len(manifest["runtimes"]), 53)
         self.assertEqual(
             sum(len(dependencies) for dependencies in manifest["runtimes"].values()),
-            75,
+            88,
         )
         for runtime, count in {
             "1.6.4-fabric": 1,
-            "1.8.9-fabric": 1,
+            "1.8.9-fabric": 14,
             "1.6.4-ornithe": 9,
             "1.8.9-ornithe": 15,
             "1.21.11-quilt": 1,
@@ -63,6 +63,70 @@ class DiscPanelRuntimeDependencyTests(unittest.TestCase):
             "legacy-fabric-command-api-v1-1.1.1+0b2a4bcd8772.jar",
             bundle.owned_prefixes,
         )
+
+    def test_legacy_fabric_1_8_9_uses_only_jammarr_api_closure(self) -> None:
+        dependencies = dependency_deployment.load_dependencies(
+            Path("gradle/discopanel-runtime-dependencies.json"), "1.8.9-fabric"
+        )
+        ids = {dependency.dependency_id for dependency in dependencies}
+        self.assertEqual(len(dependencies), 14)
+        self.assertIn("legacy-fabric-networking-api-v1", ids)
+        self.assertIn("legacy-fabric-resource-loader-v1", ids)
+        self.assertNotIn("legacy-fabric-registry-sync-api-v2", ids)
+        descriptor = dependencies[0]
+        self.assertEqual(
+            descriptor.filename, "legacy-fabric-api-1.13.2+1.8.9.jar"
+        )
+        self.assertTrue(descriptor.replaces_multiple_active)
+
+    def test_exact_disabled_dependency_is_reenabled_and_verified(self) -> None:
+        dependency = dependency_deployment.Dependency(
+            "api",
+            "api-1.jar",
+            "https://example.invalid/api.jar",
+            "0" * 64,
+            ("api-1.jar", "api-bundle.jar"),
+            True,
+        )
+        exact = {"id": "new", "fileName": "api-1.jar", "enabled": False}
+        old = {"id": "old", "fileName": "api-bundle.jar", "enabled": True}
+
+        class Panel:
+            def __init__(self) -> None:
+                self.mods = [exact, old]
+
+            def get_server(self, server_id: str) -> dict[str, str]:
+                return {"id": server_id, "status": dependency_deployment.reconciler.STATUS_STOPPED}
+
+            def get_file(self, server_id: str, path: str) -> bytes:
+                self.assert_path = path
+                return b""
+
+            def call(self, service: str, method: str, payload: dict) -> dict:
+                if method == "UpdateMod":
+                    mod = next(item for item in self.mods if item["id"] == payload["modId"])
+                    mod["enabled"] = payload["enabled"]
+                    return {}
+                if method == "ListMods":
+                    return {"mods": self.mods}
+                raise AssertionError((service, method))
+
+        panel = Panel()
+        empty_digest = dependency_deployment.hashlib.sha256(b"").hexdigest()
+        dependency = dependency_deployment.Dependency(
+            dependency.dependency_id,
+            dependency.filename,
+            dependency.url,
+            empty_digest,
+            dependency.owned_prefixes,
+            dependency.replaces_multiple_active,
+        )
+        dependency_deployment.enable_existing_dependency(
+            panel, {"id": "server"}, dependency, exact, [old]
+        )
+        self.assertTrue(exact["enabled"])
+        self.assertFalse(old["enabled"])
+        self.assertEqual(panel.assert_path, "mods/api-1.jar")
 
     def test_dependency_ownership_is_case_insensitive_and_not_jammarr(self) -> None:
         dependency = dependency_deployment.Dependency(

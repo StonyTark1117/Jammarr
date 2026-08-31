@@ -173,6 +173,49 @@ def stage_dependency(
         raise RuntimeError(f"server did not remain stopped after {dependency.dependency_id}")
 
 
+def enable_existing_dependency(
+    panel: Any,
+    server: dict[str, Any],
+    dependency: Dependency,
+    exact_disabled: dict[str, Any],
+    owned_active: list[dict[str, Any]],
+) -> None:
+    server_id = str(server["id"])
+    fresh = panel.get_server(server_id)
+    if fresh.get("status") != reconciler.STATUS_STOPPED:
+        raise RuntimeError(
+            f"server became active before enabling {dependency.dependency_id}"
+        )
+    deployment.update_mod_enabled(panel, server_id, exact_disabled, True)
+    try:
+        if (
+            deployment.remote_mod_digest(panel, server_id, dependency.filename)
+            != dependency.sha256
+        ):
+            raise RuntimeError(
+                f"re-enabled remote digest mismatch for {dependency.dependency_id}"
+            )
+    except BaseException:
+        deployment.update_mod_enabled(panel, server_id, exact_disabled, False)
+        raise
+    for mod in owned_active:
+        deployment.update_mod_enabled(panel, server_id, mod, False)
+    final_mods = panel.call("ModService", "ListMods", {"serverId": server_id}).get(
+        "mods", []
+    )
+    final_active = [
+        mod
+        for mod in final_mods
+        if owns(dependency, mod) and deployment.is_enabled(mod)
+    ]
+    if len(final_active) != 1 or final_active[0].get("fileName") != dependency.filename:
+        raise RuntimeError(
+            f"{dependency.dependency_id} did not finish with one exact active dependency"
+        )
+    if panel.get_server(server_id).get("status") != reconciler.STATUS_STOPPED:
+        raise RuntimeError(f"server did not remain stopped after {dependency.dependency_id}")
+
+
 def run(args: argparse.Namespace) -> int:
     token = os.environ.get(args.token_env)
     if not token:
@@ -208,15 +251,27 @@ def run(args: argparse.Namespace) -> int:
         mods = panel.call(
             "ModService", "ListMods", {"serverId": str(server["id"])}
         ).get("mods", [])
-        pending: list[tuple[Dependency, list[dict[str, Any]]]] = []
+        pending: list[
+            tuple[Dependency, list[dict[str, Any]], dict[str, Any] | None]
+        ] = []
         already = 0
         for dependency in dependencies:
             owned = [mod for mod in mods if owns(dependency, mod)]
             active = [mod for mod in owned if deployment.is_enabled(mod)]
             exact = [mod for mod in active if mod.get("fileName") == dependency.filename]
+            exact_disabled = [
+                mod
+                for mod in owned
+                if not deployment.is_enabled(mod)
+                and mod.get("fileName") == dependency.filename
+            ]
             if len(active) > 1 and not dependency.replaces_multiple_active:
                 raise RuntimeError(
                     f"{args.runtime} has multiple active {dependency.dependency_id} records"
+                )
+            if len(exact) > 1 or len(exact_disabled) > 1:
+                raise RuntimeError(
+                    f"{args.runtime} has duplicate exact {dependency.dependency_id} records"
                 )
             if exact:
                 if (
@@ -230,30 +285,44 @@ def run(args: argparse.Namespace) -> int:
                     )
                 already += 1
             else:
-                pending.append((dependency, active))
+                pending.append(
+                    (
+                        dependency,
+                        active,
+                        exact_disabled[0] if exact_disabled else None,
+                    )
+                )
         print(
             f"DiscPanel runtime dependencies: runtime={args.runtime} "
             f"selected={len(dependencies)} already_verified={already} "
             f"deploy_required={len(pending)} apply={str(args.apply).lower()}"
         )
         if not args.apply:
-            for dependency, active in pending:
+            for dependency, active, exact_disabled in pending:
                 rollback = str(active[0].get("fileName")) if active else "none"
+                action = "ENABLE" if exact_disabled else "DEPLOY"
                 print(
-                    f"WOULD_DEPLOY_DEPENDENCY {dependency.dependency_id} "
+                    f"WOULD_{action}_DEPENDENCY {dependency.dependency_id} "
                     f"{dependency.filename} rollback={rollback}"
                 )
             return 0
-        for dependency, active in pending:
-            stage_dependency(
-                panel,
-                server,
-                dependency,
-                downloaded[dependency.dependency_id],
-                active,
-            )
+        for dependency, active, exact_disabled in pending:
+            if exact_disabled:
+                enable_existing_dependency(
+                    panel, server, dependency, exact_disabled, active
+                )
+                action = "ENABLED"
+            else:
+                stage_dependency(
+                    panel,
+                    server,
+                    dependency,
+                    downloaded[dependency.dependency_id],
+                    active,
+                )
+                action = "DEPLOYED"
             print(
-                f"DEPLOYED_DEPENDENCY_STOPPED {dependency.dependency_id} "
+                f"{action}_DEPENDENCY_STOPPED {dependency.dependency_id} "
                 f"sha256={dependency.sha256}",
                 flush=True,
             )
