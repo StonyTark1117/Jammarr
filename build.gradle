@@ -246,7 +246,14 @@ tasks.register('releaseMatrixGate') {
     group = 'verification'
     description = "Builds, tests, inspects, and indexes all ${implementedArtifacts.size()} implemented Jammarr artifacts."
     dependsOn('inspectReleaseArtifacts', 'verifyDedicatedServers', 'verifyFabricLoaderMinimumRuntimes',
-            'verifyQuiltModMenuRuntimes')
+            'verifyQuiltModMenuRuntimes', 'verifyUiTooltipCoverage')
+}
+
+tasks.register('verifyUiTooltipCoverage', Exec) {
+    group = 'verification'
+    description = 'Audits issue #2 hover help across every distinct legacy and modern screen implementation.'
+    workingDir(layout.projectDirectory)
+    commandLine('python3', 'scripts/test-ui-tooltip-coverage.py')
 }
 
 tasks.register('inspectReleaseArtifacts', Exec) {
