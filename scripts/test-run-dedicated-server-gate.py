@@ -64,6 +64,18 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
             cleanup.index('for ((index = ${#active_private_audio_pids[@]}'),
         )
 
+    def test_invalid_config_waits_for_detached_minecraft_group(self) -> None:
+        source = self.source
+        probe = source[source.index("run_invalid_config_check_once()") :]
+        probe = probe[: probe.index("run_invalid_config_check()")]
+        self.assertIn('server_pid=$(ss -ltnp "sport = :$port"', probe)
+        self.assertIn("active_server_group=$server_group", probe)
+        self.assertIn('wait_for_group_exit "$server_group" 60', probe)
+        self.assertLess(
+            probe.index('wait_for_group_exit "$server_group" 60'),
+            probe.rindex("restore_server_config"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

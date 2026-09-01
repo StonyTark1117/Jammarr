@@ -3081,7 +3081,7 @@ run_invalid_config_check_once() {
   local port=$5
   local level_name=$6
   local console_log="$output_root/$label.invalid-config.console.log"
-  local pid result=0 marker_seen=0
+  local pid server_pid="" server_group="" result=0 marker_seen=0
   local -a cache_args=()
   local -a runtime_args=(-PjammarrServerGameDir="$run_dir")
   [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
@@ -3124,6 +3124,18 @@ run_invalid_config_check_once() {
   # from an earlier probe.
   local deadline=$((SECONDS + 180))
   while (( SECONDS < deadline )); do
+    if [[ -z "$server_pid" ]]; then
+      server_pid=$(ss -ltnp "sport = :$port" \
+        | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' | head -n 1)
+      if [[ -n "$server_pid" ]]; then
+        server_group=$(ps -o pgid= -p "$server_pid" 2>/dev/null | tr -d '[:space:]')
+        if [[ "$server_group" =~ ^[0-9]+$ ]] && (( server_group > 1 )); then
+          active_server_group=$server_group
+        else
+          server_group=""
+        fi
+      fi
+    fi
     if grep -Fq 'Invalid Jammarr configuration value for plexUrl' "$console_log" 2>/dev/null; then
       marker_seen=1
       break
@@ -3147,6 +3159,18 @@ run_invalid_config_check_once() {
 
   local shutdown_deadline=$((SECONDS + 60))
   while ss -ltnH "sport = :$port" | grep -q .; do
+    if [[ -z "$server_pid" ]]; then
+      server_pid=$(ss -ltnp "sport = :$port" \
+        | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' | head -n 1)
+      if [[ -n "$server_pid" ]]; then
+        server_group=$(ps -o pgid= -p "$server_pid" 2>/dev/null | tr -d '[:space:]')
+        if [[ "$server_group" =~ ^[0-9]+$ ]] && (( server_group > 1 )); then
+          active_server_group=$server_group
+        else
+          server_group=""
+        fi
+      fi
+    fi
     if (( SECONDS >= shutdown_deadline )); then
       echo "$label: server did not fail closed after rejecting invalid Jammarr configuration" >&2
       result=1
@@ -3155,10 +3179,31 @@ run_invalid_config_check_once() {
     sleep 1
   done
   stop_listening_port "$port"
-  stop_group "$pid" TERM
-  wait_for_group_exit "$pid" 10 || stop_group "$pid" KILL
+  # The listening Minecraft process is hosted by Gradle's single-use daemon,
+  # which may already have detached from the setsid wrapper. A closed socket is
+  # not enough: Minecraft can still be saving and retain session.lock. Wait for
+  # the actual listener's process group before restoring config or starting the
+  # valid server, and retain that group in the outer cleanup trap as well.
+  if [[ -n "$server_group" ]]; then
+    if ! wait_for_group_exit "$server_group" 60; then
+      stop_group "$server_group" TERM
+      if ! wait_for_group_exit "$server_group" 10; then
+        stop_group "$server_group" KILL
+        wait_for_group_exit "$server_group" 10 || true
+      fi
+      echo "$label: invalid-configuration process group required forced cleanup" >&2
+      result=1
+    fi
+  else
+    stop_group "$pid" TERM
+    if ! wait_for_group_exit "$pid" 10; then
+      stop_group "$pid" KILL
+      wait_for_group_exit "$pid" 10 || true
+    fi
+  fi
   wait "$pid" 2>/dev/null || true
   active_server_pid=""
+  active_server_group=""
   if (( marker_seen == 0 )); then
     echo "$label: invalid configuration failure did not identify the rejected key" >&2
     result=1
