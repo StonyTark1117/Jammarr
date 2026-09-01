@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import tempfile
 import unittest
 from argparse import Namespace
 from pathlib import Path
@@ -75,6 +76,87 @@ class LiveAudioAnalyzerTests(unittest.TestCase):
         failures = analyzer.validate("pair", report, self.args())
         self.assertEqual(report["leading_joint_inactive_ms"], 0)
         self.assertTrue(any("divergent" in failure for failure in failures), failures)
+
+    def test_small_same_content_startup_lag_adjustment_is_classified(self) -> None:
+        material = self.material()
+        settling = self.RATE * 2
+        adjustment = self.RATE // 100
+        right = np.concatenate(
+            (
+                np.zeros(adjustment),
+                material[: settling - adjustment],
+                material[settling:],
+            )
+        )
+        report = analyzer.analyze_pair(material, right, self.RATE, 250, 100)
+        self.assertEqual(analyzer.validate("pair", report, self.args()), [])
+        self.assertEqual(report["raw_bad_block_count"], 20)
+        self.assertEqual(report["bad_block_count"], 0)
+        self.assertEqual(report["startup_settling_ms"], 2000)
+        self.assertAlmostEqual(abs(report["startup_lag_adjustment_ms"]), 10.0, delta=1.0)
+        self.assertGreater(report["startup_correlation"], 0.99)
+
+    def test_large_startup_lag_adjustment_remains_divergent(self) -> None:
+        material = self.material()
+        settling = self.RATE * 2
+        adjustment = self.RATE // 10
+        right = np.concatenate(
+            (
+                np.zeros(adjustment),
+                material[: settling - adjustment],
+                material[settling:],
+            )
+        )
+        report = analyzer.analyze_pair(material, right, self.RATE, 250, 100)
+        failures = analyzer.validate("pair", report, self.args())
+        self.assertTrue(any("divergent" in failure for failure in failures), failures)
+        self.assertEqual(report["startup_settling_ms"], 0)
+
+    def test_interior_small_lag_jump_remains_divergent(self) -> None:
+        material = self.material()
+        start = self.RATE * 4
+        end = self.RATE * 6
+        adjustment = self.RATE // 100
+        right = np.concatenate(
+            (
+                material[:start],
+                material[start - adjustment : end - adjustment],
+                material[end:],
+            )
+        )
+        report = analyzer.analyze_pair(material, right, self.RATE, 250, 100)
+        failures = analyzer.validate("pair", report, self.args())
+        self.assertTrue(any("divergent" in failure for failure in failures), failures)
+        self.assertEqual(report["startup_settling_ms"], 0)
+
+    def test_channel_timing_compares_authoritative_program_origin(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            left = Path(temporary) / "left.log"
+            right = Path(temporary) / "right.log"
+            left.write_text(
+                "JAMMARR_AUDIO_TIMING stage=channel_started "
+                "monotonicNanos=322989366837210 positionMs=140\n"
+            )
+            right.write_text(
+                "JAMMARR_AUDIO_TIMING stage=channel_started "
+                "monotonicNanos=322989366751399 positionMs=141\n"
+            )
+            report = analyzer.analyze_channel_timing(left, right)
+        self.assertIsNotNone(report)
+        self.assertAlmostEqual(report["start_delta_ms"], 0.086, delta=0.001)
+        self.assertEqual(report["position_delta_ms"], -1)
+        self.assertAlmostEqual(report["program_alignment_delta_ms"], 1.086, delta=0.001)
+
+    def test_channel_timing_requires_complete_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            left = Path(temporary) / "left.log"
+            right = Path(temporary) / "right.log"
+            left.write_text("no timing marker\n")
+            right.write_text(
+                "JAMMARR_AUDIO_TIMING stage=channel_started "
+                "monotonicNanos=1 positionMs=0\n"
+            )
+            self.assertIsNone(analyzer.analyze_channel_timing(left, right))
 
     def test_skipped_region_fails(self) -> None:
         left = self.material()

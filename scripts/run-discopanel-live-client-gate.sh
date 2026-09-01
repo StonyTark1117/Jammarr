@@ -585,7 +585,9 @@ if ! kill -0 "$server_pid" 2>/dev/null; then
   exit 1
 fi
 
-analyzer_args=(--minimum-duration-ms $((capture_seconds * 1000 - 1500)))
+analyzer_args=(--minimum-duration-ms $((capture_seconds * 1000 - 1500))
+  --timing-left-log "$session_dir/client-leader.console.log"
+  --timing-right-log "$session_dir/client-follower.console.log")
 if [[ "$audio_profile" == legacy-openal ]]; then
   leader_trace=$(find "$session_dir/client-leader/pcm-trace" -type f -name '*.s16le' -printf '%s\t%p\n' \
     | sort -nr | head -n 1 | cut -f 2-)
