@@ -106,6 +106,7 @@ PY
 
 server_pid=""
 operator_promoted=false
+operator_file_prepared=false
 acceptance_level_removed=false
 client_pids=()
 recorder_pids=()
@@ -139,6 +140,94 @@ if response.get("success") is not True:
     raise SystemExit("DiscPanel rejected the silent server command")
 PY
   )
+}
+
+prepare_babric_operator_file() {
+  (
+    cd "$repo_root"
+    python3 - "$panel_url" "$token_env" "$server_id" "$leader_username" \
+      "$session_dir/operator-file-original" "$session_dir/operator-file-state" <<'PY'
+import importlib.util
+import os
+import sys
+from pathlib import Path
+
+panel_url, token_env, server_id, username, original_path, state_path = sys.argv[1:]
+script = Path("scripts/reconcile-discopanel-test-servers.py")
+spec = importlib.util.spec_from_file_location("live_gate_operator_prepare", script)
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+assert spec.loader
+spec.loader.exec_module(module)
+panel = module.DiscPanel(panel_url, os.environ[token_env], 60)
+server = panel.get_server(server_id)
+if server.get("status") != module.STATUS_STOPPED or server.get("autoStart"):
+    raise SystemExit("refusing operator-file preparation while the server is not safely stopped")
+names = {
+    entry.get("name") or str(entry.get("path", "")).rstrip("/").rsplit("/", 1)[-1]
+    for entry in panel.list_files(server_id, "")
+}
+exists = "ops.txt" in names
+original = panel.get_file(server_id, "ops.txt") if exists else b""
+Path(original_path).write_bytes(original)
+Path(state_path).write_text("present\n" if exists else "absent\n", "ascii")
+lines = original.decode("utf-8", "replace").splitlines()
+if username.lower() not in {line.strip().lower() for line in lines}:
+    lines.append(username)
+updated = ("\n".join(lines) + "\n").encode("utf-8")
+panel.update_file(server_id, "ops.txt", updated)
+if panel.get_file(server_id, "ops.txt") != updated:
+    raise SystemExit("DiscPanel did not preserve the temporary Babric operator file")
+PY
+  )
+}
+
+restore_babric_operator_file() {
+  [[ -f "$session_dir/operator-file-state" ]] || return 0
+  (
+    cd "$repo_root"
+    python3 - "$panel_url" "$token_env" "$server_id" \
+      "$session_dir/operator-file-original" "$session_dir/operator-file-state" <<'PY'
+import importlib.util
+import os
+import sys
+from pathlib import Path
+
+panel_url, token_env, server_id, original_path, state_path = sys.argv[1:]
+script = Path("scripts/reconcile-discopanel-test-servers.py")
+spec = importlib.util.spec_from_file_location("live_gate_operator_restore", script)
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+assert spec.loader
+spec.loader.exec_module(module)
+panel = module.DiscPanel(panel_url, os.environ[token_env], 60)
+server = panel.get_server(server_id)
+if server.get("status") != module.STATUS_STOPPED or server.get("autoStart"):
+    raise SystemExit("refusing operator-file restore while the server is not safely stopped")
+state = Path(state_path).read_text("ascii").strip()
+original = Path(original_path).read_bytes()
+names = {
+    entry.get("name") or str(entry.get("path", "")).rstrip("/").rsplit("/", 1)[-1]
+    for entry in panel.list_files(server_id, "")
+}
+if state == "present":
+    panel.update_file(server_id, "ops.txt", original)
+    if panel.get_file(server_id, "ops.txt") != original:
+        raise SystemExit("DiscPanel did not restore the original Babric operator file")
+elif state == "absent":
+    if "ops.txt" in names:
+        panel.delete_file(server_id, "ops.txt")
+    remaining = {
+        entry.get("name") or str(entry.get("path", "")).rstrip("/").rsplit("/", 1)[-1]
+        for entry in panel.list_files(server_id, "")
+    }
+    if "ops.txt" in remaining:
+        raise SystemExit("DiscPanel retained the temporary Babric operator file")
+else:
+    raise SystemExit("invalid Babric operator-file state")
+PY
+  )
+  touch "$session_dir/operator-file-restored"
 }
 
 remove_acceptance_level() {
@@ -256,6 +345,12 @@ cleanup() {
     echo "$runtime retained a process for $session_dir after cleanup" >&2
     status=1
   fi
+  if [[ "$operator_file_prepared" == true ]]; then
+    if ! restore_babric_operator_file; then
+      echo "$runtime could not restore the Babric operator file" >&2
+      status=1
+    fi
+  fi
   if [[ "$acceptance_level_removed" == false ]]; then
     if remove_acceptance_level; then
       acceptance_level_removed=true
@@ -275,6 +370,11 @@ sink_leader="${sink_prefix}_leader"
 sink_follower="${sink_prefix}_follower"
 sink_modules+=("$(pactl load-module module-null-sink sink_name="$sink_leader" rate=48000 channels=2)")
 sink_modules+=("$(pactl load-module module-null-sink sink_name="$sink_follower" rate=48000 channels=2)")
+
+if [[ "$runtime" == b1.7.3-babric ]]; then
+  operator_file_prepared=true
+  prepare_babric_operator_file
+fi
 
 (
   cd "$repo_root"
@@ -398,8 +498,10 @@ wait_for_client_marker leader "${client_pids[0]}" 'Acceptance playback state:' 6
 start_client follower "$follower_username" "$sink_follower"
 wait_for_client_state follower "${client_pids[1]}" NO_STREAM 600
 wait_for_client_marker follower "${client_pids[1]}" 'Acceptance playback state:' 600
-server_command "op $leader_username"
-operator_promoted=true
+if [[ "$operator_file_prepared" == false ]]; then
+  server_command "op $leader_username"
+  operator_promoted=true
+fi
 printf '%s\n' '1|station:library-shuffle' > "$session_dir/client-leader.control"
 wait_for_client_state leader "${client_pids[0]}" PLAYING 600
 wait_for_client_state follower "${client_pids[1]}" PLAYING 600

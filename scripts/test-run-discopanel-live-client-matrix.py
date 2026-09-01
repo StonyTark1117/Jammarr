@@ -49,7 +49,7 @@ class LiveClientMatrixTests(unittest.TestCase):
                     "clientHoldCompleted": True,
                     "clientHoldConfigRestored": True,
                     "clientHoldDockerOverridesRestored": True,
-                    "clientHoldNonJammarrModsRestored": True,
+                    "clientHoldNonJammarrModsDisabled": 0,
                     "clientHoldPropertiesRestored": True,
                     "evidence": {
                         "minecraft_ready": True,
@@ -92,6 +92,21 @@ class LiveClientMatrixTests(unittest.TestCase):
             root = Path(temporary)
             self.write_session(root, sha256="b" * 64)
             self.assertIsNone(matrix.accepted_session(root, "1.1.0", self.target()))
+
+    def test_accepted_session_requires_restore_when_a_mod_was_disabled(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            session = self.write_session(root)
+            path = session / "server-evidence" / f"{self.target().runtime}.json"
+            evidence = json.loads(path.read_text())
+            evidence["clientHoldNonJammarrModsDisabled"] = 1
+            path.write_text(json.dumps(evidence))
+            self.assertIsNone(matrix.accepted_session(root, "1.1.0", self.target()))
+            evidence["clientHoldNonJammarrModsRestored"] = True
+            path.write_text(json.dumps(evidence))
+            self.assertEqual(
+                matrix.accepted_session(root, "1.1.0", self.target()), session
+            )
 
     def test_accepted_session_rejects_terminal_client_marker(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

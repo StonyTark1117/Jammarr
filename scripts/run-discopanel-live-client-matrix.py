@@ -114,7 +114,10 @@ def accepted_session(evidence_dir: Path, version: str, target: Any) -> Path | No
             and server.get("clientHoldCompleted") is True
             and server.get("clientHoldConfigRestored") is True
             and server.get("clientHoldDockerOverridesRestored") is True
-            and server.get("clientHoldNonJammarrModsRestored") is True
+            and (
+                server.get("clientHoldNonJammarrModsDisabled", 0) == 0
+                or server.get("clientHoldNonJammarrModsRestored") is True
+            )
             and server.get("clientHoldPropertiesRestored") is True
             and all(
                 markers.get(marker) is True
@@ -131,6 +134,10 @@ def accepted_session(evidence_dir: Path, version: str, target: Any) -> Path | No
         except OSError:
             continue
         if any(marker in log for marker in forbidden for log in logs):
+            continue
+        if target.runtime == "b1.7.3-babric" and not (
+            session / "operator-file-restored"
+        ).is_file():
             continue
         return session
     return None
@@ -229,12 +236,21 @@ def run(args: argparse.Namespace) -> int:
             else:
                 evidence = accepted_session(args.evidence_dir, version, target)
                 if evidence is None:
-                    raise RuntimeError(
-                        f"{target.runtime} exited successfully without exact accepted evidence"
+                    summary["failures"].append(
+                        {
+                            "runtime": target.runtime,
+                            "errorType": "EvidenceValidationError",
+                            "error": "gate exited successfully without exact accepted evidence",
+                        }
                     )
-                summary["accepted"].append(
-                    {"runtime": target.runtime, "evidence": str(evidence)}
-                )
+                    if not args.continue_on_error:
+                        raise RuntimeError(
+                            f"{target.runtime} exited successfully without exact accepted evidence"
+                        )
+                else:
+                    summary["accepted"].append(
+                        {"runtime": target.runtime, "evidence": str(evidence)}
+                    )
             errors = matrix_state(panel, all_targets)
             if errors:
                 raise RuntimeError(
@@ -254,6 +270,11 @@ def run(args: argparse.Namespace) -> int:
         summary["finalStateErrors"] = final_errors
         write_summary(args.matrix_evidence, summary)
         print(f"LIVE_MATRIX_EVIDENCE {args.matrix_evidence}")
+        if failure is None and final_errors:
+            failure = RuntimeError(
+                "DiscPanel matrix is not safely stopped after the run: "
+                + "; ".join(final_errors)
+            )
 
     if failure is not None:
         raise failure
