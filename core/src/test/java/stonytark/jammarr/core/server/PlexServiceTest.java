@@ -2,6 +2,8 @@ package stonytark.jammarr.core.server;
 
 import stonytark.jammarr.core.model.QueueTrack;
 import stonytark.jammarr.core.model.StationModels;
+import stonytark.jammarr.core.network.HttpTransport;
+import stonytark.jammarr.core.network.UrlConnectionHttpTransport;
 import stonytark.jammarr.core.protocol.ControlPackets;
 
 
@@ -11,7 +13,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.InetSocketAddress;
+import java.net.SocketTimeoutException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -28,7 +32,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PlexServiceTest {
-    private enum Mode { NORMAL, UNAUTHORIZED, MALFORMED, TIMEOUT, TRANSCODE_FAILURE, CHUNKED_OVERSIZE, STALLED_BODY, STALLED_POST, NO_PASS, UNANALYZED, OLD_SERVER, NO_PREFERRED_MUSIC, NO_MUSIC_LIBRARY }
+    private enum Mode { NORMAL, UNAUTHORIZED, MALFORMED, TIMEOUT, TRANSCODE_FAILURE, CHUNKED_OVERSIZE, STALLED_BODY, NO_PASS, UNANALYZED, OLD_SERVER, NO_PREFERRED_MUSIC, NO_MUSIC_LIBRARY }
     private HttpServer server;
     private PlexService client;
     private final AtomicReference<Mode> mode = new AtomicReference<>(Mode.NORMAL);
@@ -156,8 +160,27 @@ class PlexServiceTest {
     }
 
     @Test void boundsNativeStationBodyReadTimeoutsAfterHeadersArrive() throws Exception {
-        PlexService bounded = client(Duration.ofMillis(50));
-        bounded.validate(); bounded.sonicStatus(); mode.set(Mode.STALLED_POST);
+        HttpTransport delegate = new UrlConnectionHttpTransport();
+        HttpTransport timeoutPostBody = (method, url, headers, connectTimeoutMs, readTimeoutMs) -> {
+            if (!"POST".equals(method) || !"/playQueues".equals(url.getPath())) {
+                return delegate.open(method, url, headers, connectTimeoutMs, readTimeoutMs);
+            }
+            return new HttpTransport.Response() {
+                @Override public int statusCode() { return 200; }
+                @Override public long contentLength() { return -1; }
+                @Override public InputStream body() {
+                    return new InputStream() {
+                        @Override public int read() throws IOException {
+                            throw new SocketTimeoutException("deterministic body timeout");
+                        }
+                    };
+                }
+                @Override public void close() {}
+            };
+        };
+        PlexService bounded = new PlexService(baseUrl(), "secret", "Music",
+                Duration.ofMillis(50), timeoutPostBody);
+        bounded.validate(); bounded.sonicStatus();
         PlexException error = assertThrows(PlexException.class, () -> bounded.nativeRadioTracks(
                 new StationModels.StationSeed(StationModels.ItemKind.ARTIST, "77", "Artist", ""), 10));
         assertEquals(PlexException.Kind.OFFLINE, error.kind());
@@ -274,13 +297,6 @@ class PlexServiceTest {
         }
         assertEquals("secret", exchange.getRequestHeaders().getFirst("X-Plex-Token"));
         String path = exchange.getRequestURI().getPath();
-        if (current == Mode.STALLED_POST && path.equals("/playQueues")) {
-            exchange.sendResponseHeaders(200, 0);
-            exchange.getResponseBody().write("{\"MediaContainer\":".getBytes(StandardCharsets.UTF_8));
-            exchange.getResponseBody().flush();
-            try { Thread.sleep(250); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-            exchange.close(); return;
-        }
         String body;
         if ("/".equals(path)) {
             body = current == Mode.NO_PASS ? "{\"MediaContainer\":{\"myPlexSubscription\":false,\"version\":\"1.41.0\"}}"
