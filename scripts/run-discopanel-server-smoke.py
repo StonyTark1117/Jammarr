@@ -323,7 +323,11 @@ def run_target(
     hold_disable_non_jammarr_mods = getattr(
         args, "hold_disable_non_jammarr_mods", False
     )
+    hold_disable_mod_prefixes = tuple(
+        str(prefix).lower() for prefix in getattr(args, "hold_disable_mod_prefix", [])
+    )
     hold_bootstrap_level = getattr(args, "hold_bootstrap_level", False)
+    hold_offline_mode = getattr(args, "hold_offline_mode", False)
     if bool(hold_ready_file) != bool(hold_release_file):
         raise SystemExit("client hold requires both --hold-ready-file and --hold-release-file")
     if hold_ready_file:
@@ -350,6 +354,12 @@ def run_target(
         raise SystemExit(
             "--hold-bootstrap-level requires an isolated level and config source"
         )
+    if hold_offline_mode and not hold_ready_file:
+        raise SystemExit("--hold-offline-mode requires the client hold handshake")
+    if hold_disable_mod_prefixes and not hold_ready_file:
+        raise SystemExit("--hold-disable-mod-prefix requires the client hold handshake")
+    if any(not re.fullmatch(r"[a-z0-9][a-z0-9._+-]{0,63}", prefix) for prefix in hold_disable_mod_prefixes):
+        raise SystemExit("--hold-disable-mod-prefix values must be safe filename prefixes")
     if args.apply and args.confirm_runtime != args.runtime:
         raise SystemExit(f"--apply requires --confirm-runtime {args.runtime}")
     server = preflight(panel, version, target, profile)
@@ -388,23 +398,37 @@ def run_target(
             except UnicodeDecodeError as error:
                 raise RuntimeError("server.properties is not valid UTF-8") from error
             lines = decoded_properties.splitlines(keepends=True)
-            replacement = f"level-name={hold_level_name}"
-            replaced = False
+            replacements = {"level-name": hold_level_name}
+            if hold_offline_mode:
+                replacements["online-mode"] = "false"
+                # This property does not exist on older servers. Change it
+                # only when present so legacy property files retain their
+                # original vocabulary during the isolated acceptance run.
+                if any(
+                    line.rstrip("\r\n").startswith("enforce-secure-profile=")
+                    for line in lines
+                ):
+                    replacements["enforce-secure-profile"] = "false"
+            replaced: set[str] = set()
             for index, line in enumerate(lines):
                 body = line.rstrip("\r\n")
                 ending = line[len(body) :]
-                if body.startswith("level-name="):
-                    lines[index] = replacement + ending
-                    replaced = True
-            if not replaced:
+                key = body.partition("=")[0]
+                if key in replacements:
+                    lines[index] = f"{key}={replacements[key]}" + ending
+                    replaced.add(key)
+            missing = [key for key in replacements if key not in replaced]
+            if missing:
                 if lines and not lines[-1].endswith(("\n", "\r")):
                     lines[-1] += "\n"
-                lines.append(replacement + "\n")
+                lines.extend(f"{key}={replacements[key]}\n" for key in missing)
             isolated_properties = "".join(lines).encode("utf-8")
             panel.update_file(server_id, "server.properties", isolated_properties)
             if panel.get_file(server_id, "server.properties") != isolated_properties:
                 raise RuntimeError("DiscPanel did not preserve the isolated level setting")
             result["clientHoldLevelIsolated"] = True
+            if hold_offline_mode:
+                result["clientHoldOfflineMode"] = True
         if hold_config_source_world:
             source_config_path = (
                 f"{hold_config_source_world}/serverconfig/jammarr-server.toml"
@@ -419,14 +443,21 @@ def run_target(
             except RuntimeError:
                 if not hold_bootstrap_level:
                     panel.create_folder(server_id, str(Path(target_config_path).parent))
-        if hold_disable_non_jammarr_mods:
+        if hold_disable_non_jammarr_mods or hold_disable_mod_prefixes:
             current_mods = panel.call(
                 "ModService", "ListMods", {"serverId": server_id}
             ).get("mods", [])
             disabled_non_jammarr_mods = [
                 mod
                 for mod in current_mods
-                if deployment.is_enabled(mod) and not deployment.is_jammarr_mod(mod)
+                if deployment.is_enabled(mod)
+                and not deployment.is_jammarr_mod(mod)
+                and (
+                    hold_disable_non_jammarr_mods
+                    or str(mod.get("fileName", "")).lower().startswith(
+                        hold_disable_mod_prefixes
+                    )
+                )
             ]
             for mod in disabled_non_jammarr_mods:
                 deployment.update_mod_enabled(panel, server_id, mod, False)
@@ -435,7 +466,14 @@ def run_target(
                 for mod in panel.call(
                     "ModService", "ListMods", {"serverId": server_id}
                 ).get("mods", [])
-                if deployment.is_enabled(mod) and not deployment.is_jammarr_mod(mod)
+                if deployment.is_enabled(mod)
+                and not deployment.is_jammarr_mod(mod)
+                and (
+                    hold_disable_non_jammarr_mods
+                    or str(mod.get("fileName", "")).lower().startswith(
+                        hold_disable_mod_prefixes
+                    )
+                )
             ]
             if remaining_active:
                 raise RuntimeError("non-Jammarr mods remained active during client hold")
@@ -698,7 +736,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hold-level-name")
     parser.add_argument("--hold-config-source-world")
     parser.add_argument("--hold-disable-non-jammarr-mods", action="store_true")
+    parser.add_argument("--hold-disable-mod-prefix", action="append", default=[])
     parser.add_argument("--hold-bootstrap-level", action="store_true")
+    parser.add_argument("--hold-offline-mode", action="store_true")
     return parser.parse_args()
 
 

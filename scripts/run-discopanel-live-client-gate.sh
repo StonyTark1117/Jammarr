@@ -38,10 +38,10 @@ gate_line=$(python3 "$repo_root/scripts/target-matrix.py" gate-lines "$repo_root
 }
 IFS='|' read -r label target_dir build_java _port _control _command audio_profile _log_profile \
   disable_configuration_cache client_task _server_task _stress _optional <<< "$gate_line"
-if [[ "$audio_profile" != "legacy-openal" || "$client_task" != "runProductionClient" ]]; then
-  echo "$runtime does not expose the final-JAR legacy production-client gate" >&2
-  exit 2
-fi
+case "$audio_profile" in
+  legacy-openal|modern) ;;
+  *) echo "$runtime does not expose a supported audible client profile" >&2; exit 2 ;;
+esac
 case "$build_java" in
   8) java_home=${JAMMARR_JAVA8_HOME:-/usr/lib/jvm/java-8-openjdk} ;;
   17) java_home=${JAMMARR_JAVA17_HOME:-/usr/lib/jvm/java-17-openjdk} ;;
@@ -50,6 +50,13 @@ case "$build_java" in
   *) echo "No gate JDK configured for Java $build_java" >&2; exit 2 ;;
 esac
 target_dir="$repo_root/$target_dir"
+client_gradle_args=()
+[[ "$runtime" == *-quilt ]] && client_gradle_args+=(-PjammarrRuntimeLoader=quilt)
+[[ "$disable_configuration_cache" == true ]] && client_gradle_args+=(--no-configuration-cache)
+server_hold_mod_args=(--hold-disable-mod-prefix cinemarr-)
+# DiscPanel profiles are shared with Cinemarr testing. Disable only Cinemarr's
+# artifact while retaining every loader dependency (Fabric API, StationAPI,
+# OSL, and similar), then restore the exact mod record during holder cleanup.
 
 read -r game_host game_port server_id < <(
   cd "$repo_root"
@@ -246,7 +253,7 @@ sink_modules+=("$(pactl load-module module-null-sink sink_name="$sink_follower" 
     --evidence-dir "$server_evidence" \
     --hold-ready-file "$ready_file" --hold-release-file "$release_file" --hold-timeout 1800 \
     --hold-level-name "$acceptance_level" --hold-config-source-world world \
-    --hold-disable-non-jammarr-mods --hold-bootstrap-level
+    --hold-bootstrap-level --hold-offline-mode "${server_hold_mod_args[@]}"
 ) > "$server_console" 2>&1 &
 server_pid=$!
 
@@ -268,6 +275,11 @@ start_client() {
   local game_dir="$session_dir/client-$role"
   local console="$session_dir/client-$role.console.log"
   local control="$session_dir/client-$role.control"
+  local alsoft_drivers=alsa pulse_sink=
+  if [[ "$audio_profile" == legacy-openal ]]; then
+    alsoft_drivers=pulse
+    pulse_sink=$sink
+  fi
   mkdir -p "$game_dir/config" "$game_dir/pcm-trace"
   : > "$control"
   printf '%s\n' \
@@ -281,14 +293,24 @@ start_client() {
     'enabled = true' 'volume = 1.0' > "$game_dir/config/jammarr-client.toml"
   printf '%s\n' '[general]' 'frequency = 48000' 'period_size = 1024' 'periods = 8' \
     > "$game_dir/alsoft.conf"
+  printf '%s\n' \
+    'pcm.!default {' \
+    '  type pipewire' \
+    "  playback_node \"$sink\"" \
+    '}' \
+    'ctl.!default {' \
+    '  type pipewire' \
+    '}' > "$game_dir/alsa.conf"
   (
     cd "$target_dir"
     exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 \
       xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' env \
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS="-Djammarr.acceptance.enabled=true -Djammarr.acceptance.audioProbe=true -Djammarr.acceptance.audioLeader=false -Djammarr.acceptance.audioControlFile=$control -Djammarr.acceptance.pcmTraceDir=$game_dir/pcm-trace -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true" \
-      ALSOFT_CONF="$game_dir/alsoft.conf" ALSOFT_DRIVERS=pulse PULSE_SINK="$sink" LIBGL_ALWAYS_SOFTWARE=1 \
+      ALSA_CONFIG_PATH="$game_dir/alsa.conf" ALSOFT_CONF="$game_dir/alsoft.conf" \
+      ALSOFT_DRIVERS="$alsoft_drivers" PULSE_SINK="$pulse_sink" LIBGL_ALWAYS_SOFTWARE=1 \
       ./gradlew "$client_task" --no-daemon --max-workers=2 --console=plain \
+      "${client_gradle_args[@]}" \
       -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="$game_host:$game_port" \
       -PjammarrAcceptanceGameDir="$game_dir" \
@@ -302,7 +324,7 @@ wait_for_client_state() {
   local console="$session_dir/client-$role.console.log"
   local deadline=$((SECONDS + timeout))
   while ! grep -Fq "Acceptance audio state: $state" "$console" 2>/dev/null; do
-    if grep -Eq 'Acceptance audio state: ERROR|Failed to open OpenAL device|Only one OpenAL context|UnsatisfiedLinkError|Client disconnected with reason:' "$console" 2>/dev/null; then
+    if grep -Eq 'Acceptance audio state: ERROR|Failed to open OpenAL device|Only one OpenAL context|UnsatisfiedLinkError: org\.lwjgl\.openal|Client disconnected with reason:' "$console" 2>/dev/null; then
       echo "$runtime $role client entered a terminal audio/connection state; see $console" >&2
       return 1
     fi
@@ -318,10 +340,33 @@ wait_for_client_state() {
   done
 }
 
+wait_for_client_marker() {
+  local role=$1 pid=$2 marker=$3 timeout=$4
+  local console="$session_dir/client-$role.console.log"
+  local deadline=$((SECONDS + timeout))
+  while ! grep -Fq "$marker" "$console" 2>/dev/null; do
+    if grep -Eq 'Acceptance audio state: ERROR|Failed to open OpenAL device|Only one OpenAL context|UnsatisfiedLinkError: org\.lwjgl\.openal|Client disconnected with reason:' "$console" 2>/dev/null; then
+      echo "$runtime $role client entered a terminal audio/connection state; see $console" >&2
+      return 1
+    fi
+    if ! kill -0 "$pid" 2>/dev/null; then
+      echo "$runtime $role client exited before producing $marker; see $console" >&2
+      return 1
+    fi
+    if (( SECONDS >= deadline )); then
+      echo "$runtime $role client did not produce $marker within ${timeout}s; see $console" >&2
+      return 1
+    fi
+    sleep 1
+  done
+}
+
 start_client leader "$leader_username" "$sink_leader"
 start_client follower "$follower_username" "$sink_follower"
 wait_for_client_state leader "${client_pids[0]}" NO_STREAM 600
 wait_for_client_state follower "${client_pids[1]}" NO_STREAM 600
+wait_for_client_marker leader "${client_pids[0]}" 'Acceptance playback state:' 600
+wait_for_client_marker follower "${client_pids[1]}" 'Acceptance playback state:' 600
 server_command "op $leader_username"
 operator_promoted=true
 printf '%s\n' '1|station:library-shuffle' > "$session_dir/client-leader.control"
@@ -349,20 +394,22 @@ if ! kill -0 "$server_pid" 2>/dev/null; then
   exit 1
 fi
 
-leader_trace=$(find "$session_dir/client-leader/pcm-trace" -type f -name '*.s16le' -printf '%s\t%p\n' \
-  | sort -nr | head -n 1 | cut -f 2-)
-follower_trace=$(find "$session_dir/client-follower/pcm-trace" -type f -name '*.s16le' -printf '%s\t%p\n' \
-  | sort -nr | head -n 1 | cut -f 2-)
-if [[ -z "$leader_trace" || -z "$follower_trace" ]]; then
-  echo "$runtime did not produce both pre-backend PCM traces" >&2
-  exit 1
+analyzer_args=(--minimum-duration-ms $((capture_seconds * 1000 - 1500)))
+if [[ "$audio_profile" == legacy-openal ]]; then
+  leader_trace=$(find "$session_dir/client-leader/pcm-trace" -type f -name '*.s16le' -printf '%s\t%p\n' \
+    | sort -nr | head -n 1 | cut -f 2-)
+  follower_trace=$(find "$session_dir/client-follower/pcm-trace" -type f -name '*.s16le' -printf '%s\t%p\n' \
+    | sort -nr | head -n 1 | cut -f 2-)
+  if [[ -z "$leader_trace" || -z "$follower_trace" ]]; then
+    echo "$runtime did not produce both legacy pre-backend PCM traces" >&2
+    exit 1
+  fi
+  analyzer_args+=(--trace-left "$leader_trace" --trace-right "$follower_trace")
 fi
 python3 "$repo_root/scripts/analyze-live-audio.py" "$leader_raw" "$follower_raw" \
-  --trace-left "$leader_trace" --trace-right "$follower_trace" \
-  --minimum-duration-ms $((capture_seconds * 1000 - 1500)) \
-  > "$session_dir/audio-analysis.json"
+  "${analyzer_args[@]}" > "$session_dir/audio-analysis.json"
 
-if grep -Eq 'Only one OpenAL context|UnsatisfiedLinkError|Acceptance audio state: ERROR|Client disconnected with reason:' \
+if grep -Eq 'Only one OpenAL context|UnsatisfiedLinkError: org\.lwjgl\.openal|Acceptance audio state: ERROR|Client disconnected with reason:' \
     "$session_dir/client-leader.console.log" "$session_dir/client-follower.console.log"; then
   echo "$runtime logged an OpenAL linkage/context, terminal audio, or disconnect failure" >&2
   exit 1

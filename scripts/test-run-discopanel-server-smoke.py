@@ -200,14 +200,15 @@ class DiscPanelServerSmokeTests(unittest.TestCase):
                 self.stopped = False
                 self.release = release
                 self.running_polls = 0
-                self.properties = b"motd=existing\r\nlevel-name=world\r\nonline-mode=false\r\n"
+                self.properties = b"motd=existing\r\nlevel-name=world\r\nonline-mode=true\r\nenforce-secure-profile=true\r\n"
+                self.property_updates: list[bytes] = []
                 self.files = {
                     "world/serverconfig/jammarr-server.toml": b'plexToken = "secret"\n',
                     "jammarr-live-acceptance/serverconfig/jammarr-server.toml": b'plexToken = ""\n',
                 }
                 self.mods = [
                     {"id": "jammarr", "fileName": "jammarr-1.1.0.jar", "enabled": True},
-                    {"id": "cinemarr", "fileName": "cinemarr.jar", "enabled": True},
+                    {"id": "cinemarr", "fileName": "cinemarr-1.0.0.jar", "enabled": True},
                 ]
 
             def call(self, service: str, method: str, payload: dict[str, object]) -> dict[str, object]:
@@ -254,6 +255,7 @@ class DiscPanelServerSmokeTests(unittest.TestCase):
 
             def update_file(self, server_id: str, path: str, content: bytes) -> None:
                 if path == "server.properties":
+                    self.property_updates.append(content)
                     self.properties = content
                 else:
                     self.files[path] = content
@@ -283,8 +285,10 @@ class DiscPanelServerSmokeTests(unittest.TestCase):
                 hold_timeout=2,
                 hold_level_name="jammarr-live-acceptance",
                 hold_config_source_world="world",
-                hold_disable_non_jammarr_mods=True,
+                hold_disable_non_jammarr_mods=False,
+                hold_disable_mod_prefix=["cinemarr-"],
                 hold_bootstrap_level=False,
+                hold_offline_mode=True,
             )
             target = Namespace(
                 runtime="1.7.10-forge",
@@ -299,6 +303,7 @@ class DiscPanelServerSmokeTests(unittest.TestCase):
             evidence = json.loads((root / "evidence" / "1.7.10-forge.json").read_text())
             self.assertTrue(evidence["clientHoldCompleted"])
             self.assertTrue(evidence["clientHoldLevelIsolated"])
+            self.assertTrue(evidence["clientHoldOfflineMode"])
             self.assertTrue(evidence["clientHoldPropertiesRestored"])
             self.assertTrue(evidence["clientHoldConfigIsolated"])
             self.assertTrue(evidence["clientHoldConfigRestored"])
@@ -307,8 +312,10 @@ class DiscPanelServerSmokeTests(unittest.TestCase):
             self.assertTrue(evidence["stoppedCleanly"])
             self.assertEqual(
                 panel.properties,
-                b"motd=existing\r\nlevel-name=world\r\nonline-mode=false\r\n",
+                b"motd=existing\r\nlevel-name=world\r\nonline-mode=true\r\nenforce-secure-profile=true\r\n",
             )
+            self.assertIn(b"online-mode=false\r\n", panel.property_updates[0])
+            self.assertIn(b"enforce-secure-profile=false\r\n", panel.property_updates[0])
             self.assertEqual(
                 panel.files["jammarr-live-acceptance/serverconfig/jammarr-server.toml"],
                 b'plexToken = ""\n',
@@ -329,6 +336,7 @@ class DiscPanelServerSmokeTests(unittest.TestCase):
                 hold_level_name=None,
                 hold_config_source_world=None,
                 hold_disable_non_jammarr_mods=False,
+                hold_disable_mod_prefix=[],
                 hold_bootstrap_level=False,
             )
             with self.assertRaises(SystemExit):
