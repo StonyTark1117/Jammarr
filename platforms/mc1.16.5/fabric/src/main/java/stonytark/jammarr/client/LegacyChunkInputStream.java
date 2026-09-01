@@ -19,7 +19,10 @@ final class LegacyChunkInputStream extends InputStream {
     }
 
     synchronized boolean offer(int chunkIndex, byte[] bytes) {
-        if (closed || bytes == null || chunkIndex < index) return false;
+        if (closed || bytes == null) return false;
+        // Atomic window retries may repeat chunks already consumed by the
+        // decoder. They are valid duplicates, not transport failures.
+        if (chunkIndex < index) return true;
         if (pending.containsKey(chunkIndex)) return true;
         if (pending.size() >= MAX_PENDING_CHUNKS) {
             int farthest = chunkIndex;
@@ -30,6 +33,10 @@ final class LegacyChunkInputStream extends InputStream {
         pending.put(chunkIndex, bytes);
         notifyAll();
         return true;
+    }
+
+    synchronized boolean canAcceptWindow(int count) {
+        return !closed && count > 0 && pending.size() <= MAX_PENDING_CHUNKS - count;
     }
 
     @Override public synchronized int read() throws IOException {

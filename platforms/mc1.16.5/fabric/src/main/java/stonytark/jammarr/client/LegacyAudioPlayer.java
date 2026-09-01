@@ -136,7 +136,8 @@ public final class LegacyAudioPlayer {
             requestRebuffer("decoder failure");
             return;
         }
-        window.request(now, decoder.bufferedMillis(), LegacyStreamingMp3Decoder.MAX_BUFFERED_MS).ifPresent(request -> {
+        if (decoder.canAcceptWindow(chunksPerRequest)) window.request(
+                now, decoder.bufferedMillis(), LegacyStreamingMp3Decoder.MAX_BUFFERED_MS).ifPresent(request -> {
             if (request.id() == 1) Jammarr.LOGGER.info("Jammarr requested the initial audio chunk window");
             if (ProtocolLimits.audioProbeEnabled()) Jammarr.LOGGER.info(
                     "Acceptance chunk request: id={} start={} count={} bufferedMs={}",

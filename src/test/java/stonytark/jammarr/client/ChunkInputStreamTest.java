@@ -17,4 +17,12 @@ class ChunkInputStreamTest {
         for (int i = 0; i < 40; i++) assertEquals(i, values[i] & 255);
         assertEquals(-1, input.read());
     }
+
+    @Test void consumedDuplicatesAreAcceptedForAtomicWindowRetries() throws Exception {
+        ChunkInputStream input = new ChunkInputStream(32, 40);
+        assertTrue(input.offer(32, new byte[]{32}));
+        assertEquals(32, input.read());
+        assertTrue(input.offer(32, new byte[]{32}));
+        assertTrue(input.canAcceptWindow(8));
+    }
 }

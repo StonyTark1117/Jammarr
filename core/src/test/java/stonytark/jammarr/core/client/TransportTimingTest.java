@@ -62,4 +62,24 @@ class TransportTimingTest {
         assertFalse(DriftPolicy.shouldRebuffer(10_000, 10_500, 500));
         assertTrue(DriftPolicy.shouldRebuffer(10_000, 10_501, 500));
     }
+
+    @Test void partialOrRejectedWindowRetriesTheAtomicServerBounds() {
+        ChunkWindowTracker tracker = new ChunkWindowTracker(32, 80, 8, 1_000);
+        ChunkWindowTracker.Request first = tracker.request(0, 0, 12_000).get();
+        assertFalse(tracker.received(first.id(), 32).isPresent());
+        assertEquals(33, tracker.firstMissing());
+
+        tracker.reject(first.id());
+        ChunkWindowTracker.Request retry = tracker.request(1, 0, 12_000).get();
+        assertEquals(32, retry.startIndex());
+        assertEquals(8, retry.count());
+
+        for (int index = 33; index < 39; index++) {
+            assertFalse(tracker.received(retry.id(), index).isPresent());
+        }
+        ChunkWindowTracker.Acknowledgement acknowledgement =
+                tracker.received(retry.id(), 39).get();
+        assertEquals(39, acknowledgement.receivedThroughIndex());
+        assertEquals(40, tracker.firstMissing());
+    }
 }

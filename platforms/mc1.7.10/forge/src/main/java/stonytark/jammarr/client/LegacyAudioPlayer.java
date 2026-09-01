@@ -150,7 +150,8 @@ final class LegacyAudioPlayer {
         if (decoder.failure() != null && decoder.format() == null && now - lastRecoveryMs >= 2_000L) {
             requestRebuffer("decoder failure"); return;
         }
-        Optional<ChunkWindowTracker.Request> request = window.request(
+        Optional<ChunkWindowTracker.Request> request = Optional.empty();
+        if (decoder.canAcceptWindow(chunksPerRequest)) request = window.request(
                 now, decoder.bufferedMillis(), LegacyStreamingMp3Decoder.MAX_BUFFERED_MS);
         if (request.isPresent()) {
             ChunkWindowTracker.Request value = request.get();

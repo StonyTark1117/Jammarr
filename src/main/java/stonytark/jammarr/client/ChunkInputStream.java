@@ -15,7 +15,11 @@ final class ChunkInputStream extends InputStream {
 
     ChunkInputStream(int firstChunk, int totalChunks) { this.index = firstChunk; this.totalChunks = totalChunks; }
     synchronized boolean offer(int chunkIndex, byte[] bytes) {
-        if (closed || chunkIndex < index) return false;
+        if (closed) return false;
+        // A bounded atomic retry can resend chunks the decoder has already
+        // consumed. Treat those as accepted duplicates so the tracker can
+        // acknowledge the complete retried window to the server.
+        if (chunkIndex < index) return true;
         if (pending.containsKey(chunkIndex)) return true;
         if (pending.size() >= MAX_PENDING_CHUNKS) {
             int farthest = pending.keySet().stream().mapToInt(Integer::intValue).max().orElse(chunkIndex);
@@ -23,6 +27,9 @@ final class ChunkInputStream extends InputStream {
             pending.remove(farthest);
         }
         pending.put(chunkIndex, bytes); notifyAll(); return true;
+    }
+    synchronized boolean canAcceptWindow(int count) {
+        return !closed && count > 0 && pending.size() <= MAX_PENDING_CHUNKS - count;
     }
 
     @Override public synchronized int read() throws IOException {

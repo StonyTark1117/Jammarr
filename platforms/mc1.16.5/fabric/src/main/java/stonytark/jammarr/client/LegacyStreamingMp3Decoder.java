@@ -39,6 +39,7 @@ final class LegacyStreamingMp3Decoder implements AutoCloseable {
     }
 
     boolean offer(int index, byte[] bytes) { return input.offer(index, bytes); }
+    boolean canAcceptWindow(int count) { return input.canAcceptWindow(count); }
     AudioFormat format() { return format; }
     String failure() { return failure; }
     boolean finished() { return finished; }
