@@ -6,6 +6,7 @@ runtime=${1:-1.7.10-forge}
 panel_url=${DISCOPANEL_URL:-http://192.168.1.42:8080}
 version=${JAMMARR_EXPECTED_VERSION:-$(sed -n 's/^mod_version=//p' "$repo_root/gradle.properties")}
 capture_seconds=${JAMMARR_LIVE_CAPTURE_SECONDS:-31}
+client_heap_mb=${JAMMARR_LIVE_CLIENT_HEAP_MB:-1536}
 token_env=${DISCOPANEL_TOKEN_ENV:-DISCOPANEL_TOKEN}
 
 if [[ -z ${!token_env:-} ]]; then
@@ -16,6 +17,10 @@ if [[ ! "$capture_seconds" =~ ^[0-9]+$ ]] || (( capture_seconds < 10 || capture_
   echo "JAMMARR_LIVE_CAPTURE_SECONDS must be an integer from 10 through 300" >&2
   exit 2
 fi
+if [[ ! "$client_heap_mb" =~ ^[0-9]+$ ]] || (( client_heap_mb < 1024 || client_heap_mb > 4096 )); then
+  echo "JAMMARR_LIVE_CLIENT_HEAP_MB must be an integer from 1024 through 4096" >&2
+  exit 2
+fi
 
 mkdir -p "$repo_root/build/discopanel-live-client-gate"
 session_dir=$(mktemp -d "$repo_root/build/discopanel-live-client-gate/${runtime}.XXXXXX")
@@ -24,12 +29,20 @@ release_file="$session_dir/server-release"
 server_console="$session_dir/server-smoke.console.log"
 server_evidence="$session_dir/server-evidence"
 acceptance_level="jammarr-live-${session_dir##*.}"
+recovery_tool="$repo_root/scripts/recover-discopanel-live-client-sessions.py"
 
 exec 9>"$repo_root/build/.dedicated-server-gate.lock"
 if ! flock -n 9; then
   echo "Another Jammarr client/server gate owns the shared runtime" >&2
   exit 2
 fi
+
+# A shell trap cannot run after SIGKILL or an execution-host teardown. Recover
+# any credential-free transaction journal left by such an interruption before
+# requiring the complete DiscPanel fleet to be stopped for a new matrix row.
+python3 "$recovery_tool" recover-pending \
+  --url "$panel_url" --token-env "$token_env" --expected-version "$version" \
+  --evidence-root "$repo_root/build/discopanel-live-client-gate"
 
 gate_line=$(python3 "$repo_root/scripts/target-matrix.py" gate-lines "$repo_root/gradle/targets.json" \
   | awk -F '|' -v runtime="$runtime" '$1 == runtime { print; found=1 } END { if (!found) exit 1 }') || {
@@ -349,6 +362,16 @@ cleanup() {
       wait "$server_pid" || status=1
     fi
   fi
+  if [[ -f "$session_dir/recovery-pending.json" ]]; then
+    if python3 "$recovery_tool" recover-owned \
+      --url "$panel_url" --token-env "$token_env" --expected-version "$version" \
+      --session-dir "$session_dir"; then
+      acceptance_level_removed=true
+    else
+      echo "$runtime could not recover its durable DiscPanel transaction" >&2
+      status=1
+    fi
+  fi
   # Gradle may detach a production client after xvfb-run exits, so the
   # launcher's original PID is not a sufficient cleanup boundary. Every gate
   # path is unique; terminate only processes whose command line still names
@@ -386,6 +409,14 @@ trap cleanup EXIT INT TERM
 # an interrupted older run and can make PipeWire/OpenAL fail or stall later
 # clients. Remove only that exact test-owned prefix before allocating new ones.
 remove_stale_gate_sinks
+
+# Snapshot only the non-secret values this gate changes. The recovery helper
+# can therefore reverse an abruptly orphaned transaction without persisting the
+# Plex token, unrelated Docker overrides, or complete configuration files.
+python3 "$recovery_tool" snapshot \
+  --runtime "$runtime" --server-id "$server_id" --level "$acceptance_level" \
+  --session-dir "$session_dir" --url "$panel_url" --token-env "$token_env" \
+  --expected-version "$version"
 
 sink_prefix="jammarr_live_${BASHPID}_${runtime//[^a-zA-Z0-9]/_}"
 sink_leader="${sink_prefix}_leader"
@@ -429,6 +460,7 @@ start_client() {
   local console="$session_dir/client-$role.console.log"
   local control="$session_dir/client-$role.control"
   local alsoft_drivers=alsa pulse_sink=$sink
+  local gradle_jvmargs="-Xmx${client_heap_mb}m -XX:MaxMetaspaceSize=512m"
   if [[ "$audio_profile" == legacy-openal ]]; then
     alsoft_drivers=pulse
   fi
@@ -462,10 +494,11 @@ start_client() {
     exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 \
       xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' env \
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
-      JAVA_TOOL_OPTIONS="-Djammarr.acceptance.enabled=true -Djammarr.acceptance.audioProbe=true -Djammarr.acceptance.audioLeader=false -Djammarr.acceptance.audioControlFile=$control -Djammarr.acceptance.pcmTraceDir=$game_dir/pcm-trace -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true" \
+      JAVA_TOOL_OPTIONS="-Xmx${client_heap_mb}m -XX:MaxMetaspaceSize=512m -Djammarr.acceptance.enabled=true -Djammarr.acceptance.audioProbe=true -Djammarr.acceptance.audioLeader=false -Djammarr.acceptance.audioControlFile=$control -Djammarr.acceptance.pcmTraceDir=$game_dir/pcm-trace -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true" \
       ALSA_CONFIG_PATH="$game_dir/alsa.conf" ALSOFT_CONF="$game_dir/alsoft.conf" \
       ALSOFT_DRIVERS="$alsoft_drivers" PULSE_SINK="$pulse_sink" LIBGL_ALWAYS_SOFTWARE=1 \
       ./gradlew "$client_task" --no-daemon --max-workers=2 --console=plain \
+      "-Dorg.gradle.jvmargs=$gradle_jvmargs" \
       "${client_gradle_args[@]}" \
       -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="$game_host:$game_port" \
