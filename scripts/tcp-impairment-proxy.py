@@ -14,9 +14,11 @@ class Profile:
         self.name = name
         self.log_path = log_path
 
-    async def delay(self, direction: str, size: int, started: float, state: dict, rng: random.Random) -> None:
-        elapsed = time.monotonic() - started
+    def delivery_time(self, direction: str, size: int, started: float, arrived: float,
+                      previous_delivery: float, state: dict, rng: random.Random) -> float:
+        elapsed = arrived - started
         delay = 0.0
+        bandwidth_limited = False
         if self.name == "latency-150ms":
             delay = 0.075
         elif self.name == "jitter-20-250ms":
@@ -30,12 +32,29 @@ class Profile:
                 state["stall_slot"] = slot
                 delay = 0.250
         elif self.name == "overload-6s" and direction == "server-to-client" and elapsed < 6.0:
-            delay = size / 12_000.0
-        if delay > 0:
+            bandwidth_limited = True
+        if bandwidth_limited:
+            # This profile deliberately limits throughput. Unlike propagation
+            # latency and jitter, each byte consumes capacity after the prior
+            # scheduled write. Cap the accumulated deadline at the end of the
+            # six-second overload window: when bandwidth recovers, bytes which
+            # accumulated behind the limiter must drain in TCP order instead
+            # of retaining minutes of synthetic 12 KB/s backlog.
+            recovery = started + 6.0
+            delivery = min(max(arrived, previous_delivery) + size / 12_000.0, recovery)
+        else:
+            # A latency link delays each arrival relative to its own arrival;
+            # it does not sleep once per recv() and accidentally turn packet
+            # fragmentation into a bandwidth limit. TCP order still prevents
+            # a later low-jitter segment from overtaking an earlier one.
+            delivery = max(arrived + delay, previous_delivery)
+        effective_delay = max(0.0, delivery - arrived)
+        if effective_delay > 0:
             with self.log_path.open("a", encoding="utf-8") as stream:
                 stream.write(json.dumps({"elapsed_ms": round(elapsed * 1000), "direction": direction,
-                                         "bytes": size, "delay_ms": round(delay * 1000)}) + "\n")
-            await asyncio.sleep(delay)
+                                         "bytes": size,
+                                         "delay_ms": round(effective_delay * 1000)}) + "\n")
+        return delivery
 
 
 async def pump(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, direction: str,
@@ -43,19 +62,46 @@ async def pump(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, direc
     started = time.monotonic()
     state: dict = {}
     rng = random.Random(seed)
-    try:
+    queue: asyncio.Queue[tuple[float, bytes] | None] = asyncio.Queue(maxsize=256)
+
+    async def receive() -> None:
+        previous_delivery = started
         while True:
             data = await reader.read(65536)
             if not data:
                 break
-            await profile.delay(direction, len(data), started, state, rng)
+            arrived = time.monotonic()
+            delivery = profile.delivery_time(
+                direction, len(data), started, arrived, previous_delivery, state, rng
+            )
+            previous_delivery = delivery
+            await queue.put((delivery, data))
+        await queue.put(None)
+
+    async def deliver() -> None:
+        while True:
+            item = await queue.get()
+            if item is None:
+                return
+            delivery, data = item
+            remaining = delivery - time.monotonic()
+            if remaining > 0:
+                await asyncio.sleep(remaining)
             writer.write(data)
             await writer.drain()
+
+    tasks = [asyncio.create_task(receive()), asyncio.create_task(deliver())]
+    try:
+        await asyncio.gather(*tasks)
     except (ConnectionError, OSError, asyncio.IncompleteReadError):
         # Clients and test servers are deliberately terminated at scenario
         # boundaries; a half-close/reset is normal proxy teardown.
         pass
     finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
         try:
             writer.close()
             await writer.wait_closed()
