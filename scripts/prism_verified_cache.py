@@ -47,6 +47,26 @@ def verified(path: Path, expected_sha1: str, expected_size: int) -> bool:
     )
 
 
+def linux_rule_matches(rule: dict[str, Any]) -> bool:
+    if rule.get("features"):
+        return False
+    os_rule = rule.get("os")
+    if not os_rule:
+        return True
+    return os_rule.get("name") in {None, "linux"}
+
+
+def library_allowed(library: dict[str, Any]) -> bool:
+    rules = library.get("rules", [])
+    if not rules:
+        return True
+    allowed = False
+    for rule in rules:
+        if linux_rule_matches(rule):
+            allowed = rule.get("action") == "allow"
+    return allowed
+
+
 def artifact_descriptor(value: dict[str, Any], label: str) -> tuple[str, str, int]:
     url = value.get("url")
     expected_sha1 = value.get("sha1")
