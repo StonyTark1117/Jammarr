@@ -147,6 +147,25 @@ class LiveAudioAnalyzerTests(unittest.TestCase):
         self.assertEqual(report["position_delta_ms"], -1)
         self.assertAlmostEqual(report["program_alignment_delta_ms"], 1.086, delta=0.001)
 
+    def test_channel_timing_uses_pre_catch_up_ready_instant(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            left = Path(temporary) / "left.log"
+            right = Path(temporary) / "right.log"
+            left.write_text(
+                "JAMMARR_AUDIO_TIMING stage=channel_started "
+                "monotonicNanos=345708011640965 positionMs=180 readyLocalMs=1788273774954\n"
+            )
+            right.write_text(
+                "JAMMARR_AUDIO_TIMING stage=channel_started "
+                "monotonicNanos=345707733513658 positionMs=174 readyLocalMs=1788273774954\n"
+            )
+            report = analyzer.analyze_channel_timing(left, right)
+        self.assertIsNotNone(report)
+        self.assertEqual(report["start_clock"], "readyLocalMs")
+        self.assertEqual(report["start_delta_ms"], 0)
+        self.assertEqual(report["position_delta_ms"], 6)
+        self.assertEqual(report["program_alignment_delta_ms"], -6)
+
     def test_channel_timing_requires_complete_marker(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             left = Path(temporary) / "left.log"

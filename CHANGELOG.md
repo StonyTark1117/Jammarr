@@ -57,6 +57,7 @@
 - Fix production Legacy Fabric dependency resolution after live gates proved that the per-version Maven aggregate is descriptor-only and its raw module artifacts are not the canonical installable distribution. Pin the official 1.13.2 CurseForge bundle containing its nested runtime modules, and explicitly allow its guarded migration to disable the previously staged aggregate/module records as rollback copies.
 - Detect terminal Minecraft process failures such as startup Mixin errors and `mc-server-runner` completion immediately instead of waiting for DiscPanel's stale `STARTING` state to reach the ten-minute timeout.
 - Anchor DiscPanel smoke evidence to the newly started container segment so a rotated log window cannot replay a completed historical failure—or historical success—as evidence for the current run.
+- Bound private live-client rendering to 854x480 at 30 FPS and mute every non-Music sound category so world-local effects cannot contaminate the two-client synchronization oracle. For modern clients, compare the existing pre-catch-up backend-ready timestamps instead of the later `channel_started` log instant, preventing unequal decoder-discard work from becoming a false timing failure while retaining the 25 ms program-origin limit and every rendered-audio threshold.
 
 ## 1.0.2 - 2026-08-28
 

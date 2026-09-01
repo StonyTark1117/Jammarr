@@ -45,8 +45,8 @@ def normalized_correlation(left: np.ndarray, right: np.ndarray) -> float:
     return 0.0 if denominator == 0.0 else float(np.dot(left, right) / denominator)
 
 
-def channel_started_marker(path: Path) -> tuple[int, int] | None:
-    marker: tuple[int, int] | None = None
+def channel_started_marker(path: Path) -> tuple[int, int, int | None] | None:
+    marker: tuple[int, int, int | None] | None = None
     for line in path.read_text(errors="replace").splitlines():
         if "JAMMARR_AUDIO_TIMING stage=channel_started" not in line:
             continue
@@ -57,7 +57,12 @@ def channel_started_marker(path: Path) -> tuple[int, int] | None:
             key, value = token.split("=", 1)
             fields[key] = value
         try:
-            marker = (int(fields["monotonicNanos"]), int(fields["positionMs"]))
+            ready_local_ms = fields.get("readyLocalMs")
+            marker = (
+                int(fields["monotonicNanos"]),
+                int(fields["positionMs"]),
+                None if ready_local_ms is None else int(ready_local_ms),
+            )
         except (KeyError, ValueError):
             continue
     return marker
@@ -68,13 +73,25 @@ def analyze_channel_timing(left_path: Path, right_path: Path) -> dict[str, objec
     right = channel_started_marker(right_path)
     if left is None or right is None:
         return None
-    start_delta_ms = (left[0] - right[0]) / 1_000_000.0
+    # Modern clients record ``readyLocalMs`` immediately before decoder
+    # catch-up. The channel_started marker itself is emitted after catch-up,
+    # whose cost can differ substantially between clients even though both
+    # channels became ready together. Prefer the pre-catch-up instant when it
+    # exists; retain the monotonic marker fallback for legacy clients that do
+    # not expose it. Both live clients run on this host, so their wall clocks
+    # have the same origin.
+    if left[2] is not None and right[2] is not None:
+        start_delta_ms = float(left[2] - right[2])
+        start_clock = "readyLocalMs"
+    else:
+        start_delta_ms = (left[0] - right[0]) / 1_000_000.0
+        start_clock = "monotonicNanos"
     position_delta_ms = left[1] - right[1]
-    # Both JVMs share the host monotonic clock. Subtracting the source position
-    # from the channel-start instant estimates the same authoritative program
-    # origin independently of how late either backend created its channel.
+    # Subtracting source position from the backend-ready instant estimates the
+    # same authoritative program origin independently for both clients.
     program_alignment_delta_ms = start_delta_ms - position_delta_ms
     return {
+        "start_clock": start_clock,
         "start_delta_ms": round(start_delta_ms, 3),
         "position_delta_ms": position_delta_ms,
         "program_alignment_delta_ms": round(program_alignment_delta_ms, 3),

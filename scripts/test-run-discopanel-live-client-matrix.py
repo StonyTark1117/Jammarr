@@ -108,6 +108,29 @@ class LiveClientMatrixTests(unittest.TestCase):
             source.index('for pid in "$private_pulse_pid"', source.index("cleanup()")),
         )
 
+    def test_live_gate_bounds_software_rendering_during_audio_capture(self) -> None:
+        source = LIVE_GATE_SCRIPT.read_text()
+        self.assertIn("'maxFps:30'", source)
+        self.assertIn("'renderDistance:2'", source)
+        self.assertIn("'simulationDistance:2'", source)
+        self.assertIn("'graphicsMode:0'", source)
+        self.assertIn("'particles:2'", source)
+        self.assertIn("'entityShadows:false'", source)
+        self.assertIn("'enableVsync:false'", source)
+        self.assertIn("'soundCategory_music:1.0'", source)
+        for category in (
+            "record",
+            "weather",
+            "block",
+            "hostile",
+            "neutral",
+            "player",
+            "ambient",
+            "voice",
+        ):
+            self.assertIn(f"'soundCategory_{category}:0.0'", source)
+        self.assertIn("-screen 0 854x480x24", source)
+
     def target(self) -> SimpleNamespace:
         return SimpleNamespace(
             runtime="26.2-neoforge",
