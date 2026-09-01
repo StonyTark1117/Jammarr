@@ -179,6 +179,9 @@ audio_client_gate=${JAMMARR_AUDIO_CLIENT_GATE:-false}
 audio_scenario_gate=${JAMMARR_AUDIO_SCENARIO_GATE:-false}
 client_companion_gate=${JAMMARR_CLIENT_COMPANION_GATE:-false}
 vanilla_client_gate=${JAMMARR_VANILLA_CLIENT_GATE:-false}
+vanilla_connected_seconds=${JAMMARR_VANILLA_CONNECTED_SECONDS:-10}
+vanilla_churn_cycles=${JAMMARR_VANILLA_CHURN_CYCLES:-1}
+vanilla_churn_min_seconds=${JAMMARR_VANILLA_CHURN_MIN_SECONDS:-0}
 legacy_persistence_gate=${JAMMARR_LEGACY_PERSISTENCE_GATE:-false}
 legacy_cold_start_count=${JAMMARR_LEGACY_COLD_STARTS:-0}
 legacy_browse_stress_gate=${JAMMARR_LEGACY_BROWSE_STRESS_GATE:-false}
@@ -194,6 +197,26 @@ if [[ "$vanilla_client_gate" == "true" ]]; then
       exit 2
     fi
   done
+fi
+if [[ ! "$vanilla_connected_seconds" =~ ^[0-9]+$ ]] \
+    || (( vanilla_connected_seconds < 10 || vanilla_connected_seconds > 300 )); then
+  echo "JAMMARR_VANILLA_CONNECTED_SECONDS must be an integer from 10 through 300" >&2
+  exit 2
+fi
+if [[ ! "$vanilla_churn_cycles" =~ ^[0-9]+$ ]] \
+    || (( vanilla_churn_cycles < 1 || vanilla_churn_cycles > 10000 )); then
+  echo "JAMMARR_VANILLA_CHURN_CYCLES must be an integer from 1 through 10000" >&2
+  exit 2
+fi
+if [[ ! "$vanilla_churn_min_seconds" =~ ^[0-9]+$ ]] \
+    || (( vanilla_churn_min_seconds > 21600 )); then
+  echo "JAMMARR_VANILLA_CHURN_MIN_SECONDS must be an integer from 0 through 21600" >&2
+  exit 2
+fi
+if (( vanilla_churn_min_seconds > 0 || vanilla_churn_cycles > 1 )) \
+    && [[ "$vanilla_client_gate" != "true" || "$audio_client_gate" != "true" ]]; then
+  echo "Vanilla churn requires both JAMMARR_VANILLA_CLIENT_GATE=true and JAMMARR_AUDIO_CLIENT_GATE=true" >&2
+  exit 2
 fi
 
 if [[ ! "$legacy_cold_start_count" =~ ^[0-9]+$ ]] || (( legacy_cold_start_count > 100 )); then
@@ -587,6 +610,9 @@ run_vanilla_client() {
   local expected_listener_stats=${9:-$expected_capable}
   local scenario=${10:-vanilla-client}
   local username=${11:-PureVanilla}
+  local connected_seconds=${12:-$vanilla_connected_seconds}
+  local capture_sink=${13:-}
+  local capture_path=${14:-}
   local minecraft_version=${label%-*}
   local prism_workspace="$output_root/$label.$scenario.prism"
   local instance_dir="$prism_workspace/instances/jammarr-vanilla-$minecraft_version"
@@ -597,7 +623,7 @@ run_vanilla_client() {
   local post_diagnostics="$output_root/$label.$scenario.post-disconnect-diagnostics.txt"
   local expected_diagnostics="capableListeners=$expected_capable, vanillaListeners=$expected_vanilla, listenerStats=$expected_listener_stats"
   local expected_after_disconnect="capableListeners=$expected_capable, vanillaListeners=$((expected_vanilla - 1)), listenerStats=$expected_listener_stats"
-  local pid deadline result=0 first_line request_start request_end
+  local pid deadline result=0 first_line request_start request_end recorder_pid expected_bytes captured_bytes
 
   mkdir -p "$prism_workspace"
   : > "$client_console"
@@ -632,7 +658,34 @@ run_vanilla_client() {
   done
 
   if (( result == 0 )); then
-    sleep 10
+    if [[ -n "$capture_sink" && -n "$capture_path" ]]; then
+      : > "$capture_path"
+      parec --raw --latency-msec=50 --device="${capture_sink}.monitor" \
+        --format=s16le --rate=48000 --channels=2 > "$capture_path" &
+      recorder_pid=$!
+      active_audio_recorder_pids=("$recorder_pid")
+      expected_bytes=$((connected_seconds * 48000 * 2 * 2))
+      deadline=$((SECONDS + connected_seconds + 12))
+      while :; do
+        captured_bytes=$(stat -c %s "$capture_path" 2>/dev/null || printf '0')
+        if (( captured_bytes >= expected_bytes )); then break; fi
+        if ! group_alive "$pid" || ! kill -0 "$recorder_pid" 2>/dev/null \
+            || (( SECONDS >= deadline )); then
+          echo "$label: vanilla coexistence recorder did not retain the requested audio window" >&2
+          result=1
+          break
+        fi
+        sleep 0.2
+      done
+      kill -TERM "$recorder_pid" 2>/dev/null || true
+      wait "$recorder_pid" 2>/dev/null || true
+      active_audio_recorder_pids=()
+    else
+      sleep "$connected_seconds"
+    fi
+  fi
+
+  if (( result == 0 )); then
     if ! group_alive "$pid" \
         || grep -Eiq 'mismatched mod (channel )?list|required on the client|protocol mismatch' "$client_console"; then
       echo "$label: pure vanilla client did not remain connected" >&2
@@ -718,7 +771,7 @@ PY
       grep -F "$username joined the game" "$server_console" | tail -n 1 || true
       cat "$attestation"
       cat "$diagnostics"
-      printf 'Artifact-free vanilla client remained connected for 10 seconds.\n'
+      printf 'Artifact-free vanilla client remained connected for %s seconds.\n' "$connected_seconds"
       printf 'Plex request count remained unchanged at %s.\n' "$request_end"
     } > "$evidence"
   fi
@@ -2272,52 +2325,134 @@ run_mixed_vanilla_audio() {
   local sink_leader=$7
   local leader_pid=$8
   local follower_pid=$9
-  local raw="$output_root/$label.mixed-client-audio.s16le"
-  local metrics="$output_root/$label.mixed-client-audio.metrics.txt"
-  local timing="$output_root/$label.mixed-client-audio-timing.json"
   local vanilla_evidence="$output_root/$label.mixed-vanilla-client.evidence.txt"
-  local evidence="$output_root/$label.mixed-client-audio.evidence.txt"
-  local recorder_pid result=0
+  local default_evidence="$output_root/$label.mixed-client-audio.evidence.txt"
+  local churn_evidence="$output_root/$label.mixed-client-churn.evidence.txt"
+  local resource_evidence="$output_root/$label.mixed-client-churn-resources.tsv"
+  local post_diagnostics="$output_root/$label.mixed-vanilla-client.post-disconnect-diagnostics.txt"
+  local churn_requested=0 cycle=1 completed=0 result=0
+  local started=$SECONDS deadline=$((SECONDS + vanilla_churn_min_seconds)) padded username
+  local raw metrics timing evidence server_pid rss_kib descriptors
+  local baseline_rss_kib=0 baseline_descriptors=0 egress_items egress_bytes work_active work_queued
+  local keep_up_before keep_up_after
 
-  : > "$raw"
-  parec --raw --latency-msec=50 --device="${sink_leader}.monitor" \
-    --format=s16le --rate=48000 --channels=2 > "$raw" &
-  recorder_pid=$!
-  active_audio_recorder_pids+=("$recorder_pid")
+  if (( vanilla_churn_cycles > 1 || vanilla_churn_min_seconds > 0 )); then
+    churn_requested=1
+    : > "$churn_evidence"
+    printf 'cycle\telapsed_seconds\tserver_rss_kib\tserver_fds\tegress_items\tegress_bytes\twork_active\twork_queued\n' \
+      > "$resource_evidence"
+  fi
+  keep_up_before=$(grep -Fc "Can't keep up!" "$server_log" 2>/dev/null || true)
 
-  if ! run_vanilla_client "$label" "$port" "$server_log" \
-      "$rcon_port" "$rcon_password" "$fifo_fd" \
-      2 1 2 mixed-vanilla-client MixedVanilla; then
-    result=1
-  fi
+  while (( cycle <= vanilla_churn_cycles || SECONDS < deadline )); do
+    printf -v padded '%05d' "$cycle"
+    if (( churn_requested )); then
+      raw="$output_root/$label.mixed-client-churn-$padded.s16le"
+      metrics="$output_root/$label.mixed-client-churn-$padded.metrics.txt"
+      timing="$output_root/$label.mixed-client-churn-$padded.timing.json"
+      evidence="$output_root/$label.mixed-client-churn-$padded.evidence.txt"
+      username="MixVan$padded"
+    else
+      raw="$output_root/$label.mixed-client-audio.s16le"
+      metrics="$output_root/$label.mixed-client-audio.metrics.txt"
+      timing="$output_root/$label.mixed-client-audio-timing.json"
+      evidence=$default_evidence
+      username=MixedVanilla
+    fi
 
-  kill -TERM "$recorder_pid" 2>/dev/null || true
-  wait "$recorder_pid" 2>/dev/null || true
-  active_audio_recorder_pids=()
+    if ! run_vanilla_client "$label" "$port" "$server_log" \
+        "$rcon_port" "$rcon_password" "$fifo_fd" \
+        2 1 2 mixed-vanilla-client "$username" "$vanilla_connected_seconds" \
+        "$sink_leader" "$raw"; then
+      result=1
+    fi
 
-  if (( result == 0 )) \
-      && { ! group_alive "$leader_pid" || ! group_alive "$follower_pid" \
-        || ! latest_audio_state_is "$output_root/$label.audio-leader.console.log" PLAYING \
-        || ! latest_audio_state_is "$output_root/$label.audio-follower.console.log" PLAYING; }; then
-    echo "$label: a matching client stopped playback during vanilla coexistence" >&2
-    result=1
-  fi
-  if (( result == 0 )) && ! audio_capture_is_audible "$raw" "$metrics"; then
-    echo "$label: matching client emitted no program audio during vanilla coexistence" >&2
-    result=1
-  fi
-  if (( result == 0 )) && ! python3 "$repo_root/scripts/analyze-audio-timing.py" \
-      "$raw" --minimum-duration-ms 10000 > "$timing"; then
-    echo "$label: matching-client audio timing failed during vanilla coexistence" >&2
-    result=1
-  fi
-  if (( result == 0 )); then
-    {
-      cat "$vanilla_evidence"
-      grep -E 'mean_volume:|max_volume:' "$metrics" | tail -n 2
-      sed -n '/"duration_ms"\|"marker_count"\|"max_marker_interval_error_ms"\|"marker_sequence_mismatches"\|"max_marker_overlap_ms"\|"max_silence_ms"/p' "$timing"
-      printf 'Two matching clients remained PLAYING while the artifact-free vanilla client was connected.\n'
-    } > "$evidence"
+    if (( result == 0 )) \
+        && { ! group_alive "$leader_pid" || ! group_alive "$follower_pid" \
+          || ! latest_audio_state_is "$output_root/$label.audio-leader.console.log" PLAYING \
+          || ! latest_audio_state_is "$output_root/$label.audio-follower.console.log" PLAYING; }; then
+      echo "$label: a matching client stopped playback during vanilla coexistence cycle $cycle" >&2
+      result=1
+    fi
+    if (( result == 0 )) && ! audio_capture_is_audible "$raw" "$metrics"; then
+      echo "$label: matching client emitted no program audio during vanilla coexistence cycle $cycle" >&2
+      result=1
+    fi
+    if (( result == 0 )) && ! python3 "$repo_root/scripts/analyze-audio-timing.py" \
+        "$raw" --minimum-duration-ms 10000 > "$timing"; then
+      echo "$label: matching-client audio timing failed during vanilla coexistence cycle $cycle" >&2
+      result=1
+    fi
+    if (( result == 0 )); then
+      {
+        cat "$vanilla_evidence"
+        grep -E 'mean_volume:|max_volume:' "$metrics" | tail -n 2
+        sed -n '/"duration_ms"\|"marker_count"\|"max_marker_interval_error_ms"\|"marker_sequence_mismatches"\|"max_marker_overlap_ms"\|"max_silence_ms"/p' "$timing"
+        printf 'Two matching clients remained PLAYING while the artifact-free vanilla client was connected.\n'
+      } > "$evidence"
+    fi
+
+    if (( result == 0 && churn_requested )); then
+      server_pid=$(minecraft_java_pid "$active_server_group" || true)
+      if [[ -z "$server_pid" || ! -r "/proc/$server_pid/status" ]]; then
+        echo "$label: cannot inspect the live server process during mixed-client churn" >&2
+        result=1
+      else
+        rss_kib=$(awk '/^VmRSS:/ { print $2 }' "/proc/$server_pid/status")
+        descriptors=$(find "/proc/$server_pid/fd" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l)
+        egress_items=$(sed -n 's/.*egressItems=\([0-9][0-9]*\).*/\1/p' "$post_diagnostics")
+        egress_bytes=$(sed -n 's/.*egressBytes=\([0-9][0-9]*\).*/\1/p' "$post_diagnostics")
+        work_active=$(sed -n 's/.*workActive=\([0-9][0-9]*\).*/\1/p' "$post_diagnostics")
+        work_queued=$(sed -n 's/.*workQueued=\([0-9][0-9]*\).*/\1/p' "$post_diagnostics")
+        if [[ -z "$rss_kib" || -z "$egress_items" || -z "$egress_bytes" \
+            || -z "$work_active" || -z "$work_queued" ]]; then
+          echo "$label: incomplete server resource sample during mixed-client churn" >&2
+          result=1
+        elif (( egress_items > 1024 || egress_bytes > 16 * 1024 * 1024 \
+            || work_active > 3 || work_queued > 64 )); then
+          echo "$label: bounded server resource limit exceeded during mixed-client churn" >&2
+          result=1
+        else
+          if (( completed == 0 )); then
+            baseline_rss_kib=$rss_kib
+            baseline_descriptors=$descriptors
+          elif (( rss_kib > baseline_rss_kib + 1048576 \
+              || descriptors > baseline_descriptors + 64 )); then
+            echo "$label: server resources grew beyond the churn allowance" >&2
+            result=1
+          fi
+          printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "$cycle" "$((SECONDS - started))" "$rss_kib" "$descriptors" \
+            "$egress_items" "$egress_bytes" "$work_active" "$work_queued" \
+            >> "$resource_evidence"
+        fi
+      fi
+      keep_up_after=$(grep -Fc "Can't keep up!" "$server_log" 2>/dev/null || true)
+      if (( keep_up_after != keep_up_before )); then
+        echo "$label: server logged a new tick-overload warning during mixed-client churn" >&2
+        result=1
+      fi
+      if (( result == 0 )); then
+        printf 'cycle=%s elapsed=%ss username=%s evidence=%s\n' \
+          "$cycle" "$((SECONDS - started))" "$username" "$(basename "$evidence")" \
+          >> "$churn_evidence"
+      fi
+    fi
+
+    if (( result != 0 )); then break; fi
+    completed=$((completed + 1))
+    cycle=$((cycle + 1))
+  done
+
+  if (( result == 0 && churn_requested )); then
+    if (( completed < vanilla_churn_cycles || SECONDS - started < vanilla_churn_min_seconds )); then
+      echo "$label: mixed-client churn ended before its cycle/duration contract" >&2
+      result=1
+    else
+      printf 'completed_cycles=%s elapsed_seconds=%s minimum_seconds=%s\n' \
+        "$completed" "$((SECONDS - started))" "$vanilla_churn_min_seconds" \
+        >> "$churn_evidence"
+    fi
   fi
   return "$result"
 }
@@ -2603,7 +2738,11 @@ minecraft_java_pid() {
   while read -r candidate; do
     [[ -r "/proc/$candidate/cmdline" ]] || continue
     command=$(tr '\0' ' ' < "/proc/$candidate/cmdline")
-    if [[ "$command" == *java* && ( "$command" == *net.minecraft* || "$command" == *launchwrapper* ) ]]; then
+    if [[ "$command" == *java* && ( "$command" == *net.minecraft* \
+        || "$command" == *launchwrapper* \
+        || "$command" == *net.fabricmc.devlaunchinjector.Main* \
+        || "$command" == *cpw.mods.bootstraplauncher.BootstrapLauncher* \
+        || "$command" == *net.neoforged.devlaunch.Main* ) ]]; then
       printf '%s\n' "$candidate"
       return 0
     fi
