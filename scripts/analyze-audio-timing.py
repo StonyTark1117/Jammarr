@@ -9,6 +9,12 @@ import sys
 from pathlib import Path
 
 
+# The protocol accepts a track up to three hours (43,200 marker slots). Search
+# a power-of-two range beyond that ceiling so a valid long-running fixture
+# cannot become a false replay merely because its absolute phase exceeds 4095.
+MARKER_PHASE_SEARCH = 1 << 16
+
+
 def marker_type(slot: int) -> int:
     value = (slot + 0x9E3779B9) & 0xFFFFFFFF
     value ^= value >> 16
@@ -130,7 +136,7 @@ def analyze(path: Path, sample_rate: int) -> dict:
     sequence_mismatches = 10**9
     sequence_phase = None
     if len(observed) >= 4:
-        for phase in range(4096):
+        for phase in range(MARKER_PHASE_SEARCH):
             mismatches = sum(label != marker_type(phase + slot)
                              for slot, (label, _) in observed.items())
             if mismatches < sequence_mismatches:

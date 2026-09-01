@@ -3,6 +3,8 @@
 
 import array
 import json
+import math
+import struct
 import subprocess
 import sys
 import tempfile
@@ -34,6 +36,24 @@ def analyze(path: Path) -> tuple[int, dict]:
         "--sample-rate", str(SAMPLE_RATE), "--minimum-duration-ms", "10000",
     ], check=False, capture_output=True, text=True)
     return result.returncode, json.loads(result.stdout)
+
+
+def write_offset_fixture(path: Path, start_slot: int, seconds: int = 12) -> None:
+    block = bytearray()
+    with path.open("wb") as output:
+        for index in range(seconds * SAMPLE_RATE):
+            time = index / SAMPLE_RATE
+            carrier = 0.22 * math.sin(2.0 * math.pi * 997.0 * time)
+            local_slot = int(time / 0.250)
+            marker_frequency = 1477.0 if marker_type(start_slot + local_slot) == 0 else 1975.0
+            marker = 0.42 * math.sin(2.0 * math.pi * marker_frequency * time) \
+                if time % 0.250 < 0.180 else 0.0
+            sample = max(-32768, min(32767, int((carrier + marker) * 32767.0)))
+            block.extend(struct.pack("<hh", sample, sample))
+            if len(block) >= 65536:
+                output.write(block)
+                block.clear()
+        output.write(block)
 
 
 def require_failure(path: Path, phrase: str) -> None:
@@ -78,6 +98,18 @@ def main() -> None:
         status, report = analyze(clean)
         if status != 0 or report.get("failures"):
             raise AssertionError(f"clean timing fixture failed: {report.get('failures')}")
+
+        boundary = root / "phase-4096.s16le"
+        write_offset_fixture(boundary, 4096)
+        status, report = analyze(boundary)
+        if status != 0 or report.get("failures"):
+            raise AssertionError(
+                "valid marker identities after the old 1,024-second phase boundary failed: "
+                f"{report.get('failures')}"
+            )
+        if report["capture"].get("marker_sequence_phase", 0) < 4096 \
+                or report["capture"].get("marker_sequence_mismatches") != 0:
+            raise AssertionError("analyzer did not recover a clean phase beyond 4095")
 
         start = byte_offset(4_000)
         displacement = byte_offset(120)
