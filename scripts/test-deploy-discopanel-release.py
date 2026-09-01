@@ -236,6 +236,31 @@ class DiscPanelReleaseDeploymentTests(unittest.TestCase):
                 [mod["id"] for mod in panel.mods if mod.get("enabled")], ["old"]
             )
 
+    def test_matching_loader_environment_is_not_rewritten(self) -> None:
+        target = deployment.DeploymentTarget(
+            runtime="1.21.7-neoforge",
+            server_name="Jammarr 1.21.7 NeoForge Test",
+            filename="jammarr-1.1.0+mc1.21.7-neoforge.jar",
+            sha256="a" * 64,
+            source=Path("unused.jar"),
+            loader_environment=(("NEOFORGE_VERSION", "21.7.25-beta"),),
+        )
+
+        class FakePanel:
+            def get_server(self, server_id: str) -> dict[str, object]:
+                return {
+                    "id": server_id,
+                    "status": deployment.reconciler.STATUS_STOPPED,
+                    "dockerOverrides": {
+                        "environment": {"NEOFORGE_VERSION": "21.7.25-beta"}
+                    },
+                }
+
+            def update_server_environment(self, server, additions) -> None:
+                raise AssertionError("matching loader environment must not be rewritten")
+
+        deployment.update_loader_environment(FakePanel(), target, {"id": "server"})
+
 
 if __name__ == "__main__":
     unittest.main()

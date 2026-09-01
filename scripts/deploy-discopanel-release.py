@@ -302,6 +302,9 @@ def update_loader_environment(
     if fresh.get("status") != reconciler.STATUS_STOPPED:
         raise RuntimeError(f"{target.runtime} became active before loader pin update")
     additions = dict(target.loader_environment)
+    environment = ((fresh.get("dockerOverrides") or {}).get("environment") or {})
+    if all(environment.get(key) == value for key, value in additions.items()):
+        return
     panel.update_server_environment(fresh, additions)
     updated = panel.get_server(str(server["id"]))
     environment = ((updated.get("dockerOverrides") or {}).get("environment") or {})
