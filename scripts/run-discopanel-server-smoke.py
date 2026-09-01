@@ -210,6 +210,103 @@ def preflight(
     return server
 
 
+def bootstrap_isolated_level(
+    panel: Any, server_id: str, args: argparse.Namespace, version: str
+) -> None:
+    """Let Minecraft create a new world/config tree before FileService writes it."""
+    baseline = log_messages(
+        panel.call(
+            "ServerService", "GetServerLogs", {"id": server_id, "tail": args.log_tail}
+        )
+    )
+    started = False
+    error: BaseException | None = None
+    try:
+        panel.call("ServerService", "StartServer", {"id": server_id})
+        started = True
+        first_start_returned_at = time.monotonic()
+        recovery_retry_requested = False
+        recovery_retry_returned_at = 0.0
+        deadline = time.monotonic() + args.start_timeout
+        active_seen = False
+        run_anchor_seen = False
+        observed: dict[str, bool] = {}
+        last_status = "unknown"
+        while time.monotonic() < deadline:
+            last_status = str(panel.get_server(server_id).get("status", "unknown"))
+            if last_status != reconciler.STATUS_STOPPED:
+                active_seen = True
+            now = time.monotonic()
+            if should_retry_stopped_start(
+                last_status,
+                active_seen,
+                recovery_retry_requested,
+                now - first_start_returned_at,
+            ):
+                panel.call("ServerService", "StartServer", {"id": server_id})
+                recovery_retry_requested = True
+                recovery_retry_returned_at = time.monotonic()
+                continue
+            if (
+                recovery_retry_requested
+                and not active_seen
+                and last_status == reconciler.STATUS_STOPPED
+                and now - recovery_retry_returned_at
+                >= START_RECOVERY_FAILURE_DELAY_SECONDS
+            ):
+                raise RuntimeError("isolated level remained stopped after recovery start")
+            current_messages, run_anchor_seen = active_run_messages(
+                baseline,
+                log_messages(
+                    panel.call(
+                        "ServerService",
+                        "GetServerLogs",
+                        {"id": server_id, "tail": args.log_tail},
+                    )
+                ),
+                run_anchor_seen,
+            )
+            observed = startup_evidence(current_messages, version)
+            if observed["installer_failure"] or observed["server_failure"]:
+                raise RuntimeError("isolated level bootstrap failed during server startup")
+            if last_status == "SERVER_STATUS_RUNNING" and observed["minecraft_ready"]:
+                print(f"SERVER_SMOKE_LEVEL_BOOTSTRAPPED {args.runtime}")
+                return
+            if last_status in (reconciler.STATUS_ERROR, "SERVER_STATUS_UNHEALTHY"):
+                raise RuntimeError(
+                    f"isolated level entered DiscPanel failure state {last_status}"
+                )
+            if active_seen and last_status == reconciler.STATUS_STOPPED:
+                raise RuntimeError(
+                    f"isolated level stopped before bootstrap acceptance; evidence={observed}"
+                )
+            time.sleep(args.poll_interval)
+        raise RuntimeError(
+            f"isolated level did not reach Minecraft readiness; status={last_status} "
+            f"evidence={observed}"
+        )
+    except BaseException as caught:
+        error = caught
+    finally:
+        if started:
+            try:
+                current = panel.get_server(server_id)
+                if current.get("status") != reconciler.STATUS_STOPPED:
+                    panel.call("ServerService", "StopServer", {"id": server_id})
+                wait_for_status(
+                    panel,
+                    server_id,
+                    reconciler.STATUS_STOPPED,
+                    args.stop_timeout,
+                    args.poll_interval,
+                )
+            except BaseException as stop_error:
+                if error is None:
+                    error = stop_error
+    if error is not None:
+        raise error
+
+
 def run_target(
     args: argparse.Namespace,
     panel: Any,
@@ -218,6 +315,41 @@ def run_target(
     profile: Any,
 ) -> int:
     """Run one already-resolved target without re-reading the release bundle."""
+    hold_ready_file = getattr(args, "hold_ready_file", None)
+    hold_release_file = getattr(args, "hold_release_file", None)
+    hold_timeout = getattr(args, "hold_timeout", 0)
+    hold_level_name = getattr(args, "hold_level_name", None)
+    hold_config_source_world = getattr(args, "hold_config_source_world", None)
+    hold_disable_non_jammarr_mods = getattr(
+        args, "hold_disable_non_jammarr_mods", False
+    )
+    hold_bootstrap_level = getattr(args, "hold_bootstrap_level", False)
+    if bool(hold_ready_file) != bool(hold_release_file):
+        raise SystemExit("client hold requires both --hold-ready-file and --hold-release-file")
+    if hold_ready_file:
+        if hold_timeout < 1:
+            raise SystemExit("--hold-timeout must be positive when client hold is enabled")
+        for path in (hold_ready_file, hold_release_file):
+            if path.exists():
+                raise SystemExit(f"client hold path already exists: {path}")
+    if hold_level_name:
+        if not hold_ready_file:
+            raise SystemExit("--hold-level-name requires the client hold handshake")
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", hold_level_name):
+            raise SystemExit("--hold-level-name must be a safe one-component world name")
+    if hold_config_source_world:
+        if not hold_level_name:
+            raise SystemExit("--hold-config-source-world requires --hold-level-name")
+        if not re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", hold_config_source_world
+        ):
+            raise SystemExit(
+                "--hold-config-source-world must be a safe one-component world name"
+            )
+    if hold_bootstrap_level and not (hold_level_name and hold_config_source_world):
+        raise SystemExit(
+            "--hold-bootstrap-level requires an isolated level and config source"
+        )
     if args.apply and args.confirm_runtime != args.runtime:
         raise SystemExit(f"--apply requires --confirm-runtime {args.runtime}")
     server = preflight(panel, version, target, profile)
@@ -231,10 +363,6 @@ def run_target(
         return 0
 
     started_at = datetime.now(timezone.utc)
-    baseline_response = panel.call(
-        "ServerService", "GetServerLogs", {"id": server_id, "tail": args.log_tail}
-    )
-    baseline_messages = log_messages(baseline_response)
     start_requested = False
     result: dict[str, Any] = {
         "schemaVersion": 1,
@@ -246,7 +374,90 @@ def run_target(
         "headlessServerOnly": True,
     }
     run_error: BaseException | None = None
+    original_properties: bytes | None = None
+    target_config_path: str | None = None
+    original_target_config: bytes | None = None
+    target_config_existed = False
+    source_config: bytes | None = None
+    disabled_non_jammarr_mods: list[dict[str, Any]] = []
     try:
+        if hold_level_name:
+            original_properties = panel.get_file(server_id, "server.properties")
+            try:
+                decoded_properties = original_properties.decode("utf-8")
+            except UnicodeDecodeError as error:
+                raise RuntimeError("server.properties is not valid UTF-8") from error
+            lines = decoded_properties.splitlines(keepends=True)
+            replacement = f"level-name={hold_level_name}"
+            replaced = False
+            for index, line in enumerate(lines):
+                body = line.rstrip("\r\n")
+                ending = line[len(body) :]
+                if body.startswith("level-name="):
+                    lines[index] = replacement + ending
+                    replaced = True
+            if not replaced:
+                if lines and not lines[-1].endswith(("\n", "\r")):
+                    lines[-1] += "\n"
+                lines.append(replacement + "\n")
+            isolated_properties = "".join(lines).encode("utf-8")
+            panel.update_file(server_id, "server.properties", isolated_properties)
+            if panel.get_file(server_id, "server.properties") != isolated_properties:
+                raise RuntimeError("DiscPanel did not preserve the isolated level setting")
+            result["clientHoldLevelIsolated"] = True
+        if hold_config_source_world:
+            source_config_path = (
+                f"{hold_config_source_world}/serverconfig/jammarr-server.toml"
+            )
+            target_config_path = f"{hold_level_name}/serverconfig/jammarr-server.toml"
+            source_config = panel.get_file(server_id, source_config_path)
+            if b"plexToken" not in source_config:
+                raise RuntimeError("source Jammarr config does not contain the Plex token field")
+            try:
+                original_target_config = panel.get_file(server_id, target_config_path)
+                target_config_existed = True
+            except RuntimeError:
+                if not hold_bootstrap_level:
+                    panel.create_folder(server_id, str(Path(target_config_path).parent))
+        if hold_disable_non_jammarr_mods:
+            current_mods = panel.call(
+                "ModService", "ListMods", {"serverId": server_id}
+            ).get("mods", [])
+            disabled_non_jammarr_mods = [
+                mod
+                for mod in current_mods
+                if deployment.is_enabled(mod) and not deployment.is_jammarr_mod(mod)
+            ]
+            for mod in disabled_non_jammarr_mods:
+                deployment.update_mod_enabled(panel, server_id, mod, False)
+            remaining_active = [
+                mod
+                for mod in panel.call(
+                    "ModService", "ListMods", {"serverId": server_id}
+                ).get("mods", [])
+                if deployment.is_enabled(mod) and not deployment.is_jammarr_mod(mod)
+            ]
+            if remaining_active:
+                raise RuntimeError("non-Jammarr mods remained active during client hold")
+            result["clientHoldNonJammarrModsDisabled"] = len(
+                disabled_non_jammarr_mods
+            )
+        if hold_bootstrap_level:
+            bootstrap_isolated_level(panel, server_id, args, version)
+            result["clientHoldLevelBootstrapped"] = True
+        if target_config_path is not None:
+            assert source_config is not None
+            panel.update_file(server_id, target_config_path, source_config)
+            if panel.get_file(server_id, target_config_path) != source_config:
+                raise RuntimeError("DiscPanel did not preserve the isolated Jammarr config")
+            result["clientHoldConfigIsolated"] = True
+        baseline_messages = log_messages(
+            panel.call(
+                "ServerService",
+                "GetServerLogs",
+                {"id": server_id, "tail": args.log_tail},
+            )
+        )
         start_requested = True
         panel.call("ServerService", "StartServer", {"id": server_id})
         first_start_returned_at = time.monotonic()
@@ -313,8 +524,10 @@ def run_target(
                 )
             ):
                 break
-            if last_status == reconciler.STATUS_ERROR:
-                raise RuntimeError(f"{args.runtime} entered DiscPanel error state")
+            if last_status in (reconciler.STATUS_ERROR, "SERVER_STATUS_UNHEALTHY"):
+                raise RuntimeError(
+                    f"{args.runtime} entered DiscPanel failure state {last_status}"
+                )
             if active_seen and last_status == reconciler.STATUS_STOPPED:
                 raise RuntimeError(
                     f"{args.runtime} stopped before acceptance; evidence={observed}"
@@ -333,6 +546,38 @@ def run_target(
             f"SERVER_SMOKE_ACCEPTED {args.runtime} running=true fresh_logs=true "
             "initialized=true plex_connected=true"
         )
+        if hold_ready_file:
+            hold_ready_file.parent.mkdir(parents=True, exist_ok=True)
+            hold_ready_file.write_text(
+                json.dumps(
+                    {
+                        "runtime": args.runtime,
+                        "version": version,
+                        "artifact": target.filename,
+                        "sha256": target.sha256,
+                        "status": last_status,
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
+                "utf-8",
+            )
+            print(f"SERVER_SMOKE_CLIENT_HOLD_READY {args.runtime} {hold_ready_file}")
+            hold_deadline = time.monotonic() + hold_timeout
+            while not hold_release_file.is_file():
+                current_status = str(panel.get_server(server_id).get("status", "unknown"))
+                if current_status != "SERVER_STATUS_RUNNING":
+                    raise RuntimeError(
+                        f"{args.runtime} left RUNNING during client hold; status={current_status}"
+                    )
+                if time.monotonic() >= hold_deadline:
+                    raise RuntimeError(
+                        f"{args.runtime} client hold timed out after {hold_timeout}s"
+                    )
+                time.sleep(args.poll_interval)
+            result["clientHoldCompleted"] = True
+            print(f"SERVER_SMOKE_CLIENT_HOLD_RELEASED {args.runtime}")
     except BaseException as error:
         run_error = error
         result["errorType"] = type(error).__name__
@@ -358,6 +603,56 @@ def run_target(
                 result["stopError"] = str(stop_error)
                 if run_error is None:
                     run_error = stop_error
+        if original_properties is not None:
+            try:
+                panel.update_file(server_id, "server.properties", original_properties)
+                if panel.get_file(server_id, "server.properties") != original_properties:
+                    raise RuntimeError("server.properties restore verification failed")
+                result["clientHoldPropertiesRestored"] = True
+            except BaseException as restore_error:
+                result["clientHoldPropertiesRestored"] = False
+                result["restoreErrorType"] = type(restore_error).__name__
+                result["restoreError"] = str(restore_error)
+                if run_error is None:
+                    run_error = restore_error
+        if target_config_path is not None:
+            try:
+                if target_config_existed:
+                    assert original_target_config is not None
+                    panel.update_file(server_id, target_config_path, original_target_config)
+                    restored_config = panel.get_file(server_id, target_config_path)
+                    if restored_config != original_target_config:
+                        raise RuntimeError("isolated Jammarr config restore verification failed")
+                else:
+                    panel.delete_file(server_id, target_config_path)
+                result["clientHoldConfigRestored"] = True
+            except BaseException as restore_error:
+                result["clientHoldConfigRestored"] = False
+                result["configRestoreErrorType"] = type(restore_error).__name__
+                result["configRestoreError"] = str(restore_error)
+                if run_error is None:
+                    run_error = restore_error
+        if disabled_non_jammarr_mods:
+            try:
+                for mod in disabled_non_jammarr_mods:
+                    deployment.update_mod_enabled(panel, server_id, mod, True)
+                active_ids = {
+                    str(mod.get("id"))
+                    for mod in panel.call(
+                        "ModService", "ListMods", {"serverId": server_id}
+                    ).get("mods", [])
+                    if deployment.is_enabled(mod)
+                }
+                expected_ids = {str(mod.get("id")) for mod in disabled_non_jammarr_mods}
+                if not expected_ids.issubset(active_ids):
+                    raise RuntimeError("non-Jammarr mod restore verification failed")
+                result["clientHoldNonJammarrModsRestored"] = True
+            except BaseException as restore_error:
+                result["clientHoldNonJammarrModsRestored"] = False
+                result["modRestoreErrorType"] = type(restore_error).__name__
+                result["modRestoreError"] = str(restore_error)
+                if run_error is None:
+                    run_error = restore_error
         args.evidence_dir.mkdir(parents=True, exist_ok=True)
         evidence_path = args.evidence_dir / f"{args.runtime}.json"
         evidence_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", "utf-8")
@@ -397,6 +692,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--confirm-runtime")
+    parser.add_argument("--hold-ready-file", type=Path)
+    parser.add_argument("--hold-release-file", type=Path)
+    parser.add_argument("--hold-timeout", type=int, default=1800)
+    parser.add_argument("--hold-level-name")
+    parser.add_argument("--hold-config-source-world")
+    parser.add_argument("--hold-disable-non-jammarr-mods", action="store_true")
+    parser.add_argument("--hold-bootstrap-level", action="store_true")
     return parser.parse_args()
 
 
