@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import subprocess
 import sys
 from typing import Any
@@ -92,6 +93,43 @@ def write_summary(path: Path, value: dict[str, Any]) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def run_gate(
+    command: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    cleanup_timeout: int = 240,
+) -> int:
+    """Run a gate in an isolated session and preserve its interrupt cleanup.
+
+    A terminal interrupt reaches the matrix wrapper but not the separately
+    sessioned gate. The wrapper can therefore signal the gate shell itself and
+    wait for its EXIT trap to stop the dedicated server, private X server, and
+    client descendants before propagating the interrupt.
+    """
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        env=env,
+        start_new_session=True,
+    )
+    try:
+        return process.wait()
+    except KeyboardInterrupt:
+        try:
+            process.send_signal(signal.SIGINT)
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=cleanup_timeout)
+        except subprocess.TimeoutExpired as error:
+            raise RuntimeError(
+                f"vanilla client gate cleanup did not finish within "
+                f"{cleanup_timeout} seconds"
+            ) from error
+        raise
+
+
 def run(args: argparse.Namespace) -> int:
     manifest = target_matrix.load_manifest(args.manifest)
     all_runtimes = artifact_free_runtimes(manifest)
@@ -131,18 +169,17 @@ def run(args: argparse.Namespace) -> int:
                     "JAMMARR_VANILLA_CONNECTED_SECONDS": str(args.connected_seconds),
                 }
             )
-            result = subprocess.run(
+            exit_code = run_gate(
                 [str(args.gate_script.resolve()), label],
                 cwd=args.gate_script.resolve().parent.parent,
                 env=environment,
-                check=False,
             )
-            if result.returncode == 0 and accepted_evidence(output, runtime):
+            if exit_code == 0 and accepted_evidence(output, runtime):
                 summary["accepted"].append(label)
                 continue
             failure = {
                 "runtime": label,
-                "exitCode": result.returncode,
+                "exitCode": exit_code,
                 "acceptedEvidence": accepted_evidence(output, runtime),
             }
             summary["failures"].append(failure)

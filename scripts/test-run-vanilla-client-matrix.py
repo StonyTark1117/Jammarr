@@ -5,8 +5,10 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import signal
 import tempfile
 import unittest
+from unittest import mock
 
 
 SCRIPT = Path(__file__).with_name("run-vanilla-client-matrix.py")
@@ -76,6 +78,56 @@ class VanillaClientMatrixTest(unittest.TestCase):
             value["runtime"]["sharedCacheMutated"] = True
             (instance / "vanilla-attestation.json").write_text(json.dumps(value), "utf-8")
             self.assertFalse(MATRIX.accepted_evidence(output, runtime))
+
+    def test_run_gate_uses_isolated_session_and_returns_status(self) -> None:
+        process = mock.Mock()
+        process.wait.return_value = 7
+        with mock.patch.object(MATRIX.subprocess, "Popen", return_value=process) as popen:
+            self.assertEqual(
+                MATRIX.run_gate(
+                    ["gate", "1.20.1-fabric"],
+                    cwd=Path("/repo"),
+                    env={"SAFE": "value"},
+                ),
+                7,
+            )
+        popen.assert_called_once_with(
+            ["gate", "1.20.1-fabric"],
+            cwd=Path("/repo"),
+            env={"SAFE": "value"},
+            start_new_session=True,
+        )
+        process.wait.assert_called_once_with()
+
+    def test_run_gate_waits_for_cleanup_before_reraising_interrupt(self) -> None:
+        process = mock.Mock()
+        process.wait.side_effect = [KeyboardInterrupt(), 130]
+        with mock.patch.object(MATRIX.subprocess, "Popen", return_value=process):
+            with self.assertRaises(KeyboardInterrupt):
+                MATRIX.run_gate(
+                    ["gate", "1.20.1-fabric"],
+                    cwd=Path("/repo"),
+                    env={},
+                )
+        process.send_signal.assert_called_once_with(signal.SIGINT)
+        self.assertEqual(
+            process.wait.call_args_list,
+            [mock.call(), mock.call(timeout=240)],
+        )
+
+    def test_run_gate_reports_cleanup_timeout(self) -> None:
+        process = mock.Mock()
+        process.wait.side_effect = [
+            KeyboardInterrupt(),
+            MATRIX.subprocess.TimeoutExpired(["gate"], 240),
+        ]
+        with mock.patch.object(MATRIX.subprocess, "Popen", return_value=process):
+            with self.assertRaisesRegex(RuntimeError, "cleanup did not finish"):
+                MATRIX.run_gate(
+                    ["gate", "1.20.1-fabric"],
+                    cwd=Path("/repo"),
+                    env={},
+                )
 
 
 if __name__ == "__main__":
