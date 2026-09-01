@@ -27,9 +27,18 @@ class DiscPanelReconcilerTests(unittest.TestCase):
         self.assertIn("ModService", reconcile_discopanel.MANAGED_DESCRIPTION)
 
     def test_manifest_produces_complete_runtime_matrix(self) -> None:
+        manifest = reconcile_discopanel.target_matrix.load_manifest(
+            Path("gradle/targets.json")
+        )
+        expected_runtimes = [
+            runtime["name"]
+            for runtime in reconcile_discopanel.target_matrix.runtimes(manifest)
+        ]
         profiles = reconcile_discopanel.desired_profiles(Path("gradle/targets.json"))
-        self.assertEqual(len(profiles), 99)
-        self.assertEqual(len({profile.name for profile in profiles}), 99)
+        self.assertEqual([profile.runtime for profile in profiles], expected_runtimes)
+        self.assertEqual(
+            len({profile.name for profile in profiles}), len(expected_runtimes)
+        )
         self.assertEqual(
             [profile.runtime for profile in profiles if profile.provisioning != "native"],
             [

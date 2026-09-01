@@ -36,12 +36,22 @@ class DiscPanelReleaseDeploymentTests(unittest.TestCase):
         }
 
     def test_deployment_mapping_covers_all_runtime_profiles(self) -> None:
+        manifest = deployment.target_matrix.load_manifest(Path("gradle/targets.json"))
+        expected_runtimes = [
+            runtime["name"] for runtime in deployment.target_matrix.runtimes(manifest)
+        ]
+        expected_server_artifacts = {
+            Path(artifact["artifact"]).name
+            for artifact in deployment.target_matrix.implemented_artifacts(manifest)
+            if artifact["runtimeMode"] == "full"
+        }
         targets = deployment.deployment_targets(
             Path("gradle/targets.json"), Path("build/releases"), self.release_artifacts()
         )
-        self.assertEqual(len(targets), 99)
-        self.assertEqual(len({target.runtime for target in targets}), 99)
-        self.assertEqual(len({target.filename for target in targets}), 75)
+        self.assertEqual([target.runtime for target in targets], expected_runtimes)
+        self.assertEqual(
+            {target.filename for target in targets}, expected_server_artifacts
+        )
 
     def test_quilt_runtime_uses_matching_fabric_artifact(self) -> None:
         targets = {
