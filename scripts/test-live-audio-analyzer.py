@@ -178,6 +178,29 @@ class LiveAudioAnalyzerTests(unittest.TestCase):
         failures = analyzer.validate("pair", report, self.args())
         self.assertTrue(any("divergent" in failure for failure in failures), failures)
 
+    def test_only_strongly_synchronized_silence_is_retryable(self) -> None:
+        report = {
+            "bad_block_count": 0,
+            "longest_bad_run_ms": 0,
+            "correlation": 0.998618,
+        }
+        failure = ["rendered contains an excessive post-start silence gap"]
+        self.assertEqual(
+            analyzer.capture_retry_reason(failure, report),
+            "synchronized-silence",
+        )
+        self.assertIsNone(
+            analyzer.capture_retry_reason(failure + ["rendered contains a sustained divergent/skipped/reordered region"], report)
+        )
+        for key, value in (
+            ("bad_block_count", 1),
+            ("longest_bad_run_ms", 100),
+            ("correlation", 0.90),
+        ):
+            divergent = dict(report)
+            divergent[key] = value
+            self.assertIsNone(analyzer.capture_retry_reason(failure, divergent))
+
 
 if __name__ == "__main__":
     unittest.main()

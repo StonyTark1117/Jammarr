@@ -701,6 +701,41 @@ wait_for_matching_audio_generation() {
   done
 }
 
+wait_for_new_matching_audio_generation() {
+  local previous=$1
+  local timeout=$2
+  local deadline=$((SECONDS + timeout))
+  local leader_generation follower_generation leader_channels leader_manifests
+  while true; do
+    leader_generation=$(client_audio_generation leader)
+    follower_generation=$(client_audio_generation follower)
+    leader_channels=${leader_generation%%:*}
+    leader_manifests=${leader_generation#*:}
+    if [[ "$leader_generation" == "$follower_generation" \
+        && "$leader_generation" != "$previous" \
+        && $leader_channels -gt 0 && $leader_manifests -gt 0 ]]; then
+      printf '%s\n' "$leader_generation"
+      return 0
+    fi
+    if grep -Eq "$terminal_client_pattern" \
+        "$session_dir/client-leader.console.log" "$session_dir/client-follower.console.log" 2>/dev/null; then
+      echo "$runtime client entered a terminal audio/connection state while waiting for a replacement track" >&2
+      return 1
+    fi
+    for index in 0 1; do
+      if ! kill -0 "${client_pids[$index]}" 2>/dev/null; then
+        echo "$runtime client $index exited while waiting for a replacement track" >&2
+        return 1
+      fi
+    done
+    if (( SECONDS >= deadline )); then
+      echo "$runtime clients did not start a replacement audio generation within ${timeout}s" >&2
+      return 1
+    fi
+    sleep 1
+  done
+}
+
 start_client leader "$leader_username" "$sink_leader"
 wait_for_client_state leader "${client_pids[0]}" NO_STREAM 600
 wait_for_client_marker leader "${client_pids[0]}" 'Acceptance playback state:' 600
@@ -742,7 +777,46 @@ while true; do
     >> "$session_dir/capture-attempts.log"
   if [[ "$leader_generation" == "$capture_generation" \
       && "$follower_generation" == "$capture_generation" ]]; then
-    break
+    analyzer_args=(--minimum-duration-ms $((capture_seconds * 1000 - 1500))
+      --timing-left-log "$session_dir/client-leader.console.log"
+      --timing-right-log "$session_dir/client-follower.console.log")
+    if [[ "$audio_profile" == legacy-openal ]]; then
+      leader_trace=$(find "$session_dir/client-leader/pcm-trace" -type f -name '*.s16le' -printf '%s\t%p\n' \
+        | sort -nr | head -n 1 | cut -f 2-)
+      follower_trace=$(find "$session_dir/client-follower/pcm-trace" -type f -name '*.s16le' -printf '%s\t%p\n' \
+        | sort -nr | head -n 1 | cut -f 2-)
+      if [[ -z "$leader_trace" || -z "$follower_trace" ]]; then
+        echo "$runtime did not produce both legacy pre-backend PCM traces" >&2
+        exit 1
+      fi
+      analyzer_args+=(--trace-left "$leader_trace" --trace-right "$follower_trace")
+    fi
+    attempt_analysis="$session_dir/audio-analysis-attempt-${capture_attempt}.json"
+    if python3 "$repo_root/scripts/analyze-live-audio.py" "$leader_raw" "$follower_raw" \
+        "${analyzer_args[@]}" > "$attempt_analysis"; then
+      cp "$attempt_analysis" "$session_dir/audio-analysis.json"
+      break
+    fi
+    cp "$attempt_analysis" "$session_dir/audio-analysis.json"
+    if ! jq -e '.capture_retry_reason == "synchronized-silence"' \
+        "$attempt_analysis" >/dev/null; then
+      break
+    fi
+    if (( capture_attempt >= capture_attempt_limit )); then
+      echo "$runtime selected synchronized-silence program material in all $capture_attempt_limit capture attempts" >&2
+      exit 1
+    fi
+    printf 'LIVE_CLIENT_GATE_CAPTURE_RETRY runtime=%s attempt=%s reason=synchronized-silence\n' \
+      "$runtime" "$capture_attempt"
+    printf 'attempt=%s retry_reason=synchronized-silence generation=%s\n' \
+      "$capture_attempt" "$capture_generation" >> "$session_dir/capture-attempts.log"
+    printf '%s|control:skip:-1:\n' "$((1000 + capture_attempt))" \
+      > "$session_dir/client-leader.control"
+    replacement_generation=$(wait_for_new_matching_audio_generation "$capture_generation" 120)
+    printf 'attempt=%s replacement_generation=%s\n' \
+      "$capture_attempt" "$replacement_generation" >> "$session_dir/capture-attempts.log"
+    capture_attempt=$((capture_attempt + 1))
+    continue
   fi
   if (( capture_attempt >= capture_attempt_limit )); then
     echo "$runtime crossed an audio-track transition in all $capture_attempt_limit capture attempts" >&2
@@ -763,23 +837,6 @@ if ! kill -0 "$server_pid" 2>/dev/null; then
   echo "$runtime server holder exited during live capture" >&2
   exit 1
 fi
-
-analyzer_args=(--minimum-duration-ms $((capture_seconds * 1000 - 1500))
-  --timing-left-log "$session_dir/client-leader.console.log"
-  --timing-right-log "$session_dir/client-follower.console.log")
-if [[ "$audio_profile" == legacy-openal ]]; then
-  leader_trace=$(find "$session_dir/client-leader/pcm-trace" -type f -name '*.s16le' -printf '%s\t%p\n' \
-    | sort -nr | head -n 1 | cut -f 2-)
-  follower_trace=$(find "$session_dir/client-follower/pcm-trace" -type f -name '*.s16le' -printf '%s\t%p\n' \
-    | sort -nr | head -n 1 | cut -f 2-)
-  if [[ -z "$leader_trace" || -z "$follower_trace" ]]; then
-    echo "$runtime did not produce both legacy pre-backend PCM traces" >&2
-    exit 1
-  fi
-  analyzer_args+=(--trace-left "$leader_trace" --trace-right "$follower_trace")
-fi
-python3 "$repo_root/scripts/analyze-live-audio.py" "$leader_raw" "$follower_raw" \
-  "${analyzer_args[@]}" > "$session_dir/audio-analysis.json"
 
 if grep -Eq "$terminal_client_pattern" \
     "$session_dir/client-leader.console.log" "$session_dir/client-follower.console.log"; then

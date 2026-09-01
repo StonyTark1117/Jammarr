@@ -67,6 +67,22 @@ class LiveClientMatrixTests(unittest.TestCase):
             source.index("parec --raw", source.index("leader_raw=")),
         )
 
+    def test_live_gate_skips_only_synchronized_silence_and_reanalyzes(self) -> None:
+        source = LIVE_GATE_SCRIPT.read_text()
+        self.assertIn("wait_for_new_matching_audio_generation()", source)
+        self.assertIn('.capture_retry_reason == "synchronized-silence"', source)
+        self.assertIn("reason=synchronized-silence", source)
+        self.assertIn("control:skip:-1:", source)
+        self.assertIn('audio-analysis-attempt-${capture_attempt}.json', source)
+        self.assertLess(
+            source.index("reason=synchronized-silence"),
+            source.index("control:skip:-1:"),
+        )
+        self.assertLess(
+            source.index("control:skip:-1:"),
+            source.index("wait_for_new_matching_audio_generation", source.index("control:skip:-1:")),
+        )
+
     def test_live_gate_isolates_audio_server_from_active_desktop(self) -> None:
         source = LIVE_GATE_SCRIPT.read_text()
         self.assertIn(

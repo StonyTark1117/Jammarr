@@ -310,6 +310,28 @@ def validate(name: str, report: dict[str, object], args: argparse.Namespace) -> 
     return failures
 
 
+def capture_retry_reason(
+    failures: list[str], rendered: dict[str, object]
+) -> str | None:
+    """Classify content unsuitable for a strict live synchronization capture.
+
+    This never turns a failed analysis into a pass. It permits the live harness
+    to select another real track only when both rendered clients remained
+    strongly synchronized and silence was the sole failure. Client-specific
+    loss, skew, skips, reordering, or any additional failed invariant remains
+    terminal for the runtime.
+    """
+    if failures != ["rendered contains an excessive post-start silence gap"]:
+        return None
+    if int(rendered["bad_block_count"]) != 0:
+        return None
+    if int(rendered["longest_bad_run_ms"]) != 0:
+        return None
+    if float(rendered["correlation"]) < 0.95:
+        return None
+    return "synchronized-silence"
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("left", type=Path)
@@ -387,6 +409,9 @@ def main() -> int:
         failures.extend(validate("decoder traces", traces, trace_args))
     report["failures"] = failures
     report["passed"] = not failures
+    retry_reason = capture_retry_reason(failures, rendered)
+    if retry_reason is not None:
+        report["capture_retry_reason"] = retry_reason
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0 if not failures else 1
 
