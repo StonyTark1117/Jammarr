@@ -24,7 +24,14 @@ class UnmoddedServerClientMatrixTest(unittest.TestCase):
         manifest = MATRIX.target_matrix.load_manifest(Path("gradle/targets.json"))
         runtimes = MATRIX.target_matrix.runtimes(manifest)
         selected = MATRIX.select_runtimes(runtimes, [])
-        self.assertEqual(len(selected), 99)
+        expected = sum(
+            1 + int(loader.get("quiltCompatible", False))
+            for target in manifest["targets"]
+            for loader in target["loaders"]
+            if loader.get("implemented", False)
+            and loader.get("runtimeMode", "full") == "full"
+        )
+        self.assertEqual(len(selected), expected)
         self.assertIn("b1.7.3-babric", [runtime["name"] for runtime in selected])
         self.assertIn("26.2-neoforge", [runtime["name"] for runtime in selected])
 
