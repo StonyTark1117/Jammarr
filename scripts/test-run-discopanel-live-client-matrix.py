@@ -26,6 +26,12 @@ class LiveClientMatrixTests(unittest.TestCase):
     def test_live_gate_keeps_private_sinks_active_until_cleanup(self) -> None:
         source = LIVE_GATE_SCRIPT.read_text()
         self.assertIn("sink_keepalive_pids=()", source)
+        self.assertIn('sink_master="${sink_prefix}_capture"', source)
+        self.assertIn("module-null-sink", source)
+        self.assertIn("module-remap-sink", source)
+        self.assertIn("channels=4", source)
+        self.assertIn("master_channel_map=front-left,front-right", source)
+        self.assertIn("master_channel_map=rear-left,rear-right", source)
         self.assertIn('for sink in "$sink_leader" "$sink_follower"; do', source)
         self.assertIn('pacat --raw --playback --device="$sink"', source)
         self.assertIn('$NF == "RUNNING"', source)
@@ -108,11 +114,22 @@ class LiveClientMatrixTests(unittest.TestCase):
             source.index('for pid in "$private_pulse_pid"', source.index("cleanup()")),
         )
 
+    def test_live_gate_records_both_clients_on_one_graph_clock(self) -> None:
+        source = LIVE_GATE_SCRIPT.read_text()
+        capture = source[source.index('combined_raw="$session_dir/shared-clock.s16le"') :]
+        before_analysis = capture[: capture.index('analyzer_args=(')]
+        self.assertEqual(before_analysis.count("parec --raw"), 1)
+        self.assertIn('--device="${sink_master}.monitor"', before_analysis)
+        self.assertIn("--channels=4", before_analysis)
+        self.assertIn('> "$combined_raw"', before_analysis)
+        self.assertIn("pan=stereo|c0=c0|c1=c1[leader]", before_analysis)
+        self.assertIn("pan=stereo|c0=c2|c1=c3[follower]", before_analysis)
+
     def test_live_gate_bounds_software_rendering_during_audio_capture(self) -> None:
         source = LIVE_GATE_SCRIPT.read_text()
         self.assertIn("'maxFps:30'", source)
+        self.assertIn("'simulationDistance:5'", source)
         self.assertIn("'renderDistance:2'", source)
-        self.assertIn("'simulationDistance:2'", source)
         self.assertIn("'graphicsMode:0'", source)
         self.assertIn("'particles:2'", source)
         self.assertIn("'entityShadows:false'", source)

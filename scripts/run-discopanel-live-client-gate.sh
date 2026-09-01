@@ -150,9 +150,12 @@ remove_stale_gate_sinks() {
     pactl unload-module "$module"
   done < <(
     pactl list short modules \
-      | awk '$2 == "module-null-sink" && $0 ~ /sink_name=jammarr_live_/ { print $1 }'
+      | awk '($2 == "module-null-sink" || $2 == "module-remap-sink") \
+          && $0 ~ /sink_name=jammarr_live_/ { print $1 }' \
+      | sort -rn
   )
-  if pactl list short modules | grep -Eq 'module-null-sink.*sink_name=jammarr_live_'; then
+  if pactl list short modules \
+      | grep -Eq 'module-(null|remap)-sink.*sink_name=jammarr_live_'; then
     echo "$runtime could not remove stale private live-gate audio sinks" >&2
     return 1
   fi
@@ -418,6 +421,9 @@ cleanup() {
     wait "$pid" 2>/dev/null || true
   done
   sink_keepalive_pids=()
+  # Remap sinks depend on the shared capture sink. IDs are retained in
+  # dependents-first teardown order so the master never survives a failed
+  # unload behind one of its children.
   for module in "${sink_modules[@]}"; do pactl unload-module "$module" >/dev/null 2>&1 || true; done
   for pid in "$private_pulse_pid" "$private_wireplumber_pid" "$private_pipewire_pid"; do
     [[ -n "$pid" ]] || continue
@@ -501,10 +507,18 @@ export PULSE_SERVER="unix:$audio_runtime_dir/pulse/native"
 pactl info > /dev/null
 
 sink_prefix="jammarr_live_${BASHPID}_${runtime//[^a-zA-Z0-9]/_}"
+sink_master="${sink_prefix}_capture"
 sink_leader="${sink_prefix}_leader"
 sink_follower="${sink_prefix}_follower"
-sink_modules+=("$(pactl load-module module-null-sink sink_name="$sink_leader" rate=48000 channels=2)")
-sink_modules+=("$(pactl load-module module-null-sink sink_name="$sink_follower" rate=48000 channels=2)")
+master_module=$(pactl load-module module-null-sink sink_name="$sink_master" rate=48000 channels=4 \
+  channel_map=front-left,front-right,rear-left,rear-right)
+leader_module=$(pactl load-module module-remap-sink sink_name="$sink_leader" master="$sink_master" \
+  channels=2 channel_map=front-left,front-right \
+  master_channel_map=front-left,front-right remix=no)
+follower_module=$(pactl load-module module-remap-sink sink_name="$sink_follower" master="$sink_master" \
+  channels=2 channel_map=front-left,front-right \
+  master_channel_map=rear-left,rear-right remix=no)
+sink_modules+=("$follower_module" "$leader_module" "$master_module")
 
 # A slow client may leave its private sink idle for tens of seconds while the
 # second client starts. PipeWire-Pulse can suspend that route in the gap, after
@@ -523,9 +537,11 @@ while true; do
   for pid in "${sink_keepalive_pids[@]}"; do
     if ! kill -0 "$pid" 2>/dev/null; then keepalives_alive=false; fi
   done
-  running_sinks=$(pactl list short sinks | awk -v leader="$sink_leader" -v follower="$sink_follower" \
-    '($2 == leader || $2 == follower) && $NF == "RUNNING" { count++ } END { print count + 0 }')
-  if [[ "$keepalives_alive" == true && "$running_sinks" == 2 ]]; then break; fi
+  running_sinks=$(pactl list short sinks \
+    | awk -v master="$sink_master" -v leader="$sink_leader" -v follower="$sink_follower" \
+      '($2 == master || $2 == leader || $2 == follower) && $NF == "RUNNING" \
+        { count++ } END { print count + 0 }')
+  if [[ "$keepalives_alive" == true && "$running_sinks" == 3 ]]; then break; fi
   if [[ "$keepalives_alive" == false || SECONDS -ge audio_ready_deadline ]]; then
     echo "$runtime private live-gate audio sinks did not become active" >&2
     exit 1
@@ -582,7 +598,7 @@ start_client() {
     'narrator:0' \
     'maxFps:30' \
     'renderDistance:2' \
-    'simulationDistance:2' \
+    'simulationDistance:5' \
     'graphicsMode:0' \
     'particles:2' \
     'entityShadows:false' \
@@ -767,6 +783,7 @@ wait_for_client_state follower "${client_pids[1]}" PLAYING 600
 
 leader_raw="$session_dir/leader.s16le"
 follower_raw="$session_dir/follower.s16le"
+combined_raw="$session_dir/shared-clock.s16le"
 # Preserve the requested amount of active program even when the selected real
 # Plex track begins with jointly inaudible content or the backend monitor needs
 # a short settling interval. The analyzer still requires capture_seconds minus
@@ -777,13 +794,23 @@ while true; do
   capture_generation=$(wait_for_matching_audio_generation 120)
   printf 'attempt=%s start_generation=%s\n' "$capture_attempt" "$capture_generation" \
     >> "$session_dir/capture-attempts.log"
-  parec --raw --latency-msec=50 --device="${sink_leader}.monitor" --format=s16le --rate=48000 --channels=2 \
-    > "$leader_raw" & recorder_pids+=("$!")
-  parec --raw --latency-msec=50 --device="${sink_follower}.monitor" --format=s16le --rate=48000 --channels=2 \
-    > "$follower_raw" & recorder_pids+=("$!")
+  # Capture both clients from one four-channel master monitor. Two independent
+  # Pulse record streams can recover an xrun by inserting different amounts of
+  # silence, creating an apparent phase jump even when the clients remain
+  # aligned. A single stream gives both stereo pairs one graph clock and one
+  # recorder timeline; splitting happens only after the recorder stops.
+  parec --raw --latency-msec=200 --device="${sink_master}.monitor" --format=s16le \
+    --rate=48000 --channels=4 \
+    --channel-map=front-left,front-right,rear-left,rear-right \
+    > "$combined_raw" & recorder_pids+=("$!")
   sleep "$wall_capture_seconds"
   for pid in "${recorder_pids[@]}"; do kill -TERM "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; done
   recorder_pids=()
+  ffmpeg -hide_banner -loglevel error -y -f s16le -ar 48000 -ac 4 -i "$combined_raw" \
+    -filter_complex \
+      '[0:a]pan=stereo|c0=c0|c1=c1[leader];[0:a]pan=stereo|c0=c2|c1=c3[follower]' \
+    -map '[leader]' -f s16le "$leader_raw" \
+    -map '[follower]' -f s16le "$follower_raw"
 
   leader_generation=$(client_audio_generation leader)
   follower_generation=$(client_audio_generation follower)

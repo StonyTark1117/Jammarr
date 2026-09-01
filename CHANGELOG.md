@@ -58,6 +58,7 @@
 - Detect terminal Minecraft process failures such as startup Mixin errors and `mc-server-runner` completion immediately instead of waiting for DiscPanel's stale `STARTING` state to reach the ten-minute timeout.
 - Anchor DiscPanel smoke evidence to the newly started container segment so a rotated log window cannot replay a completed historical failure—or historical success—as evidence for the current run.
 - Bound private live-client rendering to 854x480 at 30 FPS and mute every non-Music sound category so world-local effects cannot contaminate the two-client synchronization oracle. For modern clients, compare the existing pre-catch-up backend-ready timestamps instead of the later `channel_started` log instant, preventing unequal decoder-discard work from becoming a false timing failure while retaining the 25 ms program-origin limit and every rendered-audio threshold.
+- Record both private clients through one four-channel master monitor and split their stereo pairs after capture, preventing independent Pulse recorder xruns from inserting unequal silence and masquerading as audio skips or reordering. Exact repeats of the three disputed rendered-audio rows passed with zero bad blocks, and ForgeGradle 7.0.36 repairs the separate 1.21.1 Forge launcher-metadata failure; the corrected target also passes its full two-client live-Plex gate.
 
 ## 1.0.2 - 2026-08-28
 
