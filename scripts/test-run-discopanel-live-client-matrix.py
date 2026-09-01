@@ -244,6 +244,20 @@ class LiveClientMatrixTests(unittest.TestCase):
                     matrix.accepted_session(root, "1.1.0", self.target())
                 )
 
+    def test_wait_for_accepted_session_allows_bounded_process_settling(self) -> None:
+        expected = Path("accepted-session")
+        with mock.patch.object(
+            matrix, "accepted_session", side_effect=[None, None, expected]
+        ) as accepted, mock.patch.object(
+            matrix.time, "monotonic", return_value=1.0
+        ), mock.patch.object(matrix.time, "sleep") as sleep:
+            actual = matrix.wait_for_accepted_session(
+                Path("evidence"), "1.1.0", self.target(), timeout=15, interval=0.25
+            )
+        self.assertEqual(actual, expected)
+        self.assertEqual(accepted.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+
     def test_run_live_gate_uses_isolated_session_and_returns_status(self) -> None:
         process = mock.Mock()
         process.wait.return_value = 7

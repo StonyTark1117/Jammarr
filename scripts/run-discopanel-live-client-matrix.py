@@ -16,6 +16,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -149,6 +150,25 @@ def accepted_session(evidence_dir: Path, version: str, target: Any) -> Path | No
     return None
 
 
+def wait_for_accepted_session(
+    evidence_dir: Path,
+    version: str,
+    target: Any,
+    *,
+    timeout: float = 15.0,
+    interval: float = 0.25,
+) -> Path | None:
+    """Allow detached launch wrappers a bounded interval to finish teardown."""
+    deadline = time.monotonic() + timeout
+    while True:
+        evidence = accepted_session(evidence_dir, version, target)
+        if evidence is not None:
+            return evidence
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(interval)
+
+
 def write_summary(path: Path, summary: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", "utf-8")
@@ -276,7 +296,9 @@ def run(args: argparse.Namespace) -> int:
                         f"with exit code {returncode}"
                     )
             else:
-                evidence = accepted_session(args.evidence_dir, version, target)
+                evidence = wait_for_accepted_session(
+                    args.evidence_dir, version, target
+                )
                 if evidence is None:
                     summary["failures"].append(
                         {
