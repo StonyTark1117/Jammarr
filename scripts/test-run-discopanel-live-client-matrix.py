@@ -128,6 +128,15 @@ class LiveClientMatrixTests(unittest.TestCase):
             )
             self.assertIsNone(matrix.accepted_session(root, "1.1.0", self.target()))
 
+    def test_accepted_session_rejects_broken_audio_route(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            session = self.write_session(root)
+            (session / "client-leader.console.log").write_text(
+                "[ALSOFT] (EE) available update failed: Broken pipe\n"
+            )
+            self.assertIsNone(matrix.accepted_session(root, "1.1.0", self.target()))
+
     def test_accepted_session_allows_expected_disconnect_after_server_stop(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

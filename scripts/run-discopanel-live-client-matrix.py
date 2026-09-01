@@ -29,6 +29,7 @@ FORBIDDEN_CLIENT_MARKERS = (
     "Only one OpenAL context",
     "UnsatisfiedLinkError: org.lwjgl.openal",
     "Acceptance audio state: ERROR",
+    "available update failed: Broken pipe",
     "Couldn't connect to server",
     "Connection refused",
     "Failed to connect to the server",

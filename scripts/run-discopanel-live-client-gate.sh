@@ -113,7 +113,22 @@ recorder_pids=()
 sink_modules=()
 leader_username="JmLiveA${session_dir##*.}"
 follower_username="JmLiveB${session_dir##*.}"
-terminal_client_pattern='Acceptance audio state: ERROR|Failed to open OpenAL device|Only one OpenAL context|UnsatisfiedLinkError: org\.lwjgl\.openal|Client disconnected with reason:|Couldn.t connect to server|Connection refused|Failed to connect to the server|Connection timed out'
+terminal_client_pattern='Acceptance audio state: ERROR|Failed to open OpenAL device|Only one OpenAL context|UnsatisfiedLinkError: org\.lwjgl\.openal|available update failed: Broken pipe|Client disconnected with reason:|Couldn.t connect to server|Connection refused|Failed to connect to the server|Connection timed out'
+
+remove_stale_gate_sinks() {
+  local module
+  while read -r module; do
+    [[ "$module" =~ ^[0-9]+$ ]] || continue
+    pactl unload-module "$module"
+  done < <(
+    pactl list short modules \
+      | awk '$2 == "module-null-sink" && $0 ~ /sink_name=jammarr_live_/ { print $1 }'
+  )
+  if pactl list short modules | grep -Eq 'module-null-sink.*sink_name=jammarr_live_'; then
+    echo "$runtime could not remove stale private live-gate audio sinks" >&2
+    return 1
+  fi
+}
 
 server_command() {
   local command=$1
@@ -365,6 +380,12 @@ cleanup() {
   exit "$status"
 }
 trap cleanup EXIT INT TERM
+
+# The repository-wide gate lock proves no other supported gate is active. Any
+# remaining sink with this private prefix is therefore orphaned evidence from
+# an interrupted older run and can make PipeWire/OpenAL fail or stall later
+# clients. Remove only that exact test-owned prefix before allocating new ones.
+remove_stale_gate_sinks
 
 sink_prefix="jammarr_live_${BASHPID}_${runtime//[^a-zA-Z0-9]/_}"
 sink_leader="${sink_prefix}_leader"
