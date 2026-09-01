@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 import unittest
 from pathlib import Path
 
@@ -64,6 +65,27 @@ def fixture() -> dict:
 
 
 class TargetMatrixTests(unittest.TestCase):
+    def test_gradle_9_forge_targets_include_launcher_metadata_fix(self) -> None:
+        checked = []
+        for build_file in sorted(ROOT.glob("platforms/*/forge/build.gradle")):
+            if "alias(libs.plugins.forgegradle)" not in build_file.read_text():
+                continue
+            platform = build_file.parent.parent
+            wrapper = build_file.parent / "gradle/wrapper/gradle-wrapper.properties"
+            if "gradle-9." not in wrapper.read_text():
+                continue
+            catalog = (platform / "gradle/libs.versions.toml").read_text()
+            match = re.search(r'^forgegradle = "(\d+)\.(\d+)\.(\d+)"$', catalog, re.MULTILINE)
+            self.assertIsNotNone(match, platform.relative_to(ROOT))
+            version = tuple(int(part) for part in match.groups())
+            self.assertGreaterEqual(version, (7, 0, 36), platform.relative_to(ROOT))
+            checked.append(platform.name)
+        self.assertEqual(
+            checked,
+            ["mc1.21.1", "mc1.21.10", "mc1.21.11", "mc1.21.3", "mc1.21.4",
+             "mc1.21.5", "mc1.21.8", "mc26.1.2", "mc26.2"],
+        )
+
     def test_jarjar_release_projects_apply_reproducible_archive_policy(self) -> None:
         build_files = sorted(ROOT.glob("platforms/**/build.gradle"))
         jarjar_projects = []
