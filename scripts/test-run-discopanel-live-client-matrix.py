@@ -35,6 +35,17 @@ class LiveClientMatrixTests(unittest.TestCase):
             source.index('pactl unload-module "$module"', source.index("cleanup()")),
         )
 
+    def test_live_gate_retains_active_duration_after_jointly_inactive_lead(self) -> None:
+        source = LIVE_GATE_SCRIPT.read_text()
+        self.assertIn("capture_grace_seconds=${JAMMARR_LIVE_CAPTURE_GRACE_SECONDS:-6}", source)
+        self.assertIn(
+            "wall_capture_seconds=$((capture_seconds + capture_grace_seconds))", source
+        )
+        self.assertIn('sleep "$wall_capture_seconds"', source)
+        self.assertIn(
+            "--minimum-duration-ms $((capture_seconds * 1000 - 1500))", source
+        )
+
     def test_live_gate_isolates_audio_server_from_active_desktop(self) -> None:
         source = LIVE_GATE_SCRIPT.read_text()
         self.assertIn(
@@ -46,6 +57,7 @@ class LiveClientMatrixTests(unittest.TestCase):
             source,
         )
         self.assertIn('PIPEWIRE_RUNTIME_DIR="$audio_runtime_dir" pipewire-pulse', source)
+        self.assertNotIn("env -u DBUS_SESSION_BUS_ADDRESS", source)
         self.assertIn(
             'export PULSE_SERVER="unix:$audio_runtime_dir/pulse/native"', source
         )

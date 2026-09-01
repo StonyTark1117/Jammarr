@@ -6,6 +6,7 @@ runtime=${1:-1.7.10-forge}
 panel_url=${DISCOPANEL_URL:-http://192.168.1.42:8080}
 version=${JAMMARR_EXPECTED_VERSION:-$(sed -n 's/^mod_version=//p' "$repo_root/gradle.properties")}
 capture_seconds=${JAMMARR_LIVE_CAPTURE_SECONDS:-31}
+capture_grace_seconds=${JAMMARR_LIVE_CAPTURE_GRACE_SECONDS:-6}
 client_heap_mb=${JAMMARR_LIVE_CLIENT_HEAP_MB:-1536}
 token_env=${DISCOPANEL_TOKEN_ENV:-DISCOPANEL_TOKEN}
 
@@ -15,6 +16,10 @@ if [[ -z ${!token_env:-} ]]; then
 fi
 if [[ ! "$capture_seconds" =~ ^[0-9]+$ ]] || (( capture_seconds < 10 || capture_seconds > 300 )); then
   echo "JAMMARR_LIVE_CAPTURE_SECONDS must be an integer from 10 through 300" >&2
+  exit 2
+fi
+if [[ ! "$capture_grace_seconds" =~ ^[0-9]+$ ]] || (( capture_grace_seconds > 30 )); then
+  echo "JAMMARR_LIVE_CAPTURE_GRACE_SECONDS must be an integer from 0 through 30" >&2
   exit 2
 fi
 if [[ ! "$client_heap_mb" =~ ^[0-9]+$ ]] || (( client_heap_mb < 1024 || client_heap_mb > 4096 )); then
@@ -446,7 +451,7 @@ python3 "$recovery_tool" snapshot \
 # probing physical audio, Bluetooth, or cameras. Every daemon has an exact PID.
 audio_runtime_dir=$(mktemp -d /tmp/jammarr-live-gate-audio.XXXXXX)
 chmod 700 "$audio_runtime_dir"
-env -u DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR="$audio_runtime_dir" \
+XDG_RUNTIME_DIR="$audio_runtime_dir" \
   PIPEWIRE_RUNTIME_DIR="$audio_runtime_dir" pipewire \
   > "$session_dir/private-pipewire.log" 2>&1 &
 private_pipewire_pid=$!
@@ -462,7 +467,7 @@ if [[ ! -S "$audio_runtime_dir/pipewire-0" ]]; then
   echo "$runtime private PipeWire core did not expose its socket" >&2
   exit 1
 fi
-env -u DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR="$audio_runtime_dir" \
+XDG_RUNTIME_DIR="$audio_runtime_dir" \
   PIPEWIRE_RUNTIME_DIR="$audio_runtime_dir" wireplumber --profile=policy \
   > "$session_dir/private-wireplumber.log" 2>&1 &
 private_wireplumber_pid=$!
@@ -471,7 +476,7 @@ if ! kill -0 "$private_wireplumber_pid" 2>/dev/null; then
   echo "$runtime private WirePlumber policy manager exited during startup" >&2
   exit 1
 fi
-env -u DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR="$audio_runtime_dir" \
+XDG_RUNTIME_DIR="$audio_runtime_dir" \
   PIPEWIRE_RUNTIME_DIR="$audio_runtime_dir" pipewire-pulse \
   > "$session_dir/private-pipewire-pulse.log" 2>&1 &
 private_pulse_pid=$!
@@ -669,7 +674,12 @@ parec --raw --latency-msec=50 --device="${sink_leader}.monitor" --format=s16le -
   > "$leader_raw" & recorder_pids+=("$!")
 parec --raw --latency-msec=50 --device="${sink_follower}.monitor" --format=s16le --rate=48000 --channels=2 \
   > "$follower_raw" & recorder_pids+=("$!")
-sleep "$capture_seconds"
+# Preserve the requested amount of active program even when the selected real
+# Plex track begins with jointly inaudible content or the backend monitor needs
+# a short settling interval. The analyzer still requires capture_seconds minus
+# 1.5 seconds after removing only jointly inactive leading samples.
+wall_capture_seconds=$((capture_seconds + capture_grace_seconds))
+sleep "$wall_capture_seconds"
 for pid in "${recorder_pids[@]}"; do kill -TERM "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; done
 recorder_pids=()
 
@@ -715,5 +725,5 @@ touch "$release_file"
 wait "$server_pid"
 server_pid=""
 jq -e '.passed == true' "$session_dir/audio-analysis.json" >/dev/null
-printf 'LIVE_CLIENT_GATE_ACCEPTED runtime=%s clients=2 capture_seconds=%s private_x=true\n' \
-  "$runtime" "$capture_seconds"
+printf 'LIVE_CLIENT_GATE_ACCEPTED runtime=%s clients=2 capture_seconds=%s wall_capture_seconds=%s private_x=true\n' \
+  "$runtime" "$capture_seconds" "$wall_capture_seconds"
