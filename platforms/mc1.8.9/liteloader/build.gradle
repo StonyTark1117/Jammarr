@@ -25,6 +25,13 @@ minecraft {
     makeObfSourceJar = false
 }
 
+// ForgeGradle 2.1 exposes no setter for this field and otherwise advances a mutable
+// Ant counter during configuration, changing the companion without a source change.
+def liteModTask = tasks.getByName('litemod')
+def buildNumberField = net.minecraftforge.gradle.user.liteloader.LiteModTask.getDeclaredField('buildNumber')
+buildNumberField.accessible = true
+buildNumberField.set(liteModTask, project.version.toString().replace('.', ''))
+
 litemod {
     json {
         name = 'jammarr'
@@ -245,7 +252,8 @@ task verifyRelease(dependsOn: [test, reobfJar, verifyToolchainLock, downloadProd
                 if (major != 52) throw new GradleException("LiteLoader 1.8.9 archive contains non-Java-8 bytecode: ${entry}")
             }
             def metadata = new groovy.json.JsonSlurper().parseText(zip.getInputStream(zip.getEntry('litemod.json')).getText('UTF-8'))
-            if (metadata.name != 'jammarr' || metadata.version != '1.1.0' || metadata.mcversion != '1.8.9') {
+            if (metadata.name != 'jammarr' || metadata.version != '1.1.0' || metadata.mcversion != '1.8.9'
+                    || metadata.revision != project.version.toString().replace('.', '')) {
                 throw new GradleException('LiteLoader 1.8.9 metadata has the wrong identity or version')
             }
         }
