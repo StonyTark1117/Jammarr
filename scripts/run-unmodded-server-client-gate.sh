@@ -71,6 +71,7 @@ done
 
 attestation_path=$(python3 "$repo_root/scripts/prepare-mojang-server.py" \
   --minecraft "$minecraft_version" --cache-root "$cache_root")
+cp -- "$attestation_path" "$output_root/server-attestation.json"
 server_jar=$(python3 - "$attestation_path" <<'PY'
 import json
 import sys
