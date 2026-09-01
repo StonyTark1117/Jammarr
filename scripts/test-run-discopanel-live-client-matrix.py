@@ -128,6 +128,18 @@ class LiveClientMatrixTests(unittest.TestCase):
             )
             self.assertIsNone(matrix.accepted_session(root, "1.1.0", self.target()))
 
+    def test_accepted_session_allows_expected_disconnect_after_server_stop(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            session = self.write_session(root)
+            (session / "client-follower.console.log").write_text(
+                "Acceptance audio state: PLAYING\n"
+                "Client disconnected with reason: Server closed\n"
+            )
+            self.assertEqual(
+                matrix.accepted_session(root, "1.1.0", self.target()), session
+            )
+
     def test_accepted_session_rejects_live_session_process(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
