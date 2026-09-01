@@ -84,6 +84,8 @@ def accepted_evidence(output: Path, runtime: dict[str, Any]) -> bool:
         and sum(counts.values()) > 0
         and "capableListeners=0, vanillaListeners=1, listenerStats=0" in text
         and "Artifact-free vanilla client remained connected" in text
+        and "Artifact-free vanilla client sent player-originated chat" in text
+        and "Artifact-free vanilla client reconnected and completed a second clean lifecycle" in text
         and "Plex request count remained unchanged" in text
     )
 

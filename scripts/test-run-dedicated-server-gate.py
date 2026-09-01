@@ -83,6 +83,31 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         self.assertIn('runtime.get("sharedCacheMutated") is not False', source)
         self.assertIn('source_counts = runtime.get("artifactSourceCounts")', source)
 
+    def test_mixed_vanilla_client_cannot_perturb_measured_audio_graph(self) -> None:
+        source = self.source
+        vanilla = source[source.index("run_vanilla_client()") :]
+        vanilla = vanilla[: vanilla.index("run_client_companion()")]
+        self.assertIn("vanilla_audio_env=(ALSOFT_DRIVERS=null)", vanilla)
+        self.assertIn('"${vanilla_audio_env[@]}"', vanilla)
+        self.assertLess(
+            vanilla.index("vanilla_audio_env=(ALSOFT_DRIVERS=null)"),
+            vanilla.index('"${vanilla_audio_env[@]}"'),
+        )
+
+    def test_standalone_vanilla_gate_requires_chat_and_reconnect(self) -> None:
+        source = self.source
+        vanilla = source[source.index("run_vanilla_client()") :]
+        vanilla = vanilla[: vanilla.index("run_client_companion()")]
+        self.assertIn('--chat-trigger-file "$chat_trigger"', vanilla)
+        self.assertIn("exact vanilla client did not send player-originated chat", vanilla)
+        self.assertIn('"${scenario}-reconnect"', vanilla)
+        self.assertIn("completed a second clean lifecycle", vanilla)
+        self.assertIn('join_start_line=$(( $(wc -l < "$server_console") + 1 ))', vanilla)
+        self.assertIn('"$join_start_line"; do', vanilla)
+        churn = source[source.index("run_mixed_vanilla_audio()") :]
+        churn = churn[: churn.index("run_two_client_audio()")]
+        self.assertIn('"$sink_master" "$raw_leader" "$raw_follower" false', churn)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -638,12 +638,16 @@ optional_client_joined() {
   local server_log=$2
   local client_log=$3
   local username=$4
-  grep -Fq "$username joined the game" "$server_log" 2>/dev/null && return 0
+  local first_server_line=${5:-1}
+  grep -Fq "$username joined the game" \
+    < <(tail -n "+$first_server_line" "$server_log" 2>/dev/null) && return 0
   uses_legacy_babric_log "$label" \
-    && grep -Eq "${username} \[/[^]]+\] logged in with entity id" "$server_log" 2>/dev/null \
+    && grep -Eq "${username} \[/[^]]+\] logged in with entity id" \
+      < <(tail -n "+$first_server_line" "$server_log" 2>/dev/null) \
     && return 0
   uses_legacy_fml_log "$label" \
-    && grep -Fq 'Server side modded connection established' "$server_log" 2>/dev/null \
+    && grep -Fq 'Server side modded connection established' \
+      < <(tail -n "+$first_server_line" "$server_log" 2>/dev/null) \
     && grep -Fq 'Client side modded connection established' "$client_log" 2>/dev/null
 }
 
@@ -765,6 +769,7 @@ run_vanilla_client() {
   local capture_sink=${13:-}
   local capture_path=${14:-}
   local capture_follower_path=${15:-}
+  local interaction_gate=${16:-true}
   local minecraft_version=${label%-*}
   local prism_workspace="$output_root/$label.$scenario.prism"
   local instance_dir="$prism_workspace/instances/jammarr-vanilla-$minecraft_version"
@@ -773,20 +778,41 @@ run_vanilla_client() {
   local evidence="$output_root/$label.$scenario.evidence.txt"
   local diagnostics="$output_root/$label.$scenario.diagnostics.txt"
   local post_diagnostics="$output_root/$label.$scenario.post-disconnect-diagnostics.txt"
+  local chat_evidence="$output_root/$label.$scenario.chat.evidence.txt"
+  local chat_trigger="$output_root/$label.$scenario.chat.trigger"
+  local chat_message="JammarrVanillaChat_$username"
   local expected_diagnostics="capableListeners=$expected_capable, vanillaListeners=$expected_vanilla, listenerStats=$expected_listener_stats"
   local expected_after_disconnect="capableListeners=$expected_capable, vanillaListeners=$((expected_vanilla - 1)), listenerStats=$expected_listener_stats"
-  local pid deadline result=0 first_line request_start request_end recorder_pid expected_bytes captured_bytes
+  local pid deadline result=0 first_line join_start_line request_start request_end recorder_pid expected_bytes captured_bytes
   local combined_capture
+  local reconnect_evidence="$output_root/$label.${scenario}-reconnect.evidence.txt"
+  local -a vanilla_audio_env=(ALSOFT_DRIVERS=null) interaction_args=()
+
+  # Artifact-free clients are not audio subjects. Route their otherwise normal
+  # Minecraft sound engine through OpenAL Soft's null output so they cannot
+  # touch the active desktop or the private graph measuring Jammarr clients.
+  # A churn cycle previously broke a measured follower backend immediately
+  # after its short-lived vanilla sound engine failed to open that graph.
+  if [[ "$interaction_gate" == "true" ]]; then
+    if ! command -v xdotool > /dev/null; then
+      echo "$label: exact vanilla chat acceptance requires xdotool" >&2
+      return 1
+    fi
+    rm -f -- "$chat_trigger" "$chat_evidence"
+    interaction_args+=(--chat-trigger-file "$chat_trigger" --chat-message "$chat_message")
+  fi
 
   mkdir -p "$prism_workspace"
   : > "$client_console"
   : > "$diagnostics"
   request_start=$(wc -l < "$fake_plex_request_log")
+  join_start_line=$(( $(wc -l < "$server_console") + 1 ))
   (
     cd "$repo_root" || exit 1
     ulimit -f "$client_log_limit_blocks"
     exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 \
       xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' env \
+      "${vanilla_audio_env[@]}" \
       JAVA_TOOL_OPTIONS='-Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
       LIBGL_ALWAYS_SOFTWARE=1 \
       python3 "$repo_root/scripts/run-prism-vanilla-client.py" \
@@ -796,13 +822,15 @@ run_vanilla_client() {
       --workspace "$prism_workspace" \
       --shared-root "$prism_shared_root" \
       --fallback-cache-root "$vanilla_cache_root" \
+      "${interaction_args[@]}" \
       > "$client_console" 2>&1
   ) &
   pid=$!
   active_client_pid=$pid
 
   deadline=$((SECONDS + 600))
-  while ! optional_client_joined "$label" "$server_console" "$client_console" "$username"; do
+  while ! optional_client_joined "$label" "$server_console" "$client_console" "$username" \
+      "$join_start_line"; do
     if client_bootstrap_failed "$client_console" || ! group_alive "$pid" || (( SECONDS >= deadline )); then
       echo "$label: pure vanilla client did not join; see $client_console" >&2
       result=1
@@ -810,6 +838,36 @@ run_vanilla_client() {
     fi
     sleep 1
   done
+
+  if (( result == 0 )) && [[ "$interaction_gate" == "true" ]]; then
+    first_line=$(wc -l < "$server_console")
+    # The server's join marker can precede the client's first fully rendered
+    # world frame. Give the private-X window time to enter gameplay before the
+    # key press so loading screens cannot consume the chat shortcut.
+    sleep 3
+    if ! group_alive "$pid"; then
+      echo "$label: exact vanilla client exited before chat interaction" >&2
+      result=1
+    fi
+  fi
+  if (( result == 0 )) && [[ "$interaction_gate" == "true" ]]; then
+    : > "$chat_trigger"
+    deadline=$((SECONDS + 30))
+    while ! grep -Fq "$chat_message" \
+        < <(tail -n "+$((first_line + 1))" "$server_console"); do
+      if grep -Fq 'VANILLA_CHAT_FAILED' "$client_console" \
+          || ! group_alive "$pid" || (( SECONDS >= deadline )); then
+        echo "$label: exact vanilla client did not send player-originated chat" >&2
+        result=1
+        break
+      fi
+      sleep .2
+    done
+    if (( result == 0 )); then
+      tail -n "+$((first_line + 1))" "$server_console" \
+        | grep -F "$chat_message" | tail -n 1 > "$chat_evidence"
+    fi
+  fi
 
   if (( result == 0 )); then
     if [[ -n "$capture_sink" && -n "$capture_path" ]]; then
@@ -958,6 +1016,7 @@ PY
       grep -F "$username joined the game" "$server_console" | tail -n 1 || true
       cat "$attestation"
       cat "$diagnostics"
+      [[ ! -s "$chat_evidence" ]] || cat "$chat_evidence"
       printf 'Artifact-free vanilla client remained connected for %s seconds.\n' "$connected_seconds"
       printf 'Plex request count remained unchanged at %s.\n' "$request_end"
     } > "$evidence"
@@ -1002,6 +1061,21 @@ PY
     if (( result == 0 )); then
       cat "$post_diagnostics" >> "$evidence"
       printf 'Vanilla listener state was removed after disconnect.\n' >> "$evidence"
+    fi
+  fi
+  if (( result == 0 )) && [[ "$interaction_gate" == "true" ]]; then
+    if ! run_vanilla_client "$label" "$port" "$server_console" \
+        "$rcon_port" "$rcon_password" "$fifo_fd" \
+        "$expected_capable" "$expected_vanilla" "$expected_listener_stats" \
+        "${scenario}-reconnect" "$username" "$connected_seconds" "" "" "" false; then
+      echo "$label: exact vanilla client did not reconnect cleanly" >&2
+      result=1
+    else
+      {
+        printf 'Artifact-free vanilla client sent player-originated chat: %s.\n' "$chat_message"
+        printf 'Artifact-free vanilla client reconnected and completed a second clean lifecycle.\n'
+        cat "$reconnect_evidence"
+      } >> "$evidence"
     fi
   fi
   return "$result"
@@ -2559,7 +2633,7 @@ run_mixed_vanilla_audio() {
     if ! run_vanilla_client "$label" "$port" "$server_log" \
         "$rcon_port" "$rcon_password" "$fifo_fd" \
         2 1 2 mixed-vanilla-client "$username" "$vanilla_connected_seconds" \
-        "$sink_master" "$raw_leader" "$raw_follower"; then
+        "$sink_master" "$raw_leader" "$raw_follower" false; then
       result=1
     fi
 

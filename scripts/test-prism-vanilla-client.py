@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from urllib.request import urlopen
 
 
@@ -57,6 +58,56 @@ class PrismVanillaClientTest(unittest.TestCase):
         self.assertTrue(privileges["onlineChat"]["enabled"])
         self.assertTrue(privileges["multiplayerServer"]["enabled"])
         self.assertFalse(privileges["multiplayerRealms"]["enabled"])
+
+    def test_chat_trigger_targets_the_private_minecraft_window(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            trigger = Path(temporary) / "chat.trigger"
+            trigger.touch()
+            process = mock.Mock()
+            process.poll.return_value = None
+            search = subprocess.CompletedProcess(
+                args=[], returncode=0, stdout="17\n23\n", stderr=""
+            )
+            success = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+            with mock.patch.object(
+                CLIENT_HELPER.subprocess,
+                "run",
+                side_effect=[search, success, success, success, success],
+            ) as run:
+                CLIENT_HELPER.send_chat_when_triggered(
+                    trigger, "JammarrVanillaChat_Test", process
+                )
+            self.assertEqual(run.call_count, 5)
+            self.assertEqual(run.call_args_list[1].args[0][-1], "23")
+            self.assertIn("JammarrVanillaChat_Test", run.call_args_list[3].args[0])
+
+    def test_chat_arguments_must_be_supplied_together(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--minecraft",
+                    "1.20.1",
+                    "--server",
+                    "127.0.0.1:26000",
+                    "--username",
+                    "VanillaProbe",
+                    "--workspace",
+                    str(root / "workspace"),
+                    "--shared-root",
+                    str(root / "shared"),
+                    "--chat-message",
+                    "MissingTrigger",
+                    "--prepare-only",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("must be supplied together", result.stderr)
 
     def make_shared_root(self, root: Path, version: str = "1.20.1") -> Path:
         shared = root / "shared"

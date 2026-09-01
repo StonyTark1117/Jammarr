@@ -70,10 +70,28 @@ class VanillaClientMatrixTest(unittest.TestCase):
             evidence.write_text(
                 "capableListeners=0, vanillaListeners=1, listenerStats=0\n"
                 "Artifact-free vanilla client remained connected for 10 seconds.\n"
+                "Artifact-free vanilla client sent player-originated chat.\n"
+                "Artifact-free vanilla client reconnected and completed a second clean lifecycle.\n"
                 "Plex request count remained unchanged at 0.\n",
                 encoding="utf-8",
             )
             self.assertTrue(MATRIX.accepted_evidence(output, runtime))
+            evidence.write_text(
+                evidence.read_text("utf-8").replace(
+                    "Artifact-free vanilla client reconnected and completed a second clean lifecycle.\n",
+                    "",
+                ),
+                encoding="utf-8",
+            )
+            self.assertFalse(MATRIX.accepted_evidence(output, runtime))
+            evidence.write_text(
+                "capableListeners=0, vanillaListeners=1, listenerStats=0\n"
+                "Artifact-free vanilla client remained connected for 10 seconds.\n"
+                "Artifact-free vanilla client sent player-originated chat.\n"
+                "Artifact-free vanilla client reconnected and completed a second clean lifecycle.\n"
+                "Plex request count remained unchanged at 0.\n",
+                encoding="utf-8",
+            )
             value = json.loads((instance / "vanilla-attestation.json").read_text("utf-8"))
             value["runtime"]["sharedCacheMutated"] = True
             (instance / "vanilla-attestation.json").write_text(json.dumps(value), "utf-8")

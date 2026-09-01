@@ -22,6 +22,7 @@ import shlex
 import subprocess
 import sys
 import threading
+import time
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
@@ -30,6 +31,7 @@ import zipfile
 
 
 SAFE_VALUE = re.compile(r"^[A-Za-z0-9._-]+$")
+SAFE_CHAT_MESSAGE = re.compile(r"^[A-Za-z0-9 ._-]+$")
 
 
 class OfflinePrivilegesHandler(BaseHTTPRequestHandler):
@@ -98,8 +100,77 @@ def parse_args() -> argparse.Namespace:
         "--asset-objects-base-url",
         default="https://resources.download.minecraft.net",
     )
+    parser.add_argument("--chat-trigger-file", type=Path)
+    parser.add_argument("--chat-message")
     parser.add_argument("--prepare-only", action="store_true")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if (args.chat_trigger_file is None) != (args.chat_message is None):
+        parser.error("--chat-trigger-file and --chat-message must be supplied together")
+    if args.chat_message is not None and (
+        not 1 <= len(args.chat_message) <= 128
+        or not SAFE_CHAT_MESSAGE.fullmatch(args.chat_message)
+    ):
+        parser.error("--chat-message contains unsupported characters")
+    return args
+
+
+def send_chat_when_triggered(
+    trigger_file: Path, message: str, process: subprocess.Popen[bytes]
+) -> None:
+    """Inject one player-originated chat message into the private X client.
+
+    The gate creates the trigger only after its server log proves that the
+    exact client joined. This keeps GUI automation synchronized without
+    exposing or controlling the user's active desktop.
+    """
+    while process.poll() is None and not trigger_file.is_file():
+        time.sleep(0.1)
+    if process.poll() is not None:
+        return
+    try:
+        search = subprocess.run(
+            ["xdotool", "search", "--onlyvisible", "--name", "Minecraft"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        windows = [line for line in search.stdout.splitlines() if line.isdigit()]
+        if not windows:
+            raise RuntimeError("no visible Minecraft window was found")
+        window = windows[-1]
+        subprocess.run(
+            ["xdotool", "windowfocus", "--sync", window],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["xdotool", "key", "--window", window, "--clearmodifiers", "t"],
+            check=True,
+            capture_output=True,
+        )
+        time.sleep(0.2)
+        subprocess.run(
+            [
+                "xdotool",
+                "type",
+                "--window",
+                window,
+                "--clearmodifiers",
+                "--delay",
+                "5",
+                message,
+            ],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["xdotool", "key", "--window", window, "--clearmodifiers", "Return"],
+            check=True,
+            capture_output=True,
+        )
+        print(f"VANILLA_CHAT_SENT message={message}", flush=True)
+    except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
+        print(f"VANILLA_CHAT_FAILED error={exc}", file=sys.stderr, flush=True)
 
 
 def checked_value(name: str, value: str) -> str:
@@ -478,9 +549,21 @@ def main() -> int:
         write_attestation(
             instance_dir, game_dir, args.minecraft, components, args.username, runtime_details
         )
+        process = subprocess.Popen(command, cwd=game_dir)
+        chat_thread: threading.Thread | None = None
+        if args.chat_trigger_file is not None and args.chat_message is not None:
+            args.chat_trigger_file.unlink(missing_ok=True)
+            chat_thread = threading.Thread(
+                target=send_chat_when_triggered,
+                args=(args.chat_trigger_file, args.chat_message, process),
+                daemon=True,
+            )
+            chat_thread.start()
         try:
-            return subprocess.run(command, cwd=game_dir, check=False).returncode
+            return process.wait()
         finally:
+            if chat_thread is not None:
+                chat_thread.join(timeout=2)
             write_attestation(
                 instance_dir, game_dir, args.minecraft, components, args.username, runtime_details
             )
