@@ -14,7 +14,7 @@ public final class JammarrConfig {
             .comment("Plex token. Prefer the JAMMARR_PLEX_TOKEN environment variable.")
             .translation("jammarr.configuration.plexToken").define("plexToken", "");
     public static final ModConfigSpec.ConfigValue<String> MUSIC_LIBRARY = SERVER_BUILDER
-            .comment("Plex music library title or numeric section key. Blank selects the first music library.")
+            .comment("Plex music library title or numeric section key. Blank prefers a library named Music, then falls back to the first valid music library.")
             .translation("jammarr.configuration.musicLibrary").define("musicLibrary", "");
     public static final ModConfigSpec.EnumValue<RestartMode> RESTART_MODE = SERVER_BUILDER
             .translation("jammarr.configuration.restartMode").defineEnum("restartMode", RestartMode.RESTART_TRACK);

@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 SCRIPT = Path(__file__).with_name("target-matrix.py")
+ROOT = SCRIPT.parent.parent
 SPEC = importlib.util.spec_from_file_location("target_matrix", SCRIPT)
 assert SPEC and SPEC.loader
 target_matrix = importlib.util.module_from_spec(SPEC)
@@ -63,6 +64,19 @@ def fixture() -> dict:
 
 
 class TargetMatrixTests(unittest.TestCase):
+    def test_library_fallback_comments_match_music_first_behavior(self) -> None:
+        config_sources = [ROOT / "src/main/java/stonytark/jammarr/config/JammarrConfig.java"]
+        config_sources.extend(ROOT.glob("platforms/**/JammarrConfig.java"))
+        comments = [path.read_text() for path in config_sources if path.is_file()]
+        self.assertGreaterEqual(len(comments), 30)
+        self.assertFalse(any(
+            "Blank selects the first music library." in source for source in comments
+        ))
+        self.assertGreaterEqual(sum(
+            "Blank prefers a library named Music, then falls back to the first valid music library."
+            in source for source in comments
+        ), 30)
+
     def test_derives_artifacts_and_quilt_runtime(self) -> None:
         manifest = fixture()
         artifacts = target_matrix.implemented_artifacts(manifest)
