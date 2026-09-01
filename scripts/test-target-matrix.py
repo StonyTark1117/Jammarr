@@ -64,6 +64,23 @@ def fixture() -> dict:
 
 
 class TargetMatrixTests(unittest.TestCase):
+    def test_jarjar_release_projects_apply_reproducible_archive_policy(self) -> None:
+        build_files = sorted(ROOT.glob("platforms/**/build.gradle"))
+        jarjar_projects = []
+        for path in build_files:
+            source = path.read_text()
+            if "jarJar" in source:
+                jarjar_projects.append(path)
+                self.assertIn(
+                    "apply from: '../../../gradle/reproducible-archives.gradle'",
+                    source,
+                    path.relative_to(ROOT),
+                )
+        self.assertEqual(len(jarjar_projects), 41)
+        policy = (ROOT / "gradle/reproducible-archives.gradle").read_text()
+        self.assertIn("preserveFileTimestamps = false", policy)
+        self.assertIn("reproducibleFileOrder = true", policy)
+
     def test_forge_family_optional_channels_use_loader_missing_version_predicate(self) -> None:
         adapters = {
             ROOT / "platforms/mc1.16.5/forge/src/main/java/stonytark/jammarr/network/LegacyNetwork.java": 2,

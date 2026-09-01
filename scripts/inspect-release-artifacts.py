@@ -190,6 +190,16 @@ def safe_entries(archive: zipfile.ZipFile, filename: str) -> set[str]:
     return set(names)
 
 
+def verify_reproducible_jarjar_metadata(archive: zipfile.ZipFile, names: set[str],
+                                        filename: str) -> None:
+    metadata = "META-INF/jarjar/metadata.json"
+    if metadata not in names:
+        return
+    timestamp = archive.getinfo(metadata).date_time
+    if timestamp != (1980, 2, 1, 0, 0, 0):
+        fail(f"{filename}:{metadata} has non-reproducible timestamp {timestamp}")
+
+
 def require_nested_class(archive: zipfile.ZipFile, nested_name: str, class_name: str, filename: str) -> bytes:
     try:
         nested_bytes = archive.read(nested_name)
@@ -541,6 +551,7 @@ def verify_jar(path: Path, minecraft: str, loader: str, java: int,
     filename = path.name
     with zipfile.ZipFile(path) as archive:
         names = safe_entries(archive, filename)
+        verify_reproducible_jarjar_metadata(archive, names, filename)
         missing = COMMON_ENTRIES - names
         if missing:
             fail(f"{filename} is missing required entries: {sorted(missing)}")

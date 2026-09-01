@@ -3,6 +3,8 @@ plugins {
     id 'net.neoforged.moddev' version '2.0.143'
 }
 
+apply from: '../../../gradle/reproducible-archives.gradle'
+
 version = mod_version
 group = mod_group_id
 def artifactVersion = version.toString()
