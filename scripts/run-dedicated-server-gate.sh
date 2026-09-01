@@ -29,6 +29,16 @@ active_rcon_port=""
 active_audio_client_pids=()
 active_audio_recorder_pids=()
 active_audio_modules=()
+active_audio_keepalive_pids=()
+active_private_audio_pids=()
+active_audio_runtime_dir=""
+active_audio_environment_saved=0
+active_audio_original_xdg_runtime_dir=""
+active_audio_original_xdg_runtime_dir_set=0
+active_audio_original_pipewire_runtime_dir=""
+active_audio_original_pipewire_runtime_dir_set=0
+active_audio_original_pulse_server=""
+active_audio_original_pulse_server_set=0
 active_proxy_pid=""
 active_config=""
 active_config_backup=""
@@ -342,7 +352,7 @@ cleanup_all() {
 }
 
 cleanup_audio_processes() {
-  local pid module
+  local pid module index
   for pid in "${active_audio_client_pids[@]}"; do
     terminate_client_launch "$pid" 10 || true
   done
@@ -350,12 +360,152 @@ cleanup_audio_processes() {
     kill -TERM "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
   done
+  for pid in "${active_audio_keepalive_pids[@]}"; do
+    kill -TERM "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+  done
   for module in "${active_audio_modules[@]}"; do
     pactl unload-module "$module" > /dev/null 2>&1 || true
   done
+  for ((index = ${#active_private_audio_pids[@]} - 1; index >= 0; index--)); do
+    pid=${active_private_audio_pids[$index]}
+    kill -TERM "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+  done
+  if [[ -n "$active_audio_runtime_dir" && -d "$active_audio_runtime_dir" ]]; then
+    rm -r -- "$active_audio_runtime_dir"
+  fi
+  if (( active_audio_environment_saved )); then
+    if (( active_audio_original_xdg_runtime_dir_set )); then
+      export XDG_RUNTIME_DIR="$active_audio_original_xdg_runtime_dir"
+    else
+      unset XDG_RUNTIME_DIR
+    fi
+    if (( active_audio_original_pipewire_runtime_dir_set )); then
+      export PIPEWIRE_RUNTIME_DIR="$active_audio_original_pipewire_runtime_dir"
+    else
+      unset PIPEWIRE_RUNTIME_DIR
+    fi
+    if (( active_audio_original_pulse_server_set )); then
+      export PULSE_SERVER="$active_audio_original_pulse_server"
+    else
+      unset PULSE_SERVER
+    fi
+  fi
   active_audio_client_pids=()
   active_audio_recorder_pids=()
+  active_audio_keepalive_pids=()
   active_audio_modules=()
+  active_private_audio_pids=()
+  active_audio_runtime_dir=""
+  active_audio_environment_saved=0
+}
+
+start_private_audio_graph() {
+  local label=$1 command pid deadline
+  for command in pipewire wireplumber pipewire-pulse pactl pacat parec; do
+    if ! command -v "$command" > /dev/null; then
+      echo "$label: private audio acceptance requires $command" >&2
+      return 1
+    fi
+  done
+
+  active_audio_environment_saved=1
+  active_audio_original_xdg_runtime_dir_set=0
+  active_audio_original_pipewire_runtime_dir_set=0
+  active_audio_original_pulse_server_set=0
+  [[ ${XDG_RUNTIME_DIR+x} ]] && active_audio_original_xdg_runtime_dir_set=1
+  active_audio_original_xdg_runtime_dir=${XDG_RUNTIME_DIR-}
+  [[ ${PIPEWIRE_RUNTIME_DIR+x} ]] && active_audio_original_pipewire_runtime_dir_set=1
+  active_audio_original_pipewire_runtime_dir=${PIPEWIRE_RUNTIME_DIR-}
+  [[ ${PULSE_SERVER+x} ]] && active_audio_original_pulse_server_set=1
+  active_audio_original_pulse_server=${PULSE_SERVER-}
+
+  active_audio_runtime_dir=$(mktemp -d /tmp/jammarr-dedicated-gate-audio.XXXXXX)
+  chmod 700 "$active_audio_runtime_dir"
+  XDG_RUNTIME_DIR="$active_audio_runtime_dir" \
+    PIPEWIRE_RUNTIME_DIR="$active_audio_runtime_dir" pipewire \
+    > "$output_root/$label.private-pipewire.log" 2>&1 &
+  pid=$!
+  active_private_audio_pids+=("$pid")
+  deadline=$((SECONDS + 10))
+  while [[ ! -S "$active_audio_runtime_dir/pipewire-0" ]]; do
+    if ! kill -0 "$pid" 2>/dev/null || (( SECONDS >= deadline )); then
+      echo "$label: private PipeWire core did not become ready" >&2
+      return 1
+    fi
+    sleep .1
+  done
+
+  XDG_RUNTIME_DIR="$active_audio_runtime_dir" \
+    PIPEWIRE_RUNTIME_DIR="$active_audio_runtime_dir" wireplumber --profile=policy \
+    > "$output_root/$label.private-wireplumber.log" 2>&1 &
+  pid=$!
+  active_private_audio_pids+=("$pid")
+  sleep 1
+  if ! kill -0 "$pid" 2>/dev/null; then
+    echo "$label: private WirePlumber policy manager exited during startup" >&2
+    return 1
+  fi
+
+  XDG_RUNTIME_DIR="$active_audio_runtime_dir" \
+    PIPEWIRE_RUNTIME_DIR="$active_audio_runtime_dir" pipewire-pulse \
+    > "$output_root/$label.private-pipewire-pulse.log" 2>&1 &
+  pid=$!
+  active_private_audio_pids+=("$pid")
+  deadline=$((SECONDS + 10))
+  while [[ ! -S "$active_audio_runtime_dir/pulse/native" ]]; do
+    if ! kill -0 "$pid" 2>/dev/null || (( SECONDS >= deadline )); then
+      echo "$label: private PipeWire-Pulse server did not become ready" >&2
+      return 1
+    fi
+    sleep .1
+  done
+
+  export XDG_RUNTIME_DIR="$active_audio_runtime_dir"
+  export PIPEWIRE_RUNTIME_DIR="$active_audio_runtime_dir"
+  export PULSE_SERVER="unix:$active_audio_runtime_dir/pulse/native"
+  pactl info > /dev/null
+}
+
+activate_shared_audio_sinks() {
+  local label=$1 sink_master=$2 sink_leader=$3 sink_follower=$4
+  local module sink pid deadline running_sinks keepalives_alive
+  module=$(pactl load-module module-null-sink sink_name="$sink_master" rate=48000 channels=4 \
+    channel_map=front-left,front-right,rear-left,rear-right) || return 1
+  active_audio_modules+=("$module")
+  module=$(pactl load-module module-remap-sink sink_name="$sink_leader" master="$sink_master" \
+    channels=2 channel_map=front-left,front-right \
+    master_channel_map=front-left,front-right remix=no) || return 1
+  active_audio_modules=("$module" "${active_audio_modules[@]}")
+  module=$(pactl load-module module-remap-sink sink_name="$sink_follower" master="$sink_master" \
+    channels=2 channel_map=front-left,front-right \
+    master_channel_map=rear-left,rear-right remix=no) || return 1
+  active_audio_modules=("$module" "${active_audio_modules[@]}")
+
+  for sink in "$sink_leader" "$sink_follower"; do
+    pacat --raw --playback --device="$sink" --format=s16le --rate=48000 --channels=2 \
+      --latency-msec=50 --client-name=jammarr-dedicated-gate \
+      --stream-name="${sink}_keepalive" < /dev/zero > /dev/null 2>&1 &
+    active_audio_keepalive_pids+=("$!")
+  done
+  deadline=$((SECONDS + 10))
+  while true; do
+    keepalives_alive=true
+    for pid in "${active_audio_keepalive_pids[@]}"; do
+      if ! kill -0 "$pid" 2>/dev/null; then keepalives_alive=false; fi
+    done
+    running_sinks=$(pactl list short sinks \
+      | awk -v master="$sink_master" -v leader="$sink_leader" -v follower="$sink_follower" \
+        '($2 == master || $2 == leader || $2 == follower) && $NF == "RUNNING" \
+          { count++ } END { print count + 0 }')
+    if [[ "$keepalives_alive" == true && "$running_sinks" == 3 ]]; then return 0; fi
+    if [[ "$keepalives_alive" == false || SECONDS -ge deadline ]]; then
+      echo "$label: private shared-clock sinks did not become active" >&2
+      return 1
+    fi
+    sleep .2
+  done
 }
 
 stop_listening_port() {
@@ -613,6 +763,7 @@ run_vanilla_client() {
   local connected_seconds=${12:-$vanilla_connected_seconds}
   local capture_sink=${13:-}
   local capture_path=${14:-}
+  local capture_follower_path=${15:-}
   local minecraft_version=${label%-*}
   local prism_workspace="$output_root/$label.$scenario.prism"
   local instance_dir="$prism_workspace/instances/jammarr-vanilla-$minecraft_version"
@@ -624,6 +775,7 @@ run_vanilla_client() {
   local expected_diagnostics="capableListeners=$expected_capable, vanillaListeners=$expected_vanilla, listenerStats=$expected_listener_stats"
   local expected_after_disconnect="capableListeners=$expected_capable, vanillaListeners=$((expected_vanilla - 1)), listenerStats=$expected_listener_stats"
   local pid deadline result=0 first_line request_start request_end recorder_pid expected_bytes captured_bytes
+  local combined_capture
 
   mkdir -p "$prism_workspace"
   : > "$client_console"
@@ -660,14 +812,29 @@ run_vanilla_client() {
   if (( result == 0 )); then
     if [[ -n "$capture_sink" && -n "$capture_path" ]]; then
       : > "$capture_path"
-      parec --raw --latency-msec=50 --device="${capture_sink}.monitor" \
-        --format=s16le --rate=48000 --channels=2 > "$capture_path" &
+      if [[ -n "$capture_follower_path" ]]; then
+        : > "$capture_follower_path"
+        combined_capture="${capture_path%.s16le}.shared-clock.s16le"
+        : > "$combined_capture"
+        parec --raw --latency-msec=200 --device="${capture_sink}.monitor" \
+          --format=s16le --rate=48000 --channels=4 \
+          --channel-map=front-left,front-right,rear-left,rear-right \
+          > "$combined_capture" &
+        expected_bytes=$((connected_seconds * 48000 * 4 * 2))
+      else
+        parec --raw --latency-msec=50 --device="${capture_sink}.monitor" \
+          --format=s16le --rate=48000 --channels=2 > "$capture_path" &
+        expected_bytes=$((connected_seconds * 48000 * 2 * 2))
+      fi
       recorder_pid=$!
       active_audio_recorder_pids=("$recorder_pid")
-      expected_bytes=$((connected_seconds * 48000 * 2 * 2))
       deadline=$((SECONDS + connected_seconds + 12))
       while :; do
-        captured_bytes=$(stat -c %s "$capture_path" 2>/dev/null || printf '0')
+        if [[ -n "$capture_follower_path" ]]; then
+          captured_bytes=$(stat -c %s "$combined_capture" 2>/dev/null || printf '0')
+        else
+          captured_bytes=$(stat -c %s "$capture_path" 2>/dev/null || printf '0')
+        fi
         if (( captured_bytes >= expected_bytes )); then break; fi
         if ! group_alive "$pid" || ! kill -0 "$recorder_pid" 2>/dev/null \
             || (( SECONDS >= deadline )); then
@@ -680,6 +847,17 @@ run_vanilla_client() {
       kill -TERM "$recorder_pid" 2>/dev/null || true
       wait "$recorder_pid" 2>/dev/null || true
       active_audio_recorder_pids=()
+      if (( result == 0 )) && [[ -n "$capture_follower_path" ]]; then
+        if ! ffmpeg -hide_banner -loglevel error -y \
+            -f s16le -ar 48000 -ac 4 -i "$combined_capture" \
+            -filter_complex \
+              '[0:a]pan=stereo|c0=c0|c1=c1[leader];[0:a]pan=stereo|c0=c2|c1=c3[follower]' \
+            -map '[leader]' -f s16le "$capture_path" \
+            -map '[follower]' -f s16le "$capture_follower_path"; then
+          echo "$label: could not split the shared-clock vanilla coexistence capture" >&2
+          result=1
+        fi
+      fi
     else
       sleep "$connected_seconds"
     fi
@@ -2322,7 +2500,7 @@ run_mixed_vanilla_audio() {
   local rcon_password=$4
   local fifo_fd=$5
   local server_log=$6
-  local sink_leader=$7
+  local sink_master=$7
   local leader_pid=$8
   local follower_pid=$9
   local vanilla_evidence="$output_root/$label.mixed-vanilla-client.evidence.txt"
@@ -2332,7 +2510,10 @@ run_mixed_vanilla_audio() {
   local post_diagnostics="$output_root/$label.mixed-vanilla-client.post-disconnect-diagnostics.txt"
   local churn_requested=0 cycle=1 completed=0 result=0
   local started=$SECONDS deadline=$((SECONDS + vanilla_churn_min_seconds)) padded username
-  local raw metrics timing evidence server_pid rss_kib descriptors
+  local raw_leader raw_follower metrics_leader metrics_follower timing classification evidence
+  local leader_trace follower_trace leader_trace_tail follower_trace_tail
+  local leader_feed_timing follower_feed_timing trace_bytes
+  local server_pid rss_kib descriptors
   local baseline_rss_kib=0 baseline_descriptors=0 egress_items egress_bytes work_active work_queued
   local keep_up_before keep_up_after
 
@@ -2347,15 +2528,21 @@ run_mixed_vanilla_audio() {
   while (( cycle <= vanilla_churn_cycles || SECONDS < deadline )); do
     printf -v padded '%05d' "$cycle"
     if (( churn_requested )); then
-      raw="$output_root/$label.mixed-client-churn-$padded.s16le"
-      metrics="$output_root/$label.mixed-client-churn-$padded.metrics.txt"
+      raw_leader="$output_root/$label.mixed-client-churn-$padded.leader.s16le"
+      raw_follower="$output_root/$label.mixed-client-churn-$padded.follower.s16le"
+      metrics_leader="$output_root/$label.mixed-client-churn-$padded.leader.metrics.txt"
+      metrics_follower="$output_root/$label.mixed-client-churn-$padded.follower.metrics.txt"
       timing="$output_root/$label.mixed-client-churn-$padded.timing.json"
+      classification="$output_root/$label.mixed-client-churn-$padded.classification.json"
       evidence="$output_root/$label.mixed-client-churn-$padded.evidence.txt"
       username="MixVan$padded"
     else
-      raw="$output_root/$label.mixed-client-audio.s16le"
-      metrics="$output_root/$label.mixed-client-audio.metrics.txt"
+      raw_leader="$output_root/$label.mixed-client-audio.leader.s16le"
+      raw_follower="$output_root/$label.mixed-client-audio.follower.s16le"
+      metrics_leader="$output_root/$label.mixed-client-audio.leader.metrics.txt"
+      metrics_follower="$output_root/$label.mixed-client-audio.follower.metrics.txt"
       timing="$output_root/$label.mixed-client-audio-timing.json"
+      classification="$output_root/$label.mixed-client-audio-classification.json"
       evidence=$default_evidence
       username=MixedVanilla
     fi
@@ -2363,7 +2550,7 @@ run_mixed_vanilla_audio() {
     if ! run_vanilla_client "$label" "$port" "$server_log" \
         "$rcon_port" "$rcon_password" "$fifo_fd" \
         2 1 2 mixed-vanilla-client "$username" "$vanilla_connected_seconds" \
-        "$sink_leader" "$raw"; then
+        "$sink_master" "$raw_leader" "$raw_follower"; then
       result=1
     fi
 
@@ -2374,20 +2561,66 @@ run_mixed_vanilla_audio() {
       echo "$label: a matching client stopped playback during vanilla coexistence cycle $cycle" >&2
       result=1
     fi
-    if (( result == 0 )) && ! audio_capture_is_audible "$raw" "$metrics"; then
-      echo "$label: matching client emitted no program audio during vanilla coexistence cycle $cycle" >&2
+    if (( result == 0 )) && ! audio_capture_is_audible "$raw_leader" "$metrics_leader"; then
+      echo "$label: leader emitted no program audio during vanilla coexistence cycle $cycle" >&2
       result=1
     fi
-    if (( result == 0 )) && ! python3 "$repo_root/scripts/analyze-audio-timing.py" \
-        "$raw" --minimum-duration-ms 10000 > "$timing"; then
-      echo "$label: matching-client audio timing failed during vanilla coexistence cycle $cycle" >&2
+    if (( result == 0 )) && ! audio_capture_is_audible "$raw_follower" "$metrics_follower"; then
+      echo "$label: follower emitted no program audio during vanilla coexistence cycle $cycle" >&2
       result=1
+    fi
+    if (( result == 0 )); then
+      if ! python3 "$repo_root/scripts/analyze-audio-timing.py" \
+          "$raw_leader" --reference "$raw_follower" --minimum-duration-ms 10000 \
+          > "$timing"; then
+        leader_trace=$(find "$output_root/$label.audio-leader/pcm-trace" -type f \
+          -name '*.s16le' -printf '%T@\t%p\n' 2>/dev/null \
+          | sort -nr | head -n 1 | cut -f 2-)
+        follower_trace=$(find "$output_root/$label.audio-follower/pcm-trace" -type f \
+          -name '*.s16le' -printf '%T@\t%p\n' 2>/dev/null \
+          | sort -nr | head -n 1 | cut -f 2-)
+        if [[ -n "$leader_trace" && -n "$follower_trace" ]]; then
+          leader_trace_tail="${timing%.json}.leader-fed-tail.s16le"
+          follower_trace_tail="${timing%.json}.follower-fed-tail.s16le"
+          leader_feed_timing="${timing%.json}.leader-fed-timing.json"
+          follower_feed_timing="${timing%.json}.follower-fed-timing.json"
+          # Retain a bounded recent window from each acceptance-only PCM feed.
+          # At 44.1 kHz stereo s16le, 30 seconds is 5,292,000 bytes. This
+          # captures the failing rendered interval plus backend queue lead
+          # without repeatedly analyzing an hours-long trace.
+          trace_bytes=$((30 * 44100 * 2 * 2))
+          tail -c "$trace_bytes" "$leader_trace" > "$leader_trace_tail"
+          tail -c "$trace_bytes" "$follower_trace" > "$follower_trace_tail"
+          python3 "$repo_root/scripts/analyze-audio-timing.py" "$leader_trace_tail" \
+            --sample-rate 44100 --minimum-duration-ms 10000 \
+            > "$leader_feed_timing" || true
+          python3 "$repo_root/scripts/analyze-audio-timing.py" "$follower_trace_tail" \
+            --sample-rate 44100 --minimum-duration-ms 10000 \
+            > "$follower_feed_timing" || true
+          python3 "$repo_root/scripts/classify-shared-clock-audio.py" "$timing" \
+            --leader-feed-report "$leader_feed_timing" \
+            --follower-feed-report "$follower_feed_timing" \
+            > "$classification" || true
+        else
+          python3 "$repo_root/scripts/classify-shared-clock-audio.py" "$timing" \
+            > "$classification" || true
+        fi
+        echo "$label: shared-clock client audio timing failed during vanilla coexistence cycle $cycle; see $classification" >&2
+        result=1
+      else
+        python3 "$repo_root/scripts/classify-shared-clock-audio.py" "$timing" \
+          > "$classification" || result=1
+      fi
     fi
     if (( result == 0 )); then
       {
         cat "$vanilla_evidence"
-        grep -E 'mean_volume:|max_volume:' "$metrics" | tail -n 2
+        printf 'Leader rendered metrics:\n'
+        grep -E 'mean_volume:|max_volume:' "$metrics_leader" | tail -n 2
+        printf 'Follower rendered metrics:\n'
+        grep -E 'mean_volume:|max_volume:' "$metrics_follower" | tail -n 2
         sed -n '/"duration_ms"\|"marker_count"\|"max_marker_interval_error_ms"\|"marker_sequence_mismatches"\|"max_marker_overlap_ms"\|"max_silence_ms"/p' "$timing"
+        sed -n '/"classification"\|"independent_recorder_ambiguity_removed"/p' "$classification"
         printf 'Two matching clients remained PLAYING while the artifact-free vanilla client was connected.\n'
       } > "$evidence"
     fi
@@ -2467,13 +2700,15 @@ run_two_client_audio() {
   local fifo_fd=$7
   local server_log=$8
   local sink_prefix="jammarr_${BASHPID}_${label//[^a-zA-Z0-9]/_}"
+  local sink_master="${sink_prefix}_capture"
   local sink_leader="${sink_prefix}_leader" sink_follower="${sink_prefix}_follower"
   local raw_leader="$output_root/$label.audio-leader.s16le"
   local raw_follower="$output_root/$label.audio-follower.s16le"
+  local raw_combined="$output_root/$label.audio-shared-clock.s16le"
   local metrics_leader="$output_root/$label.audio-leader.metrics.txt"
   local metrics_follower="$output_root/$label.audio-follower.metrics.txt"
   local evidence="$output_root/$label.two-client-audio.evidence.txt"
-  local module leader_pid follower_pid recorder_pid result=0 client_port="$port"
+  local leader_pid follower_pid recorder_pid result=0 client_port="$port"
   local proxy_port_file="$output_root/$label.audio-proxy.port"
   local proxy_event_log="$output_root/$label.audio-proxy.jsonl"
   local capture_seconds=11 minimum_duration_ms=10000
@@ -2487,10 +2722,10 @@ run_two_client_audio() {
     rendered_timing_args+=(--maximum-marker-error-ms 120 --maximum-skew-ms 250)
   fi
 
-  module=$(pactl load-module module-null-sink sink_name="$sink_leader" rate=48000 channels=2) || return 1
-  active_audio_modules+=("$module")
-  module=$(pactl load-module module-null-sink sink_name="$sink_follower" rate=48000 channels=2) || return 1
-  active_audio_modules+=("$module")
+  if ! start_private_audio_graph "$label" \
+      || ! activate_shared_audio_sinks "$label" "$sink_master" "$sink_leader" "$sink_follower"; then
+    return 1
+  fi
   if [[ "$network_profile" != "direct" ]]; then
     rm -f -- "$proxy_port_file"
     python3 "$repo_root/scripts/tcp-impairment-proxy.py" --target-port "$port" \
@@ -2530,11 +2765,11 @@ run_two_client_audio() {
   if (( result == 0 )); then
     : > "$raw_leader"
     : > "$raw_follower"
-    parec --raw --latency-msec=50 --device="${sink_leader}.monitor" --format=s16le --rate=48000 --channels=2 \
-      > "$raw_leader" &
-    recorder_pid=$!; active_audio_recorder_pids+=("$recorder_pid")
-    parec --raw --latency-msec=50 --device="${sink_follower}.monitor" --format=s16le --rate=48000 --channels=2 \
-      > "$raw_follower" &
+    : > "$raw_combined"
+    parec --raw --latency-msec=200 --device="${sink_master}.monitor" --format=s16le \
+      --rate=48000 --channels=4 \
+      --channel-map=front-left,front-right,rear-left,rear-right \
+      > "$raw_combined" &
     recorder_pid=$!; active_audio_recorder_pids+=("$recorder_pid")
     sleep "$capture_seconds"
     if ! ss -ltnH "sport = :$port" | grep -q . \
@@ -2551,6 +2786,15 @@ run_two_client_audio() {
     wait "$recorder_pid" 2>/dev/null || true
   done
   active_audio_recorder_pids=()
+  if (( result == 0 )) && ! ffmpeg -hide_banner -loglevel error -y \
+      -f s16le -ar 48000 -ac 4 -i "$raw_combined" \
+      -filter_complex \
+        '[0:a]pan=stereo|c0=c0|c1=c1[leader];[0:a]pan=stereo|c0=c2|c1=c3[follower]' \
+      -map '[leader]' -f s16le "$raw_leader" \
+      -map '[follower]' -f s16le "$raw_follower"; then
+    echo "$label: could not split the shared-clock two-client capture" >&2
+    result=1
+  fi
   if (( result == 0 )) && ! audio_capture_is_audible "$raw_leader" "$metrics_leader"; then
     echo "$label: leader sink did not contain observable 997 Hz program audio" >&2
     result=1
@@ -2604,7 +2848,7 @@ run_two_client_audio() {
   fi
   if (( result == 0 )) && [[ "$vanilla_client_gate" == "true" ]]; then
     if ! run_mixed_vanilla_audio "$label" "$port" "$rcon_port" "$rcon_password" \
-        "$fifo_fd" "$server_log" "$sink_leader" "$leader_pid" "$follower_pid"; then
+        "$fifo_fd" "$server_log" "$sink_master" "$leader_pid" "$follower_pid"; then
       result=1
     fi
   fi

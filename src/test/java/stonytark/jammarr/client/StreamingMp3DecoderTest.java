@@ -7,11 +7,55 @@ import javax.sound.sampled.AudioFormat;
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.*;
 
 class StreamingMp3DecoderTest {
+    @Test
+    void acceptancePcmTraceRecordsExactlyWhatTheBackendReceives() throws Exception {
+        String enabled = System.getProperty("jammarr.acceptance.enabled");
+        String audioProbe = System.getProperty("jammarr.acceptance.audioProbe");
+        String traceDirectory = System.getProperty("jammarr.acceptance.pcmTraceDir");
+        Path traces = Files.createTempDirectory("jammarr-modern-pcm-trace");
+        System.setProperty("jammarr.acceptance.enabled", "true");
+        System.setProperty("jammarr.acceptance.audioProbe", "true");
+        System.setProperty("jammarr.acceptance.pcmTraceDir", traces.toString());
+        try {
+            var chunks = Mp3FrameIndex.split(encodeTestTrack());
+            StreamingMp3Decoder decoder = new StreamingMp3Decoder(0, chunks.size());
+            PcmAudioStream stream = new PcmAudioStream(decoder);
+            try {
+                for (Mp3FrameIndex.Chunk chunk : chunks) {
+                    assertTrue(decoder.offer(chunk.index(), chunk.data()));
+                }
+                await(() -> decoder.format() != null && decoder.bufferedMillis() > 0);
+                ByteBuffer supplied = stream.read(8_192);
+                assertNotNull(supplied);
+                byte[] expected = new byte[supplied.remaining()];
+                supplied.get(expected);
+                stream.close();
+                Path trace;
+                try (var files = Files.list(traces)) {
+                    trace = files.findFirst().orElseThrow();
+                }
+                assertArrayEquals(expected, Files.readAllBytes(trace));
+            } finally {
+                stream.close();
+            }
+        } finally {
+            restoreProperty("jammarr.acceptance.enabled", enabled);
+            restoreProperty("jammarr.acceptance.audioProbe", audioProbe);
+            restoreProperty("jammarr.acceptance.pcmTraceDir", traceDirectory);
+            try (var files = Files.list(traces)) {
+                files.forEach(path -> path.toFile().delete());
+            }
+            Files.deleteIfExists(traces);
+        }
+    }
+
     @Test
     void pcmStreamYieldsTheSoundExecutorWhenLiveDecoderHasNoPcm() throws Exception {
         StreamingMp3Decoder decoder = new StreamingMp3Decoder(0, 1);
@@ -120,4 +164,9 @@ class StreamingMp3DecoderTest {
     }
 
     private interface Check { boolean value(); }
+
+    private static void restoreProperty(String name, String value) {
+        if (value == null) System.clearProperty(name);
+        else System.setProperty(name, value);
+    }
 }

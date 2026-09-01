@@ -2,6 +2,10 @@ package stonytark.jammarr.client;
 
 import net.minecraft.client.sounds.AudioStream;
 import javax.sound.sampled.AudioFormat;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import stonytark.jammarr.Jammarr;
 import stonytark.jammarr.core.protocol.ProtocolLimits;
@@ -12,15 +16,21 @@ final class PcmAudioStream implements AudioStream {
     private byte[] remainder;
     private int remainderOffset;
     private int acceptanceReads;
+    private OutputStream acceptancePcmTrace;
 
-    PcmAudioStream(StreamingMp3Decoder decoder) { this.decoder = decoder; }
+    PcmAudioStream(StreamingMp3Decoder decoder) {
+        this.decoder = decoder;
+        acceptancePcmTrace = openAcceptancePcmTrace();
+    }
     @Override public AudioFormat getFormat() { return decoder.format(); }
     @Override public ByteBuffer read(int requested) {
         ByteBuffer output = ByteBuffer.allocateDirect(requested); boolean wrote = false;
         while (output.hasRemaining()) {
             if (remainder == null) { remainder = decoder.poll(); remainderOffset = 0; if (remainder == null) break; }
             int count = Math.min(output.remaining(), remainder.length - remainderOffset);
-            output.put(remainder, remainderOffset, count); remainderOffset += count; wrote = true;
+            output.put(remainder, remainderOffset, count);
+            traceAcceptancePcm(remainder, remainderOffset, count);
+            remainderOffset += count; wrote = true;
             if (remainderOffset == remainder.length) remainder = null;
         }
         if (!wrote) {
@@ -39,5 +49,44 @@ final class PcmAudioStream implements AudioStream {
         }
         return output;
     }
-    @Override public void close() { decoder.close(); }
+
+    private static OutputStream openAcceptancePcmTrace() {
+        if (!ProtocolLimits.audioProbeEnabled()) return null;
+        String traceDirectory = System.getProperty("jammarr.acceptance.pcmTraceDir", "");
+        if (traceDirectory.isEmpty()) return null;
+        File directory = new File(traceDirectory);
+        if (!directory.isDirectory() && !directory.mkdirs()) return null;
+        File trace = new File(directory, "pcm-feed-" + System.nanoTime() + ".s16le");
+        try {
+            return new FileOutputStream(trace);
+        } catch (IOException error) {
+            Jammarr.LOGGER.warn("Unable to open the acceptance PCM trace", error);
+            return null;
+        }
+    }
+
+    private void traceAcceptancePcm(byte[] pcm, int offset, int count) {
+        if (acceptancePcmTrace == null) return;
+        try {
+            acceptancePcmTrace.write(pcm, offset, count);
+            acceptancePcmTrace.flush();
+        } catch (IOException error) {
+            Jammarr.LOGGER.warn("Unable to write the acceptance PCM trace", error);
+            closeAcceptancePcmTrace();
+        }
+    }
+
+    private void closeAcceptancePcmTrace() {
+        if (acceptancePcmTrace == null) return;
+        try {
+            acceptancePcmTrace.close();
+        } catch (IOException ignored) {
+        }
+        acceptancePcmTrace = null;
+    }
+
+    @Override public void close() {
+        closeAcceptancePcmTrace();
+        decoder.close();
+    }
 }
