@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+
+from __future__ import annotations
+
+import importlib.util
+import json
+from pathlib import Path
+import tempfile
+import unittest
+
+
+SCRIPT = Path(__file__).with_name("run-vanilla-client-matrix.py")
+SPEC = importlib.util.spec_from_file_location("run_vanilla_client_matrix", SCRIPT)
+assert SPEC and SPEC.loader
+MATRIX = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(MATRIX)
+
+
+class VanillaClientMatrixTest(unittest.TestCase):
+    def test_release_tuple_excludes_non_release_legacy_versions(self) -> None:
+        self.assertIsNone(MATRIX.release_tuple("b1.7.3"))
+        self.assertEqual(MATRIX.release_tuple("1.20"), (1, 20, 0))
+        self.assertEqual(MATRIX.release_tuple("26.2"), (26, 2, 0))
+
+    def test_actual_manifest_selects_every_runtime_from_1122_forward(self) -> None:
+        manifest = MATRIX.target_matrix.load_manifest(Path("gradle/targets.json"))
+        runtimes = MATRIX.artifact_free_runtimes(manifest)
+        names = [runtime["name"] for runtime in runtimes]
+        self.assertIn("1.12.2-forge", names)
+        self.assertIn("1.16.5-fabric", names)
+        self.assertIn("1.20.1-quilt", names)
+        self.assertIn("26.2-neoforge", names)
+        self.assertNotIn("1.8.9-forge", names)
+        self.assertEqual(len(names), len(set(names)))
+
+    def test_select_runtimes_rejects_legacy_and_unknown_names(self) -> None:
+        runtimes = [{"name": "1.20.1-fabric"}]
+        with self.assertRaisesRegex(SystemExit, "not artifact-free-client targets"):
+            MATRIX.select_runtimes(runtimes, ["1.7.10-forge"])
+
+    def test_resume_requires_complete_attested_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            runtime = {"name": "1.20.1-fabric"}
+            instance = output / (
+                "1.20.1-fabric.vanilla-client.prism/instances/"
+                "jammarr-vanilla-1.20.1"
+            )
+            instance.mkdir(parents=True)
+            (instance / "vanilla-attestation.json").write_text(
+                json.dumps(
+                    {
+                        "minecraftVersion": "1.20.1",
+                        "jammarrComponentPresent": False,
+                        "mods": [],
+                        "accountMode": "direct-offline",
+                        "runtime": {
+                            "allArtifactSha1Verified": True,
+                            "allArtifactSha1AndSizeVerified": True,
+                            "sharedCacheMutated": False,
+                            "artifactSourceCounts": {"shared-cache": 4},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            evidence = output / "1.20.1-fabric.vanilla-client.evidence.txt"
+            evidence.write_text(
+                "capableListeners=0, vanillaListeners=1, listenerStats=0\n"
+                "Artifact-free vanilla client remained connected for 10 seconds.\n"
+                "Plex request count remained unchanged at 0.\n",
+                encoding="utf-8",
+            )
+            self.assertTrue(MATRIX.accepted_evidence(output, runtime))
+            value = json.loads((instance / "vanilla-attestation.json").read_text("utf-8"))
+            value["runtime"]["sharedCacheMutated"] = True
+            (instance / "vanilla-attestation.json").write_text(json.dumps(value), "utf-8")
+            self.assertFalse(MATRIX.accepted_evidence(output, runtime))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,198 @@
+#!/usr/bin/env python3
+"""Run genuine artifact-free client acceptance across modern Jammarr runtimes."""
+
+from __future__ import annotations
+
+import argparse
+from datetime import datetime, timezone
+import importlib.util
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+from typing import Any
+
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+TARGET_MATRIX_SCRIPT = SCRIPT_DIR / "target-matrix.py"
+SPEC = importlib.util.spec_from_file_location("jammarr_target_matrix", TARGET_MATRIX_SCRIPT)
+assert SPEC and SPEC.loader
+target_matrix = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(target_matrix)
+
+
+def release_tuple(version: str) -> tuple[int, int, int] | None:
+    match = re.fullmatch(r"([0-9]+)\.([0-9]+)(?:\.([0-9]+))?", version)
+    if not match:
+        return None
+    return tuple(int(value or 0) for value in match.groups())
+
+
+def artifact_free_runtimes(manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        runtime
+        for runtime in target_matrix.runtimes(manifest)
+        if (release_tuple(runtime["name"].rsplit("-", 1)[0]) or (0, 0, 0))
+        >= (1, 12, 2)
+    ]
+
+
+def select_runtimes(
+    runtimes: list[dict[str, Any]], requested: list[str]
+) -> list[dict[str, Any]]:
+    by_name = {runtime["name"]: runtime for runtime in runtimes}
+    if not requested:
+        return runtimes
+    if len(requested) != len(set(requested)):
+        raise SystemExit("runtime selections must be unique")
+    unknown = [name for name in requested if name not in by_name]
+    if unknown:
+        raise SystemExit(
+            "runtime selections are not artifact-free-client targets: " + ", ".join(unknown)
+        )
+    return [by_name[name] for name in requested]
+
+
+def accepted_evidence(output: Path, runtime: dict[str, Any]) -> bool:
+    label = runtime["name"]
+    minecraft = label.rsplit("-", 1)[0]
+    evidence = output / f"{label}.vanilla-client.evidence.txt"
+    attestation = (
+        output
+        / f"{label}.vanilla-client.prism/instances"
+        / f"jammarr-vanilla-{minecraft}/vanilla-attestation.json"
+    )
+    try:
+        text = evidence.read_text("utf-8")
+        value = json.loads(attestation.read_text("utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    details = value.get("runtime", {})
+    counts = details.get("artifactSourceCounts")
+    return (
+        value.get("minecraftVersion") == minecraft
+        and value.get("jammarrComponentPresent") is False
+        and value.get("mods") == []
+        and value.get("accountMode") == "direct-offline"
+        and details.get("allArtifactSha1Verified") is True
+        and details.get("allArtifactSha1AndSizeVerified") is True
+        and details.get("sharedCacheMutated") is False
+        and isinstance(counts, dict)
+        and sum(counts.values()) > 0
+        and "capableListeners=0, vanillaListeners=1, listenerStats=0" in text
+        and "Artifact-free vanilla client remained connected" in text
+        and "Plex request count remained unchanged" in text
+    )
+
+
+def write_summary(path: Path, value: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def run(args: argparse.Namespace) -> int:
+    manifest = target_matrix.load_manifest(args.manifest)
+    all_runtimes = artifact_free_runtimes(manifest)
+    runtimes = select_runtimes(all_runtimes, args.runtime)
+    if not args.gate_script.is_file():
+        raise SystemExit(f"dedicated-server gate is missing: {args.gate_script}")
+    summary: dict[str, Any] = {
+        "schemaVersion": 1,
+        "startedAt": datetime.now(timezone.utc).isoformat(),
+        "manifest": str(args.manifest),
+        "selected": [runtime["name"] for runtime in runtimes],
+        "accepted": [],
+        "resumed": [],
+        "failures": [],
+        "privateXRequiredByGate": True,
+        "artifactFree": True,
+    }
+    interrupted: BaseException | None = None
+    try:
+        for index, runtime in enumerate(runtimes, start=1):
+            label = runtime["name"]
+            output = args.output_root / label
+            if args.resume and accepted_evidence(output, runtime):
+                summary["resumed"].append(label)
+                print(f"VANILLA_MATRIX_RESUME {index}/{len(runtimes)} {label}", flush=True)
+                continue
+            print(f"VANILLA_MATRIX_RUNTIME {index}/{len(runtimes)} {label}", flush=True)
+            environment = dict(os.environ)
+            environment.update(
+                {
+                    "JAMMARR_GATE_OUTPUT_ROOT": str(output.resolve()),
+                    "JAMMARR_PROTOCOL_CLIENT_GATE": "false",
+                    "JAMMARR_COMMAND_CLIENT_GATE": "false",
+                    "JAMMARR_AUDIO_CLIENT_GATE": "false",
+                    "JAMMARR_AUDIO_SCENARIO_GATE": "false",
+                    "JAMMARR_VANILLA_CLIENT_GATE": "true",
+                    "JAMMARR_VANILLA_CONNECTED_SECONDS": str(args.connected_seconds),
+                }
+            )
+            result = subprocess.run(
+                [str(args.gate_script.resolve()), label],
+                cwd=args.gate_script.resolve().parent.parent,
+                env=environment,
+                check=False,
+            )
+            if result.returncode == 0 and accepted_evidence(output, runtime):
+                summary["accepted"].append(label)
+                continue
+            failure = {
+                "runtime": label,
+                "exitCode": result.returncode,
+                "acceptedEvidence": accepted_evidence(output, runtime),
+            }
+            summary["failures"].append(failure)
+            if not args.continue_on_error:
+                break
+    except BaseException as error:
+        interrupted = error
+    finally:
+        summary["finishedAt"] = datetime.now(timezone.utc).isoformat()
+        summary["complete"] = (
+            not summary["failures"]
+            and len(summary["accepted"]) + len(summary["resumed"]) == len(runtimes)
+        )
+        write_summary(args.summary, summary)
+        print(f"VANILLA_MATRIX_EVIDENCE {args.summary}", flush=True)
+    if interrupted is not None:
+        raise interrupted
+    if not summary["complete"]:
+        return 1
+    print(
+        f"VANILLA_MATRIX_COMPLETE selected={len(runtimes)} "
+        f"accepted={len(summary['accepted'])} resumed={len(summary['resumed'])}",
+        flush=True,
+    )
+    return 0
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--runtime", action="append", default=[])
+    parser.add_argument("--manifest", type=Path, default=Path("gradle/targets.json"))
+    parser.add_argument(
+        "--gate-script", type=Path, default=Path("scripts/run-dedicated-server-gate.sh")
+    )
+    parser.add_argument(
+        "--output-root", type=Path, default=Path("build/vanilla-client-matrix")
+    )
+    parser.add_argument(
+        "--summary",
+        type=Path,
+        default=Path("build/vanilla-client-matrix/matrix-summary.json"),
+    )
+    parser.add_argument("--connected-seconds", type=int, default=10)
+    parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--continue-on-error", action="store_true")
+    args = parser.parse_args()
+    if not 10 <= args.connected_seconds <= 300:
+        parser.error("--connected-seconds must be from 10 through 300")
+    return args
+
+
+if __name__ == "__main__":
+    sys.exit(run(parse_args()))
