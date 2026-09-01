@@ -85,28 +85,17 @@ public final class PlexService implements PlexGateway {
     public PlexService(String url, String token, String library, Duration requestTimeout, int maxJsonBytes, long maxTranscodeBytes) {
         this(() -> url, () -> token, () -> library, requestTimeout, maxJsonBytes, maxTranscodeBytes, requestTimeout);
     }
-    PlexService(String url, String token, String library, Duration requestTimeout, HttpTransport http) {
-        this(() -> url, () -> token, () -> library, requestTimeout,
-                MAX_JSON_BYTES, MAX_TRANSCODE_BYTES, TRANSCODE_READ_TIMEOUT, http);
-    }
     private PlexService(Supplier<String> url, Supplier<String> token, Supplier<String> library, Duration requestTimeout) {
         this(url, token, library, requestTimeout, MAX_JSON_BYTES, MAX_TRANSCODE_BYTES, TRANSCODE_READ_TIMEOUT);
     }
     private PlexService(Supplier<String> url, Supplier<String> token, Supplier<String> library, Duration requestTimeout,
                        int maxJsonBytes, long maxTranscodeBytes, Duration transcodeReadTimeout) {
-        this(url, token, library, requestTimeout, maxJsonBytes, maxTranscodeBytes,
-                transcodeReadTimeout, new UrlConnectionHttpTransport());
-    }
-    private PlexService(Supplier<String> url, Supplier<String> token, Supplier<String> library, Duration requestTimeout,
-                        int maxJsonBytes, long maxTranscodeBytes, Duration transcodeReadTimeout,
-                        HttpTransport http) {
         this.configuredUrl = url; this.configuredToken = token; this.configuredLibrary = library;
         this.requestTimeout = requestTimeout;
         this.maxJsonBytes = maxJsonBytes;
         this.maxTranscodeBytes = maxTranscodeBytes;
         this.transcodeReadTimeout = transcodeReadTimeout;
-        if (http == null) throw new IllegalArgumentException("HTTP transport is required");
-        this.http = http;
+        this.http = new UrlConnectionHttpTransport();
     }
 
     public void validate() throws IOException, InterruptedException {
