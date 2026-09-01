@@ -201,9 +201,60 @@ class DiscPanelReconcilerTests(unittest.TestCase):
 
     def test_port_allocator_skips_existing_ports(self) -> None:
         self.assertEqual(
-            reconcile_discopanel.allocate_ports(25565, {25566, 25568}, 4),
-            [25565, 25567, 25569, 25570],
+            reconcile_discopanel.allocate_ports(25573, {25574, 25576}, 4),
+            [25573, 25577, 25578, 25579],
         )
+
+    def test_drift_rejects_discopanel_rcon_port_as_game_port(self) -> None:
+        profile = reconcile_discopanel.Profile(
+            runtime="1.12.2-forge",
+            minecraft="1.12.2",
+            loader="forge",
+            name="Jammarr 1.12.2 Forge Test",
+            java=8,
+            docker_image="java8",
+            panel_loader="MOD_LOADER_FORGE",
+            provisioning="native",
+        )
+        server = {
+            "mcVersion": "1.12.2",
+            "modLoader": "MOD_LOADER_FORGE",
+            "dockerImage": "java8",
+            "memory": 4096,
+            "port": 25575,
+            "autoStart": False,
+            "status": "SERVER_STATUS_STOPPED",
+        }
+        self.assertRegex(reconcile_discopanel.drift(profile, server)[0], "RCON")
+
+    def test_update_server_can_replace_reserved_port(self) -> None:
+        panel = reconcile_discopanel.DiscPanel("http://example.invalid", "test")
+        profile = reconcile_discopanel.Profile(
+            runtime="1.12.2-forge",
+            minecraft="1.12.2",
+            loader="forge",
+            name="Jammarr 1.12.2 Forge Test",
+            java=8,
+            docker_image="java8",
+            panel_loader="MOD_LOADER_FORGE",
+            provisioning="native",
+        )
+        server = {
+            "id": "server",
+            "name": profile.name,
+            "description": "managed",
+            "port": 25575,
+            "maxPlayers": 5,
+            "memory": 4096,
+            "modLoader": profile.panel_loader,
+            "mcVersion": profile.minecraft,
+            "dockerImage": profile.docker_image,
+            "autoStart": False,
+            "detached": True,
+        }
+        with mock.patch.object(panel, "call", return_value={}) as call:
+            panel.update_server(profile, server, 25664)
+        self.assertEqual(call.call_args.args[2]["port"], 25664)
 
     def test_drift_requires_stopped_exact_profile(self) -> None:
         profile = reconcile_discopanel.Profile(

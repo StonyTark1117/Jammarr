@@ -135,6 +135,10 @@ MANAGED_RUNTIME_ENV_KEYS = {
     "TYPE",
     "QUILT_INSTALLER_VERSION",
 }
+# DiscPanel reserves container TCP 25575 for RCON. Assigning it as a game's
+# public port causes Docker's localhost RCON binding to replace the game-port
+# binding, leaving an apparently healthy server unreachable from clients.
+RESERVED_GAME_PORTS = {25575}
 
 
 @dataclass(frozen=True)
@@ -283,7 +287,12 @@ class DiscPanel:
     def get_server(self, server_id: str) -> dict[str, Any]:
         return self.call("ServerService", "GetServer", {"id": server_id})["server"]
 
-    def update_server(self, profile: Profile, server: dict[str, Any]) -> dict[str, Any]:
+    def update_server(
+        self,
+        profile: Profile,
+        server: dict[str, Any],
+        port: int | None = None,
+    ) -> dict[str, Any]:
         overrides = json.loads(json.dumps(server.get("dockerOverrides") or {}))
         environment = dict(overrides.get("environment") or {})
         for key in MANAGED_RUNTIME_ENV_KEYS:
@@ -297,7 +306,7 @@ class DiscPanel:
                 "id": server["id"],
                 "name": server["name"],
                 "description": server.get("description", ""),
-                "port": int(server["port"]),
+                "port": int(server["port"] if port is None else port),
                 "maxPlayers": int(server.get("maxPlayers", 5)),
                 "memory": int(server.get("memory", 4096)),
                 "modLoader": profile.panel_loader.removeprefix("MOD_LOADER_").lower(),
@@ -524,6 +533,10 @@ def drift(profile: Profile, server: dict[str, Any]) -> list[str]:
         differences.append(f"status={server.get('status')!r} expected {STATUS_STOPPED!r}")
     if bool(server.get("autoStart", False)):
         differences.append("autoStart=True expected False")
+    if server.get("port") in RESERVED_GAME_PORTS:
+        differences.append(
+            f"port={server.get('port')} is reserved for DiscPanel container RCON"
+        )
     environment = (server.get("dockerOverrides") or {}).get("environment") or {}
     expected_environment = dict(profile.environment)
     for key, value in profile.environment:
@@ -872,7 +885,7 @@ def allocate_ports(start: int, used: set[int], count: int) -> list[int]:
     while len(ports) < count:
         if candidate > 65535:
             raise SystemExit("DiscPanel has insufficient available TCP ports")
-        if candidate not in used:
+        if candidate not in used and candidate not in RESERVED_GAME_PORTS:
             ports.append(candidate)
             used.add(candidate)
         candidate += 1
@@ -934,10 +947,12 @@ def reconcile(args: argparse.Namespace) -> int:
         differences = drift(profile, server)
         if differences:
             environment_only_drift = is_stopped(server) and all(
-                item.startswith("docker environment ") for item in differences
+                item.startswith("docker environment ") or item.startswith("port=")
+                for item in differences
             )
             repairable_differences = all(
                 item.startswith("docker environment ")
+                or item.startswith("port=")
                 or item.startswith("modLoader='MOD_LOADER_VANILLA' expected 'MOD_LOADER_FABRIC'")
                 for item in differences
             )
@@ -972,9 +987,9 @@ def reconcile(args: argparse.Namespace) -> int:
     for profile, _ in incomplete_custom:
         print(f"INCOMPLETE custom bootstrap required: {profile.runtime}")
     for profile, _ in repairable_custom:
-        print(f"REPAIRABLE custom environment: {profile.runtime}")
+        print(f"REPAIRABLE custom definition: {profile.runtime}")
     for profile, _ in repairable_native:
-        print(f"REPAIRABLE native environment: {profile.runtime}")
+        print(f"REPAIRABLE native definition: {profile.runtime}")
 
     if args.json:
         print(json.dumps({
@@ -1031,7 +1046,16 @@ def reconcile(args: argparse.Namespace) -> int:
     if args.apply_native:
         for profile, server in repairable_native:
             print(f"REPAIR_NATIVE {profile.runtime}", flush=True)
-            panel.update_server(profile, server)
+            replacement_port = None
+            if server.get("port") in RESERVED_GAME_PORTS:
+                start_port, live_used_ports = panel.next_port_state()
+                live_used_ports.update(
+                    int(item["port"])
+                    for item in panel.list_servers()
+                    if item.get("port")
+                )
+                replacement_port = allocate_ports(start_port, live_used_ports, 1)[0]
+            panel.update_server(profile, server, replacement_port)
             updated = panel.get_server(str(server["id"]))
             differences = drift(profile, updated)
             if differences:
@@ -1044,7 +1068,16 @@ def reconcile(args: argparse.Namespace) -> int:
     if args.apply_custom:
         for profile, server in repairable_custom:
             print(f"REPAIR_CUSTOM {profile.runtime}", flush=True)
-            panel.update_server(profile, server)
+            replacement_port = None
+            if server.get("port") in RESERVED_GAME_PORTS:
+                start_port, live_used_ports = panel.next_port_state()
+                live_used_ports.update(
+                    int(item["port"])
+                    for item in panel.list_servers()
+                    if item.get("port")
+                )
+                replacement_port = allocate_ports(start_port, live_used_ports, 1)[0]
+            panel.update_server(profile, server, replacement_port)
             updated = panel.get_server(str(server["id"]))
             differences = drift(profile, updated)
             if differences:

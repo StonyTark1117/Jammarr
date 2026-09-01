@@ -13,6 +13,7 @@ import argparse
 import importlib.util
 import json
 import os
+import signal
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -24,6 +25,16 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
 SMOKE_SCRIPT = SCRIPT_DIR / "run-discopanel-server-smoke.py"
 LIVE_GATE = SCRIPT_DIR / "run-discopanel-live-client-gate.sh"
+FORBIDDEN_CLIENT_MARKERS = (
+    "Only one OpenAL context",
+    "UnsatisfiedLinkError: org.lwjgl.openal",
+    "Acceptance audio state: ERROR",
+    "Client disconnected with reason:",
+    "Couldn't connect to server",
+    "Connection refused",
+    "Failed to connect to the server",
+    "Connection timed out",
+)
 SPEC = importlib.util.spec_from_file_location("jammarr_live_matrix_smoke", SMOKE_SCRIPT)
 assert SPEC and SPEC.loader
 smoke = importlib.util.module_from_spec(SPEC)
@@ -88,11 +99,6 @@ def accepted_session(evidence_dir: Path, version: str, target: Any) -> Path | No
         key=lambda path: path.stat().st_mtime,
         reverse=True,
     )
-    forbidden = (
-        "Only one OpenAL context",
-        "UnsatisfiedLinkError: org.lwjgl.openal",
-        "Acceptance audio state: ERROR",
-    )
     for session in candidates:
         if session_has_process(session):
             continue
@@ -133,7 +139,7 @@ def accepted_session(evidence_dir: Path, version: str, target: Any) -> Path | No
             ]
         except OSError:
             continue
-        if any(marker in log for marker in forbidden for log in logs):
+        if any(marker in log for marker in FORBIDDEN_CLIENT_MARKERS for log in logs):
             continue
         if target.runtime == "b1.7.3-babric" and not (
             session / "operator-file-restored"
@@ -146,6 +152,43 @@ def accepted_session(evidence_dir: Path, version: str, target: Any) -> Path | No
 def write_summary(path: Path, summary: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", "utf-8")
+
+
+def run_live_gate(
+    command: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    cleanup_timeout: int = 240,
+) -> int:
+    """Run one gate in its own session and let its trap finish on interruption.
+
+    A terminal Ctrl-C is delivered to the matrix wrapper's foreground process
+    group. Starting the gate in a separate session keeps that signal from
+    killing the shell and its children simultaneously. We then signal the gate
+    shell itself and wait for its EXIT/INT cleanup trap to release the held
+    server, restore configuration, and remove private-X client processes.
+    """
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        env=env,
+        start_new_session=True,
+    )
+    try:
+        return process.wait()
+    except KeyboardInterrupt:
+        try:
+            process.send_signal(signal.SIGINT)
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=cleanup_timeout)
+        except subprocess.TimeoutExpired as error:
+            raise RuntimeError(
+                f"live gate cleanup did not finish within {cleanup_timeout} seconds"
+            ) from error
+        raise
 
 
 def run(args: argparse.Namespace) -> int:
@@ -218,20 +261,19 @@ def run(args: argparse.Namespace) -> int:
             environment["DISCOPANEL_URL"] = args.url
             environment["DISCOPANEL_TOKEN_ENV"] = args.token_env
             environment["JAMMARR_EXPECTED_VERSION"] = version
-            result = subprocess.run(
+            returncode = run_live_gate(
                 [str(LIVE_GATE), target.runtime],
                 cwd=REPO_ROOT,
                 env=environment,
-                check=False,
             )
-            if result.returncode != 0:
+            if returncode != 0:
                 summary["failures"].append(
-                    {"runtime": target.runtime, "exitCode": result.returncode}
+                    {"runtime": target.runtime, "exitCode": returncode}
                 )
                 if not args.continue_on_error:
                     raise RuntimeError(
                         f"live client gate failed for {target.runtime} "
-                        f"with exit code {result.returncode}"
+                        f"with exit code {returncode}"
                     )
             else:
                 evidence = accepted_session(args.evidence_dir, version, target)

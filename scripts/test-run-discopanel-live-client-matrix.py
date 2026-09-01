@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import signal
 import sys
 import tempfile
 import unittest
@@ -117,6 +118,16 @@ class LiveClientMatrixTests(unittest.TestCase):
             )
             self.assertIsNone(matrix.accepted_session(root, "1.1.0", self.target()))
 
+    def test_accepted_session_rejects_connection_failure_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            session = self.write_session(root)
+            (session / "client-follower.console.log").write_text(
+                "io.netty.channel.AbstractChannel$AnnotatedConnectException: "
+                "Connection refused\n"
+            )
+            self.assertIsNone(matrix.accepted_session(root, "1.1.0", self.target()))
+
     def test_accepted_session_rejects_live_session_process(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -124,6 +135,56 @@ class LiveClientMatrixTests(unittest.TestCase):
             with mock.patch.object(matrix, "session_has_process", return_value=True):
                 self.assertIsNone(
                     matrix.accepted_session(root, "1.1.0", self.target())
+                )
+
+    def test_run_live_gate_uses_isolated_session_and_returns_status(self) -> None:
+        process = mock.Mock()
+        process.wait.return_value = 7
+        with mock.patch.object(matrix.subprocess, "Popen", return_value=process) as popen:
+            self.assertEqual(
+                matrix.run_live_gate(
+                    ["gate", "1.12.2-forge"],
+                    cwd=Path("/repo"),
+                    env={"SAFE": "value"},
+                ),
+                7,
+            )
+        popen.assert_called_once_with(
+            ["gate", "1.12.2-forge"],
+            cwd=Path("/repo"),
+            env={"SAFE": "value"},
+            start_new_session=True,
+        )
+        process.wait.assert_called_once_with()
+
+    def test_run_live_gate_waits_for_cleanup_before_reraising_interrupt(self) -> None:
+        process = mock.Mock()
+        process.wait.side_effect = [KeyboardInterrupt(), 130]
+        with mock.patch.object(matrix.subprocess, "Popen", return_value=process):
+            with self.assertRaises(KeyboardInterrupt):
+                matrix.run_live_gate(
+                    ["gate", "1.12.2-forge"],
+                    cwd=Path("/repo"),
+                    env={},
+                )
+        process.send_signal.assert_called_once_with(signal.SIGINT)
+        self.assertEqual(
+            process.wait.call_args_list,
+            [mock.call(), mock.call(timeout=240)],
+        )
+
+    def test_run_live_gate_reports_cleanup_timeout(self) -> None:
+        process = mock.Mock()
+        process.wait.side_effect = [
+            KeyboardInterrupt(),
+            matrix.subprocess.TimeoutExpired(["gate"], 240),
+        ]
+        with mock.patch.object(matrix.subprocess, "Popen", return_value=process):
+            with self.assertRaisesRegex(RuntimeError, "cleanup did not finish"):
+                matrix.run_live_gate(
+                    ["gate", "1.12.2-forge"],
+                    cwd=Path("/repo"),
+                    env={},
                 )
 
 

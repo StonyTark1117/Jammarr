@@ -113,6 +113,7 @@ recorder_pids=()
 sink_modules=()
 leader_username="JmLiveA${session_dir##*.}"
 follower_username="JmLiveB${session_dir##*.}"
+terminal_client_pattern='Acceptance audio state: ERROR|Failed to open OpenAL device|Only one OpenAL context|UnsatisfiedLinkError: org\.lwjgl\.openal|Client disconnected with reason:|Couldn.t connect to server|Connection refused|Failed to connect to the server|Connection timed out'
 
 server_command() {
   local command=$1
@@ -455,7 +456,7 @@ wait_for_client_state() {
   local console="$session_dir/client-$role.console.log"
   local deadline=$((SECONDS + timeout))
   while ! grep -Fq "Acceptance audio state: $state" "$console" 2>/dev/null; do
-    if grep -Eq 'Acceptance audio state: ERROR|Failed to open OpenAL device|Only one OpenAL context|UnsatisfiedLinkError: org\.lwjgl\.openal|Client disconnected with reason:' "$console" 2>/dev/null; then
+    if grep -Eq "$terminal_client_pattern" "$console" 2>/dev/null; then
       echo "$runtime $role client entered a terminal audio/connection state; see $console" >&2
       return 1
     fi
@@ -476,7 +477,7 @@ wait_for_client_marker() {
   local console="$session_dir/client-$role.console.log"
   local deadline=$((SECONDS + timeout))
   while ! grep -Fq "$marker" "$console" 2>/dev/null; do
-    if grep -Eq 'Acceptance audio state: ERROR|Failed to open OpenAL device|Only one OpenAL context|UnsatisfiedLinkError: org\.lwjgl\.openal|Client disconnected with reason:' "$console" 2>/dev/null; then
+    if grep -Eq "$terminal_client_pattern" "$console" 2>/dev/null; then
       echo "$runtime $role client entered a terminal audio/connection state; see $console" >&2
       return 1
     fi
@@ -542,7 +543,7 @@ fi
 python3 "$repo_root/scripts/analyze-live-audio.py" "$leader_raw" "$follower_raw" \
   "${analyzer_args[@]}" > "$session_dir/audio-analysis.json"
 
-if grep -Eq 'Only one OpenAL context|UnsatisfiedLinkError: org\.lwjgl\.openal|Acceptance audio state: ERROR|Client disconnected with reason:' \
+if grep -Eq "$terminal_client_pattern" \
     "$session_dir/client-leader.console.log" "$session_dir/client-follower.console.log"; then
   echo "$runtime logged an OpenAL linkage/context, terminal audio, or disconnect failure" >&2
   exit 1
