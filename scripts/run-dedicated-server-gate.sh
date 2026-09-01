@@ -178,12 +178,23 @@ command_client_gate=${JAMMARR_COMMAND_CLIENT_GATE:-false}
 audio_client_gate=${JAMMARR_AUDIO_CLIENT_GATE:-false}
 audio_scenario_gate=${JAMMARR_AUDIO_SCENARIO_GATE:-false}
 client_companion_gate=${JAMMARR_CLIENT_COMPANION_GATE:-false}
+vanilla_client_gate=${JAMMARR_VANILLA_CLIENT_GATE:-false}
 legacy_persistence_gate=${JAMMARR_LEGACY_PERSISTENCE_GATE:-false}
 legacy_cold_start_count=${JAMMARR_LEGACY_COLD_STARTS:-0}
 legacy_browse_stress_gate=${JAMMARR_LEGACY_BROWSE_STRESS_GATE:-false}
 network_profile=${JAMMARR_NETWORK_PROFILE:-direct}
 fabric_loader_version=${JAMMARR_FABRIC_LOADER_VERSION:-}
 quilt_modmenu_gate=${JAMMARR_QUILT_MODMENU_GATE:-false}
+prism_shared_root=${JAMMARR_PRISM_SHARED_ROOT:-${XDG_DATA_HOME:-$HOME/.local/share}/PrismLauncher}
+
+if [[ "$vanilla_client_gate" == "true" ]]; then
+  for prism_cache in assets libraries meta java; do
+    if [[ ! -e "$prism_shared_root/$prism_cache" ]]; then
+      echo "JAMMARR_PRISM_SHARED_ROOT is missing $prism_cache: $prism_shared_root" >&2
+      exit 2
+    fi
+  done
+fi
 
 if [[ ! "$legacy_cold_start_count" =~ ^[0-9]+$ ]] || (( legacy_cold_start_count > 100 )); then
   echo "JAMMARR_LEGACY_COLD_STARTS must be an integer from 0 through 100" >&2
@@ -561,6 +572,198 @@ run_optional_client() {
   fi
   terminate_client_launch "$pid" 20 || result=1
   active_client_pid=""
+  return "$result"
+}
+
+run_vanilla_client() {
+  local label=$1
+  local port=$2
+  local server_console=$3
+  local rcon_port=$4
+  local rcon_password=$5
+  local fifo_fd=$6
+  local expected_capable=${7:-0}
+  local expected_vanilla=${8:-1}
+  local expected_listener_stats=${9:-$expected_capable}
+  local scenario=${10:-vanilla-client}
+  local username=${11:-PureVanilla}
+  local minecraft_version=${label%-*}
+  local prism_workspace="$output_root/$label.$scenario.prism"
+  local instance_dir="$prism_workspace/instances/jammarr-vanilla-$minecraft_version"
+  local client_console="$output_root/$label.$scenario.console.log"
+  local attestation="$instance_dir/vanilla-attestation.json"
+  local evidence="$output_root/$label.$scenario.evidence.txt"
+  local diagnostics="$output_root/$label.$scenario.diagnostics.txt"
+  local post_diagnostics="$output_root/$label.$scenario.post-disconnect-diagnostics.txt"
+  local expected_diagnostics="capableListeners=$expected_capable, vanillaListeners=$expected_vanilla, listenerStats=$expected_listener_stats"
+  local expected_after_disconnect="capableListeners=$expected_capable, vanillaListeners=$((expected_vanilla - 1)), listenerStats=$expected_listener_stats"
+  local pid deadline result=0 first_line request_start request_end
+
+  mkdir -p "$prism_workspace"
+  : > "$client_console"
+  : > "$diagnostics"
+  request_start=$(wc -l < "$fake_plex_request_log")
+  (
+    cd "$repo_root" || exit 1
+    ulimit -f "$client_log_limit_blocks"
+    exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 \
+      xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' env \
+      JAVA_TOOL_OPTIONS='-Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
+      LIBGL_ALWAYS_SOFTWARE=1 \
+      python3 "$repo_root/scripts/run-prism-vanilla-client.py" \
+      --minecraft "$minecraft_version" \
+      --server "127.0.0.1:$port" \
+      --username "$username" \
+      --workspace "$prism_workspace" \
+      --shared-root "$prism_shared_root" \
+      > "$client_console" 2>&1
+  ) &
+  pid=$!
+  active_client_pid=$pid
+
+  deadline=$((SECONDS + 600))
+  while ! optional_client_joined "$label" "$server_console" "$client_console" "$username"; do
+    if client_bootstrap_failed "$client_console" || ! group_alive "$pid" || (( SECONDS >= deadline )); then
+      echo "$label: pure vanilla client did not join; see $client_console" >&2
+      result=1
+      break
+    fi
+    sleep 1
+  done
+
+  if (( result == 0 )); then
+    sleep 10
+    if ! group_alive "$pid" \
+        || grep -Eiq 'mismatched mod (channel )?list|required on the client|protocol mismatch' "$client_console"; then
+      echo "$label: pure vanilla client did not remain connected" >&2
+      result=1
+    elif ! python3 - "$instance_dir/mmc-pack.json" "$attestation" "$minecraft_version" \
+        "127.0.0.1:$port" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+pack_path = Path(sys.argv[1])
+attestation_path = Path(sys.argv[2])
+expected_version = sys.argv[3]
+expected_target = sys.argv[4]
+pack = json.loads(pack_path.read_text("utf-8"))
+attestation = json.loads(attestation_path.read_text("utf-8"))
+components = pack.get("components", [])
+uids = [component.get("uid") for component in components]
+allowed = {"net.minecraft", "org.lwjgl", "org.lwjgl3"}
+if len(components) != 2 or set(uids) - allowed or "net.minecraft" not in uids:
+    raise SystemExit("Prism pack contains a non-vanilla component")
+minecraft = next(component for component in components if component.get("uid") == "net.minecraft")
+if minecraft.get("version") != expected_version:
+    raise SystemExit("Prism pack Minecraft version does not match the server")
+if attestation.get("launcher") != "Direct Mojang client from verified Prism caches":
+    raise SystemExit("Vanilla attestation does not describe the direct verified-cache launcher")
+if attestation.get("componentUids") != uids or attestation.get("jammarrComponentPresent") is not False:
+    raise SystemExit("Vanilla attestation does not match the launched Prism pack")
+if attestation.get("mods") != []:
+    raise SystemExit("Vanilla Prism instance contains a mod artifact")
+if attestation.get("accountMode") != "direct-offline":
+    raise SystemExit("Vanilla attestation does not describe the isolated offline identity")
+runtime = attestation.get("runtime", {})
+if runtime.get("allArtifactSha1Verified") is not True:
+    raise SystemExit("Vanilla runtime artifacts were not all SHA-1 verified")
+if runtime.get("connectionTarget") != expected_target:
+    raise SystemExit("Vanilla runtime connection target does not match the server")
+client_sha1 = runtime.get("clientJarSha1", "")
+if len(client_sha1) != 40 or any(character not in "0123456789abcdef" for character in client_sha1):
+    raise SystemExit("Vanilla runtime client JAR SHA-1 is missing or malformed")
+PY
+    then
+      echo "$label: Prism client was not an exact artifact-free Minecraft instance" >&2
+      result=1
+    fi
+  fi
+
+  if (( result == 0 )); then
+    if uses_console_control "$label"; then
+      first_line=$(wc -l < "$server_console")
+      printf 'jammarr diagnostics\n' >&"$fifo_fd"
+      deadline=$((SECONDS + 30))
+      while ! tail -n "+$((first_line + 1))" "$server_console" \
+          | grep -Fq "$expected_diagnostics"; do
+        if ! group_alive "$pid" || (( SECONDS >= deadline )); then
+          echo "$label: diagnostics did not classify the pure client as vanilla-only" >&2
+          result=1
+          break
+        fi
+        sleep 1
+      done
+      if (( result == 0 )); then
+        tail -n "+$((first_line + 1))" "$server_console" \
+          | grep -F "$expected_diagnostics" \
+          | tail -n 1 > "$diagnostics"
+      fi
+    elif ! run_minecraft_rcon 127.0.0.1 "$rcon_port" "$rcon_password" \
+        'jammarr diagnostics' > "$diagnostics" \
+        || ! grep -Fq "$expected_diagnostics" "$diagnostics"; then
+      echo "$label: diagnostics did not classify the pure client as vanilla-only" >&2
+      result=1
+    fi
+  fi
+
+  request_end=$(wc -l < "$fake_plex_request_log")
+  if (( result == 0 )) && (( request_end != request_start )); then
+    echo "$label: pure vanilla join caused unexpected Plex traffic ($request_start -> $request_end)" >&2
+    result=1
+  fi
+
+  if (( result == 0 )); then
+    {
+      grep -F "$username joined the game" "$server_console" | tail -n 1 || true
+      cat "$attestation"
+      cat "$diagnostics"
+      printf 'Artifact-free vanilla client remained connected for 10 seconds.\n'
+      printf 'Plex request count remained unchanged at %s.\n' "$request_end"
+    } > "$evidence"
+  fi
+  terminate_client_launch "$pid" 20 || result=1
+  active_client_pid=""
+
+  if (( result == 0 )); then
+    : > "$post_diagnostics"
+    if uses_console_control "$label"; then
+      first_line=$(wc -l < "$server_console")
+      printf 'jammarr diagnostics\n' >&"$fifo_fd"
+      deadline=$((SECONDS + 30))
+      while ! tail -n "+$((first_line + 1))" "$server_console" \
+          | grep -Fq "$expected_after_disconnect"; do
+        if (( SECONDS >= deadline )); then
+          echo "$label: vanilla listener state remained allocated after disconnect" >&2
+          result=1
+          break
+        fi
+        sleep 1
+      done
+      if (( result == 0 )); then
+        tail -n "+$((first_line + 1))" "$server_console" \
+          | grep -F "$expected_after_disconnect" | tail -n 1 > "$post_diagnostics"
+      fi
+    else
+      deadline=$((SECONDS + 30))
+      while (( SECONDS < deadline )); do
+        if run_minecraft_rcon 127.0.0.1 "$rcon_port" "$rcon_password" \
+            'jammarr diagnostics' > "$post_diagnostics" \
+            && grep -Fq "$expected_after_disconnect" "$post_diagnostics"; then
+          break
+        fi
+        sleep 1
+      done
+      if ! grep -Fq "$expected_after_disconnect" "$post_diagnostics"; then
+        echo "$label: vanilla listener state remained allocated after disconnect" >&2
+        result=1
+      fi
+    fi
+    if (( result == 0 )); then
+      cat "$post_diagnostics" >> "$evidence"
+      printf 'Vanilla listener state was removed after disconnect.\n' >> "$evidence"
+    fi
+  fi
   return "$result"
 }
 
@@ -2059,6 +2262,66 @@ run_legacy_browse_stress() {
   printf 'Search cancellation reached a terminal state.\n' >> "$evidence"
 }
 
+run_mixed_vanilla_audio() {
+  local label=$1
+  local port=$2
+  local rcon_port=$3
+  local rcon_password=$4
+  local fifo_fd=$5
+  local server_log=$6
+  local sink_leader=$7
+  local leader_pid=$8
+  local follower_pid=$9
+  local raw="$output_root/$label.mixed-client-audio.s16le"
+  local metrics="$output_root/$label.mixed-client-audio.metrics.txt"
+  local timing="$output_root/$label.mixed-client-audio-timing.json"
+  local vanilla_evidence="$output_root/$label.mixed-vanilla-client.evidence.txt"
+  local evidence="$output_root/$label.mixed-client-audio.evidence.txt"
+  local recorder_pid result=0
+
+  : > "$raw"
+  parec --raw --latency-msec=50 --device="${sink_leader}.monitor" \
+    --format=s16le --rate=48000 --channels=2 > "$raw" &
+  recorder_pid=$!
+  active_audio_recorder_pids+=("$recorder_pid")
+
+  if ! run_vanilla_client "$label" "$port" "$server_log" \
+      "$rcon_port" "$rcon_password" "$fifo_fd" \
+      2 1 2 mixed-vanilla-client MixedVanilla; then
+    result=1
+  fi
+
+  kill -TERM "$recorder_pid" 2>/dev/null || true
+  wait "$recorder_pid" 2>/dev/null || true
+  active_audio_recorder_pids=()
+
+  if (( result == 0 )) \
+      && { ! group_alive "$leader_pid" || ! group_alive "$follower_pid" \
+        || ! latest_audio_state_is "$output_root/$label.audio-leader.console.log" PLAYING \
+        || ! latest_audio_state_is "$output_root/$label.audio-follower.console.log" PLAYING; }; then
+    echo "$label: a matching client stopped playback during vanilla coexistence" >&2
+    result=1
+  fi
+  if (( result == 0 )) && ! audio_capture_is_audible "$raw" "$metrics"; then
+    echo "$label: matching client emitted no program audio during vanilla coexistence" >&2
+    result=1
+  fi
+  if (( result == 0 )) && ! python3 "$repo_root/scripts/analyze-audio-timing.py" \
+      "$raw" --minimum-duration-ms 10000 > "$timing"; then
+    echo "$label: matching-client audio timing failed during vanilla coexistence" >&2
+    result=1
+  fi
+  if (( result == 0 )); then
+    {
+      cat "$vanilla_evidence"
+      grep -E 'mean_volume:|max_volume:' "$metrics" | tail -n 2
+      sed -n '/"duration_ms"\|"marker_count"\|"max_marker_interval_error_ms"\|"marker_sequence_mismatches"\|"max_marker_overlap_ms"\|"max_silence_ms"/p' "$timing"
+      printf 'Two matching clients remained PLAYING while the artifact-free vanilla client was connected.\n'
+    } > "$evidence"
+  fi
+  return "$result"
+}
+
 run_two_client_audio() {
   local label=$1
   local target_dir=$2
@@ -2203,6 +2466,12 @@ run_two_client_audio() {
       printf 'Network profile: %s\n' "$network_profile"
       printf 'Fake Plex transcode served; follower joined after leader reached PLAYING.\n'
     } > "$evidence"
+  fi
+  if (( result == 0 )) && [[ "$vanilla_client_gate" == "true" ]]; then
+    if ! run_mixed_vanilla_audio "$label" "$port" "$rcon_port" "$rcon_password" \
+        "$fifo_fd" "$server_log" "$sink_leader" "$leader_pid" "$follower_pid"; then
+      result=1
+    fi
   fi
   if (( result == 0 )) && [[ "$audio_scenario_gate" == "true" ]]; then
     if ! run_audio_control_scenarios "$label" "$target_dir" "$java_home" "$client_port" \
@@ -2865,6 +3134,15 @@ run_target() {
     fi
     # Let the server finish its disconnect/player-removal tick before the
     # shutdown probe begins.
+    sleep 2
+  fi
+
+  if (( result == 0 )) && [[ "$vanilla_client_gate" == "true" ]]; then
+    if ! run_vanilla_client "$label" "$port" "$server_evidence_log" \
+        "$rcon_port" "$rcon_password" "$fifo_fd"; then
+      result=1
+    fi
+    # Preserve the same disconnect/player-removal boundary before shutdown.
     sleep 2
   fi
 
