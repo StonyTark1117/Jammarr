@@ -518,6 +518,23 @@ def verify_metadata(archive: zipfile.ZipFile, names: set[str], minecraft: str, l
     elif 'displayTest="IGNORE_SERVER_VERSION"' not in compact:
         fail(f"{filename} does not permit an optional remote mod")
 
+    missing_version_predicate_targets = {
+        ("1.16.5", "forge"),
+        ("1.18.2", "forge"),
+        ("1.19.2", "forge"),
+        ("1.20", "forge"),
+        ("1.20.1", "forge"),
+        ("1.20.1", "neoforge"),
+        ("1.20.2", "neoforge"),
+        ("1.20.3", "neoforge"),
+    }
+    if (minecraft, loader) in missing_version_predicate_targets:
+        network_class = ("stonytark/jammarr/network/LegacyNetwork.class"
+                         if minecraft == "1.16.5"
+                         else "stonytark/jammarr/network/JammarrNetwork.class")
+        if network_class not in names or b"acceptMissingOr" not in archive.read(network_class):
+            fail(f"{filename} does not use the loader missing-version predicate for optional clients")
+
 
 def verify_jar(path: Path, minecraft: str, loader: str, java: int,
                expected_major: int, artifact_profile: str) -> None:

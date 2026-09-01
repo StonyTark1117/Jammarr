@@ -451,7 +451,10 @@
           "implemented": true,
           "quiltCompatible": false,
           "path": "platforms/mc1.20.1/forge",
-          "artifact": "jammarr-1.1.0+mc1.20.1-forge.jar"
+          "artifact": "jammarr-1.1.0+mc1.20.1-forge.jar",
+          "runtimeCapabilities": {
+            "optionalClientProfile": "loader-no-jammarr-mod"
+          }
         },
         {
           "id": "neoforge",

@@ -64,6 +64,23 @@ def fixture() -> dict:
 
 
 class TargetMatrixTests(unittest.TestCase):
+    def test_forge_family_optional_channels_use_loader_missing_version_predicate(self) -> None:
+        adapters = {
+            ROOT / "platforms/mc1.16.5/forge/src/main/java/stonytark/jammarr/network/LegacyNetwork.java": 2,
+            ROOT / "platforms/mc1.18.2/forge/src/main/java/stonytark/jammarr/network/JammarrNetwork.java": 2,
+            ROOT / "platforms/mc1.19.2/forge/src/main/java/stonytark/jammarr/network/JammarrNetwork.java": 2,
+            ROOT / "platforms/mc1.20/forge/src/main/java/stonytark/jammarr/network/JammarrNetwork.java": 2,
+            ROOT / "platforms/mc1.20.1/forge/src/main/java/stonytark/jammarr/network/JammarrNetwork.java": 2,
+            ROOT / "platforms/mc1.20.1/neoforge/src/main/java/stonytark/jammarr/network/JammarrNetwork.java": 2,
+            ROOT / "platforms/mc1.20.2/neoforge/src/main/java/stonytark/jammarr/network/JammarrNetwork.java": 2,
+            ROOT / "platforms/mc1.20.3/neoforge/src/main/java/stonytark/jammarr/network/JammarrNetwork.java": 2,
+        }
+        for path, expected_calls in adapters.items():
+            with self.subTest(path=path.relative_to(ROOT)):
+                source = path.read_text()
+                self.assertEqual(source.count("NetworkRegistry.acceptMissingOr(VERSION)"), expected_calls)
+                self.assertNotIn("NetworkRegistry.ABSENT.equals(version)", source)
+
     def test_actual_modless_legacy_launchers_are_classified_loader_only(self) -> None:
         manifest = target_matrix.load_manifest(ROOT / "gradle/targets.json")
         profiles = {
@@ -83,6 +100,19 @@ class TargetMatrixTests(unittest.TestCase):
             {runtime for runtime, profile in profiles.items() if profile == "loader-only"},
             expected,
         )
+        self.assertEqual(profiles["1.20.1-forge"], "loader-no-jammarr-mod")
+
+    def test_forge_1201_no_jammarr_gate_removes_project_outputs(self) -> None:
+        build_source = (ROOT / "platforms/mc1.20.1/forge/build.gradle").read_text()
+        gate_source = (ROOT / "scripts/run-dedicated-server-gate.sh").read_text()
+        self.assertIn("sourceSets.create('acceptanceWithoutJammarr')", build_source)
+        self.assertIn("java.setSrcDirs([])", build_source)
+        self.assertIn("resources.setSrcDirs([])", build_source)
+        self.assertIn("sources acceptanceWithoutJammarrSourceSet", build_source)
+        self.assertNotIn("environment 'MOD_CLASSES'", build_source)
+        self.assertIn("Received client connection with modlist [", gate_source)
+        self.assertIn('$target_dir/build/classes/java/main', gate_source)
+        self.assertIn('$target_dir/build/resources/main', gate_source)
 
     def test_library_fallback_comments_match_music_first_behavior(self) -> None:
         config_sources = [ROOT / "src/main/java/stonytark/jammarr/config/JammarrConfig.java"]

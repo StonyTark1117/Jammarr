@@ -110,7 +110,9 @@ def runtime_capabilities(
             raise SystemExit(f"{artifact['name']} {task_key} must be a non-empty string")
     if capabilities["stressProfile"] not in {"none", "forge-1.7.10"}:
         raise SystemExit(f"{artifact['name']} has an invalid stressProfile capability")
-    if capabilities["optionalClientProfile"] not in {"mod-suppressed", "loader-only"}:
+    if capabilities["optionalClientProfile"] not in {
+        "mod-suppressed", "loader-no-jammarr-mod", "loader-only"
+    }:
         raise SystemExit(f"{artifact['name']} has an invalid optionalClientProfile capability")
     return capabilities
 

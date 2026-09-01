@@ -398,7 +398,7 @@ fake_plex_requests_complete() {
 
 client_bootstrap_failed() {
   local console_log=$1
-  grep -Eq 'Timed out trying to setup the Game Window|Failed to initialize the mod loading system and display|ArrayIndexOutOfBoundsException: 0' \
+  grep -Eq 'Timed out trying to setup the Game Window|Failed to initialize the mod loading system and display|ArrayIndexOutOfBoundsException: 0|Invalid paths argument, contained no existing paths|mismatched mod (channel )?list' \
     "$console_log" 2>/dev/null
 }
 
@@ -468,11 +468,12 @@ run_optional_client() {
   local java_home=$3
   local port=$4
   local server_console=$5
+  local server_debug_log=$6
   local scenario=optional-client username=JammarrVanilla
   local client_dir="$output_root/$label.$scenario"
   local client_console="$output_root/$label.$scenario.console.log"
   local evidence="$output_root/$label.$scenario.evidence.txt"
-  local pid deadline result=0
+  local pid deadline result=0 received_mod_list=""
   local -a runtime_args=() cache_args=()
   [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
   [[ "$label" == *-quilt && "$quilt_modmenu_gate" == true ]] && runtime_args+=(-PjammarrIncludeModMenu=true)
@@ -519,6 +520,28 @@ run_optional_client() {
     elif grep -Fq 'received server hello' "$client_console"; then
       echo "$label: suppressed client unexpectedly negotiated Jammarr capability" >&2
       result=1
+    elif [[ ${target_optional_client_profile[$label]} == "loader-no-jammarr-mod" ]] \
+        && { [[ -e "$client_dir/config/jammarr-client.toml" ]] \
+          || grep -Fq "$target_dir/build/classes/java/main" "$client_console" \
+          || grep -Fq "$target_dir/build/resources/main" "$client_console" \
+          || grep -Eiq 'Found valid mod file .*\{jammarr\}|Creating FMLModContainer instance for .*jammarr' \
+            "$client_console" "$client_dir/logs/debug.log" 2>/dev/null; }; then
+      echo "$label: no-Jammarr acceptance client still registered Jammarr" >&2
+      result=1
+    elif [[ ${target_optional_client_profile[$label]} == "loader-no-jammarr-mod" ]]; then
+      received_mod_list=$(grep -F 'Received client connection with modlist [' "$server_debug_log" \
+        2>/dev/null | tail -n 1 || true)
+      if [[ -z "$received_mod_list" || ${received_mod_list,,} == *jammarr* ]]; then
+        echo "$label: server did not prove a client mod list without Jammarr" >&2
+        result=1
+      else
+        {
+          grep -F "$username joined the game" "$server_console" | tail -n 1
+          printf '%s\n' "$received_mod_list"
+          printf '%s\n' 'Loader client launched with no registered Jammarr mod.'
+          printf '%s\n' 'Client remained connected for 10 seconds without sending a Jammarr hello.'
+        } > "$evidence"
+      fi
     else
       {
         if [[ ${target_optional_client_profile[$label]} == "loader-only" ]]; then
@@ -2733,6 +2756,12 @@ run_target() {
     isolate_audio_cache "$run_dir" "$label"
   fi
 
+  # The invalid-config probe has just populated the loader logs. Clear those
+  # generated run-directory files before the valid boot so a slow Gradle
+  # startup cannot satisfy readiness from the previous process's Done marker.
+  : > "$latest_log"
+  if [[ "$mod_log" != "$latest_log" ]]; then : > "$mod_log"; fi
+
   fifo_dir=$(mktemp -d "$output_root/$label.fifo.XXXXXX")
   fifo="$fifo_dir/stdin"
   mkfifo "$fifo"
@@ -2752,7 +2781,7 @@ run_target() {
 
   local startup_deadline=$((SECONDS + 180))
   while :; do
-    if grep -Eq 'Done \([^)]*\)! For help' "$console_log" "$latest_log" 2>/dev/null; then
+    if grep -Eq 'Done \([^)]*\)! For help' "$console_log" "$server_evidence_log" 2>/dev/null; then
       break
     fi
     if ! kill -0 "$pid" 2>/dev/null; then
@@ -2830,7 +2859,8 @@ run_target() {
   fi
 
   if (( result == 0 )); then
-    if ! run_optional_client "$label" "$target_dir" "$java_home" "$port" "$server_evidence_log"; then
+    if ! run_optional_client "$label" "$target_dir" "$java_home" "$port" "$server_evidence_log" \
+        "$run_dir/logs/debug.log"; then
       result=1
     fi
     # Let the server finish its disconnect/player-removal tick before the

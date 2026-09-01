@@ -32,7 +32,7 @@ public final class LegacyNetwork {
     private static final String VERSION = Integer.toString(Jammarr.PROTOCOL);
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(Jammarr.MOD_ID, "play"), () -> VERSION,
-            LegacyNetwork::acceptsRemote, LegacyNetwork::acceptsRemote);
+            NetworkRegistry.acceptMissingOr(VERSION), NetworkRegistry.acceptMissingOr(VERSION));
     private static final ClientCapabilityRegistry<UUID> CAPABILITIES =
             new ClientCapabilityRegistry<UUID>(ProtocolLimits.serverHelloTimeoutTicks());
     private static volatile ServerListener serverListener;
@@ -46,11 +46,6 @@ public final class LegacyNetwork {
         CHANNEL.registerMessage(0, LegacyEnvelope.class, LegacyEnvelope::write, LegacyEnvelope::read,
                 LegacyNetwork::receive);
         registered = true;
-    }
-
-    private static boolean acceptsRemote(String version) {
-        return VERSION.equals(version) || NetworkRegistry.ABSENT.equals(version)
-                || NetworkRegistry.ACCEPTVANILLA.equals(version);
     }
 
     private static void receive(LegacyEnvelope envelope, Supplier<NetworkEvent.Context> contextSupplier) {

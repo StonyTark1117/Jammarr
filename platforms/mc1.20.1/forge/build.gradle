@@ -16,6 +16,15 @@ java {
     withSourcesJar()
 }
 
+def acceptanceWithoutJammarr = (System.getenv('JAVA_TOOL_OPTIONS') ?: '')
+        .contains('jammarr.acceptance.suppressClientHello=true')
+def acceptanceWithoutJammarrSourceSet = sourceSets.create('acceptanceWithoutJammarr') {
+    java.setSrcDirs([])
+    resources.setSrcDirs([])
+    compileClasspath = files()
+    runtimeClasspath = output
+}
+
 minecraft {
     mappings channel: 'official', version: libs.versions.minecraft.get()
     copyIdeResources = true
@@ -23,14 +32,23 @@ minecraft {
         configureEach {
             workingDirectory project.file('run')
             buildAllProjects true
-            mods {
-                jammarr {
-                    source sourceSets.main
+            if (!acceptanceWithoutJammarr) {
+                mods {
+                    jammarr {
+                        source sourceSets.main
+                    }
                 }
             }
         }
         client {
-            args '--mixin.config', 'jammarr.mixins.json'
+            if (!acceptanceWithoutJammarr) {
+                args '--mixin.config', 'jammarr.mixins.json'
+            } else {
+                // ForgeGradle falls back to sourceSets.main when a run has no
+                // sources. A real empty SourceSet keeps the project outputs and
+                // bundled core off the client JVM classpath altogether.
+                sources acceptanceWithoutJammarrSourceSet
+            }
             if (providers.gradleProperty('jammarrAcceptanceServer').isPresent()) {
                 workingDirectory file(providers.gradleProperty('jammarrAcceptanceGameDir').get())
                 args '--username', providers.gradleProperty('jammarrAcceptanceUsername').get(),
@@ -42,6 +60,15 @@ minecraft {
 }
 
 repositories { mavenCentral() }
+
+tasks.matching { it.name == 'runClient' }.configureEach {
+    if (acceptanceWithoutJammarr) {
+        doFirst {
+            acceptanceWithoutJammarrSourceSet.output.classesDirs.files.each { it.mkdirs() }
+            acceptanceWithoutJammarrSourceSet.output.resourcesDir.mkdirs()
+        }
+    }
+}
 
 jarJar.enable()
 
