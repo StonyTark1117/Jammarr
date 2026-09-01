@@ -548,8 +548,10 @@ if grep -Eq 'Only one OpenAL context|UnsatisfiedLinkError: org\.lwjgl\.openal|Ac
   exit 1
 fi
 
-server_command "deop $leader_username"
-operator_promoted=false
+if [[ "$operator_promoted" == true ]]; then
+  server_command "deop $leader_username"
+  operator_promoted=false
+fi
 touch "$release_file"
 wait "$server_pid"
 server_pid=""
