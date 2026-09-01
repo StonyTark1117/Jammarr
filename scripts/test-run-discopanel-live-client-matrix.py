@@ -46,6 +46,27 @@ class LiveClientMatrixTests(unittest.TestCase):
             "--minimum-duration-ms $((capture_seconds * 1000 - 1500))", source
         )
 
+    def test_live_gate_retries_a_capture_crossed_by_a_track_transition(self) -> None:
+        source = LIVE_GATE_SCRIPT.read_text()
+        self.assertIn(
+            "capture_attempt_limit=${JAMMARR_LIVE_CAPTURE_ATTEMPTS:-3}", source
+        )
+        self.assertIn("wait_for_matching_audio_generation()", source)
+        self.assertIn(
+            "JAMMARR_AUDIO_TIMING stage=channel_started", source
+        )
+        self.assertIn(
+            "JAMMARR_AUDIO_TIMING stage=manifest_received", source
+        )
+        self.assertIn(
+            '[[ "$leader_generation" == "$capture_generation"', source
+        )
+        self.assertIn("reason=track-transition", source)
+        self.assertLess(
+            source.index("wait_for_matching_audio_generation 120"),
+            source.index("parec --raw", source.index("leader_raw=")),
+        )
+
     def test_live_gate_isolates_audio_server_from_active_desktop(self) -> None:
         source = LIVE_GATE_SCRIPT.read_text()
         self.assertIn(

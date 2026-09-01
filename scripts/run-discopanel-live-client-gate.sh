@@ -7,6 +7,7 @@ panel_url=${DISCOPANEL_URL:-http://192.168.1.42:8080}
 version=${JAMMARR_EXPECTED_VERSION:-$(sed -n 's/^mod_version=//p' "$repo_root/gradle.properties")}
 capture_seconds=${JAMMARR_LIVE_CAPTURE_SECONDS:-31}
 capture_grace_seconds=${JAMMARR_LIVE_CAPTURE_GRACE_SECONDS:-6}
+capture_attempt_limit=${JAMMARR_LIVE_CAPTURE_ATTEMPTS:-3}
 client_heap_mb=${JAMMARR_LIVE_CLIENT_HEAP_MB:-1536}
 token_env=${DISCOPANEL_TOKEN_ENV:-DISCOPANEL_TOKEN}
 
@@ -20,6 +21,10 @@ if [[ ! "$capture_seconds" =~ ^[0-9]+$ ]] || (( capture_seconds < 10 || capture_
 fi
 if [[ ! "$capture_grace_seconds" =~ ^[0-9]+$ ]] || (( capture_grace_seconds > 30 )); then
   echo "JAMMARR_LIVE_CAPTURE_GRACE_SECONDS must be an integer from 0 through 30" >&2
+  exit 2
+fi
+if [[ ! "$capture_attempt_limit" =~ ^[0-9]+$ ]] || (( capture_attempt_limit < 1 || capture_attempt_limit > 5 )); then
+  echo "JAMMARR_LIVE_CAPTURE_ATTEMPTS must be an integer from 1 through 5" >&2
   exit 2
 fi
 if [[ ! "$client_heap_mb" =~ ^[0-9]+$ ]] || (( client_heap_mb < 1024 || client_heap_mb > 4096 )); then
@@ -654,6 +659,48 @@ wait_for_client_marker() {
   done
 }
 
+client_audio_generation() {
+  local role=$1
+  local console="$session_dir/client-$role.console.log"
+  local channel_count manifest_count
+  channel_count=$(grep -Fc 'JAMMARR_AUDIO_TIMING stage=channel_started' "$console" 2>/dev/null || true)
+  manifest_count=$(grep -Fc 'JAMMARR_AUDIO_TIMING stage=manifest_received' "$console" 2>/dev/null || true)
+  printf '%s:%s\n' "$channel_count" "$manifest_count"
+}
+
+wait_for_matching_audio_generation() {
+  local timeout=$1
+  local deadline=$((SECONDS + timeout))
+  local leader_generation follower_generation leader_channels leader_manifests
+  while true; do
+    leader_generation=$(client_audio_generation leader)
+    follower_generation=$(client_audio_generation follower)
+    leader_channels=${leader_generation%%:*}
+    leader_manifests=${leader_generation#*:}
+    if [[ "$leader_generation" == "$follower_generation" ]] \
+        && (( leader_channels > 0 && leader_manifests > 0 )); then
+      printf '%s\n' "$leader_generation"
+      return 0
+    fi
+    if grep -Eq "$terminal_client_pattern" \
+        "$session_dir/client-leader.console.log" "$session_dir/client-follower.console.log" 2>/dev/null; then
+      echo "$runtime client entered a terminal audio/connection state while aligning capture generation" >&2
+      return 1
+    fi
+    for index in 0 1; do
+      if ! kill -0 "${client_pids[$index]}" 2>/dev/null; then
+        echo "$runtime client $index exited while aligning capture generation" >&2
+        return 1
+      fi
+    done
+    if (( SECONDS >= deadline )); then
+      echo "$runtime clients did not reach the same started audio generation within ${timeout}s" >&2
+      return 1
+    fi
+    sleep 1
+  done
+}
+
 start_client leader "$leader_username" "$sink_leader"
 wait_for_client_state leader "${client_pids[0]}" NO_STREAM 600
 wait_for_client_marker leader "${client_pids[0]}" 'Acceptance playback state:' 600
@@ -670,18 +717,41 @@ wait_for_client_state follower "${client_pids[1]}" PLAYING 600
 
 leader_raw="$session_dir/leader.s16le"
 follower_raw="$session_dir/follower.s16le"
-parec --raw --latency-msec=50 --device="${sink_leader}.monitor" --format=s16le --rate=48000 --channels=2 \
-  > "$leader_raw" & recorder_pids+=("$!")
-parec --raw --latency-msec=50 --device="${sink_follower}.monitor" --format=s16le --rate=48000 --channels=2 \
-  > "$follower_raw" & recorder_pids+=("$!")
 # Preserve the requested amount of active program even when the selected real
 # Plex track begins with jointly inaudible content or the backend monitor needs
 # a short settling interval. The analyzer still requires capture_seconds minus
 # 1.5 seconds after removing only jointly inactive leading samples.
 wall_capture_seconds=$((capture_seconds + capture_grace_seconds))
-sleep "$wall_capture_seconds"
-for pid in "${recorder_pids[@]}"; do kill -TERM "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; done
-recorder_pids=()
+capture_attempt=1
+while true; do
+  capture_generation=$(wait_for_matching_audio_generation 120)
+  printf 'attempt=%s start_generation=%s\n' "$capture_attempt" "$capture_generation" \
+    >> "$session_dir/capture-attempts.log"
+  parec --raw --latency-msec=50 --device="${sink_leader}.monitor" --format=s16le --rate=48000 --channels=2 \
+    > "$leader_raw" & recorder_pids+=("$!")
+  parec --raw --latency-msec=50 --device="${sink_follower}.monitor" --format=s16le --rate=48000 --channels=2 \
+    > "$follower_raw" & recorder_pids+=("$!")
+  sleep "$wall_capture_seconds"
+  for pid in "${recorder_pids[@]}"; do kill -TERM "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; done
+  recorder_pids=()
+
+  leader_generation=$(client_audio_generation leader)
+  follower_generation=$(client_audio_generation follower)
+  printf 'attempt=%s end_generation=%s/%s\n' \
+    "$capture_attempt" "$leader_generation" "$follower_generation" \
+    >> "$session_dir/capture-attempts.log"
+  if [[ "$leader_generation" == "$capture_generation" \
+      && "$follower_generation" == "$capture_generation" ]]; then
+    break
+  fi
+  if (( capture_attempt >= capture_attempt_limit )); then
+    echo "$runtime crossed an audio-track transition in all $capture_attempt_limit capture attempts" >&2
+    exit 1
+  fi
+  printf 'LIVE_CLIENT_GATE_CAPTURE_RETRY runtime=%s attempt=%s reason=track-transition\n' \
+    "$runtime" "$capture_attempt"
+  capture_attempt=$((capture_attempt + 1))
+done
 
 for index in 0 1; do
   if ! kill -0 "${client_pids[$index]}" 2>/dev/null; then
@@ -725,5 +795,5 @@ touch "$release_file"
 wait "$server_pid"
 server_pid=""
 jq -e '.passed == true' "$session_dir/audio-analysis.json" >/dev/null
-printf 'LIVE_CLIENT_GATE_ACCEPTED runtime=%s clients=2 capture_seconds=%s wall_capture_seconds=%s private_x=true\n' \
-  "$runtime" "$capture_seconds" "$wall_capture_seconds"
+printf 'LIVE_CLIENT_GATE_ACCEPTED runtime=%s clients=2 capture_seconds=%s wall_capture_seconds=%s capture_attempts=%s private_x=true\n' \
+  "$runtime" "$capture_seconds" "$wall_capture_seconds" "$capture_attempt"
