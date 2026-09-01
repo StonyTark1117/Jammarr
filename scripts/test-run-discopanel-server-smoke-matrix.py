@@ -149,6 +149,70 @@ class DiscPanelServerSmokeMatrixTests(unittest.TestCase):
             self.assertTrue(evidence["allProfilesStopped"])
             self.assertEqual(evidence["failures"], [])
 
+    def test_final_api_outage_still_writes_aggregate_evidence(self) -> None:
+        target = Target("a", "A")
+
+        class OutagePanel(Panel):
+            def __init__(self) -> None:
+                super().__init__(
+                    [
+                        {
+                            "name": "A",
+                            "status": matrix.reconciler.STATUS_STOPPED,
+                            "autoStart": False,
+                        }
+                    ]
+                )
+                self.list_calls = 0
+
+            def list_servers(self) -> list[dict[str, object]]:
+                self.list_calls += 1
+                if self.list_calls >= 3:
+                    raise OSError("panel unreachable")
+                return super().list_servers()
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            args = Namespace(
+                runtime=[],
+                manifest=root / "targets.json",
+                release_dir=root / "releases",
+                project_properties=root / "gradle.properties",
+                expected_version="1.1.0",
+                url="http://invalid.test",
+                token_env="TEST_DISCOPANEL_TOKEN",
+                request_timeout=1,
+                start_timeout=1,
+                stop_timeout=1,
+                poll_interval=0,
+                log_tail=1,
+                evidence_dir=root / "evidence",
+                matrix_evidence=root / "matrix.json",
+                apply=True,
+                confirm_version="1.1.0",
+                resume=False,
+                continue_on_error=False,
+            )
+            panel = OutagePanel()
+            patches = (
+                mock.patch.dict(os.environ, {args.token_env: "secret"}),
+                mock.patch.object(matrix.deployment, "verified_release_artifacts", return_value=[]),
+                mock.patch.object(matrix.deployment, "deployment_targets", return_value=[target]),
+                mock.patch.object(
+                    matrix.reconciler,
+                    "desired_profiles",
+                    return_value=[Namespace(runtime="a")],
+                ),
+                mock.patch.object(matrix.reconciler, "DiscPanel", return_value=panel),
+                mock.patch.object(matrix.smoke, "run_target", return_value=0),
+            )
+            with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+                with self.assertRaisesRegex(OSError, "panel unreachable"):
+                    matrix.run(args)
+            evidence = json.loads(args.matrix_evidence.read_text("utf-8"))
+            self.assertFalse(evidence["allProfilesStopped"])
+            self.assertRegex(evidence["finalStateErrors"][0], "panel unreachable")
+
 
 if __name__ == "__main__":
     unittest.main()

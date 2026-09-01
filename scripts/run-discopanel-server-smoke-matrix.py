@@ -195,12 +195,21 @@ def run(args: argparse.Namespace) -> int:
     except BaseException as error:
         failure = error
     finally:
-        final_errors = matrix_state(panel, all_targets)
+        final_audit_error: Exception | None = None
+        try:
+            final_errors = matrix_state(panel, all_targets)
+        except Exception as error:
+            final_audit_error = error
+            final_errors = [
+                f"final state audit failed: {type(error).__name__}: {error}"
+            ]
         summary["finishedAt"] = datetime.now(timezone.utc).isoformat()
         summary["allProfilesStopped"] = not final_errors
         summary["finalStateErrors"] = final_errors
         write_summary(args.matrix_evidence, summary)
         print(f"MATRIX_EVIDENCE {args.matrix_evidence}")
+        if failure is None and final_audit_error is not None:
+            failure = final_audit_error
 
     if failure is not None:
         raise failure
