@@ -95,6 +95,7 @@ class VerifiedCache:
         self.metadata_root_url = metadata_root_url.rstrip("/")
         self.asset_objects_base_url = asset_objects_base_url.rstrip("/")
         self.sources: Counter[str] = Counter()
+        self.resolved: dict[tuple[Path, Path, str, int], Path] = {}
 
     def _download(self, url: str, destination: Path, sha1: str, size: int, label: str) -> Path:
         if verified(destination, sha1, size):
@@ -129,10 +130,17 @@ class VerifiedCache:
         label: str,
     ) -> Path:
         url, expected_sha1, expected_size = artifact_descriptor(descriptor, label)
+        key = (shared_path.resolve(), isolated_path.resolve(), expected_sha1, expected_size)
+        resolved = self.resolved.get(key)
+        if resolved is not None:
+            return resolved
         if verified(shared_path, expected_sha1, expected_size):
             self.sources["shared-cache"] += 1
-            return shared_path
-        return self._download(url, isolated_path, expected_sha1, expected_size, label)
+            result = shared_path
+        else:
+            result = self._download(url, isolated_path, expected_sha1, expected_size, label)
+        self.resolved[key] = result
+        return result
 
     def library(self, library: dict[str, Any]) -> Path:
         coordinate = library.get("name")

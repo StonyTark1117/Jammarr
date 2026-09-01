@@ -66,6 +66,9 @@ def prepare_version(cache: VerifiedCache, version: str) -> dict[str, Any]:
         component_uids.insert(0, uid)
 
     libraries: list[Path] = []
+    natives: list[Path] = []
+    library_seen: set[Path] = set()
+    native_seen: set[Path] = set()
     for component in components:
         for library in component.get("libraries", []):
             if not library_allowed(library):
@@ -73,7 +76,13 @@ def prepare_version(cache: VerifiedCache, version: str) -> dict[str, Any]:
             path = cache.library(library)
             if "jammarr" in path.name.lower():
                 raise SystemExit(f"Jammarr appeared in vanilla classpath: {path}")
-            libraries.append(path)
+            if path not in library_seen:
+                libraries.append(path)
+                library_seen.add(path)
+            native = cache.native_library(library)
+            if native is not None and native not in native_seen:
+                natives.append(native)
+                native_seen.add(native)
     main_jar = metadata.get("mainJar")
     if not isinstance(main_jar, dict):
         raise SystemExit(f"Minecraft {version} metadata does not declare a main JAR")
@@ -83,6 +92,7 @@ def prepare_version(cache: VerifiedCache, version: str) -> dict[str, Any]:
         "minecraftVersion": version,
         "componentUids": component_uids,
         "classpathEntryCount": len(libraries) + 1,
+        "nativeBundleCount": len(natives),
         "clientJarSha1": sha1_file(client),
         "assetIndex": asset_index,
         "assetObjectCount": asset_count,

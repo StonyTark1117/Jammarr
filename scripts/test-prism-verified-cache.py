@@ -41,6 +41,7 @@ class PrismVerifiedCacheTest(unittest.TestCase):
             shared_path.write_bytes(remote.read_bytes())
             cache = CACHE.VerifiedCache(root / "shared", root / "isolated")
             self.assertEqual(cache.library(library), shared_path)
+            self.assertEqual(cache.library(library), shared_path)
             self.assertEqual(cache.attestation()["artifactSourceCounts"], {"shared-cache": 1})
 
     def test_library_replaces_corrupt_isolated_bytes_without_mutating_shared(self) -> None:

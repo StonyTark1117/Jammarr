@@ -31,6 +31,8 @@ def direct_launch_command(
 
     classpath: list[Path] = []
     natives: list[Path] = []
+    classpath_seen: set[Path] = set()
+    natives_seen: set[Path] = set()
     for component in component_values:
         for library in component.get("libraries", []):
             if not library_allowed(library):
@@ -38,16 +40,20 @@ def direct_launch_command(
             artifact = cache.library(library)
             if "jammarr" in artifact.name.lower():
                 raise SystemExit(f"Jammarr artifact appeared in vanilla classpath: {artifact}")
-            classpath.append(artifact)
+            if artifact not in classpath_seen:
+                classpath.append(artifact)
+                classpath_seen.add(artifact)
             native = cache.native_library(library)
-            if native is not None:
+            if native is not None and native not in natives_seen:
                 natives.append(native)
+                natives_seen.add(native)
 
     main_library = metadata.get("mainJar")
     if not isinstance(main_library, dict) or "name" not in main_library:
         raise SystemExit("Minecraft metadata does not declare a main JAR")
     client_jar = cache.library(main_library)
-    classpath.append(client_jar)
+    if client_jar not in classpath_seen:
+        classpath.append(client_jar)
     native_dir = game_dir.parent / "natives"
     helper.extract_native_bundles(natives, native_dir)
     assets_root, asset_index, asset_object_count = cache.assets(metadata)
