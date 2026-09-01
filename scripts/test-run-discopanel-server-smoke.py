@@ -200,6 +200,9 @@ class DiscPanelServerSmokeTests(unittest.TestCase):
                 self.stopped = False
                 self.release = release
                 self.running_polls = 0
+                self.docker_overrides = {
+                    "environment": {"EXISTING_SETTING": "preserve-me"}
+                }
                 self.properties = b"motd=existing\r\nlevel-name=world\r\nonline-mode=true\r\nenforce-secure-profile=true\r\n"
                 self.property_updates: list[bytes] = []
                 self.files = {
@@ -239,12 +242,26 @@ class DiscPanelServerSmokeTests(unittest.TestCase):
                 raise AssertionError((service, method, payload))
 
             def get_server(self, server_id: str) -> dict[str, object]:
-                if self.stopped:
-                    return {"id": server_id, "status": smoke.reconciler.STATUS_STOPPED}
-                self.running_polls += 1
-                if self.running_polls >= 3:
-                    self.release.touch()
-                return {"id": server_id, "status": "SERVER_STATUS_RUNNING"}
+                status = smoke.reconciler.STATUS_STOPPED
+                if not self.stopped:
+                    self.running_polls += 1
+                    if self.running_polls >= 3:
+                        self.release.touch()
+                    status = "SERVER_STATUS_RUNNING"
+                return {
+                    "id": server_id,
+                    "status": status,
+                    "description": "managed",
+                    "dockerOverrides": json.loads(json.dumps(self.docker_overrides)),
+                }
+
+            def update_server_description(
+                self, server: dict[str, object], description: str
+            ) -> dict[str, object]:
+                self.docker_overrides = json.loads(
+                    json.dumps(server.get("dockerOverrides") or {})
+                )
+                return self.get_server(str(server["id"]))
 
             def get_file(self, server_id: str, path: str) -> bytes:
                 if path == "server.properties":
@@ -287,7 +304,7 @@ class DiscPanelServerSmokeTests(unittest.TestCase):
                 hold_config_source_world="world",
                 hold_disable_non_jammarr_mods=False,
                 hold_disable_mod_prefix=["cinemarr-"],
-                hold_bootstrap_level=False,
+                hold_bootstrap_level=True,
                 hold_offline_mode=True,
             )
             target = Namespace(
@@ -295,7 +312,28 @@ class DiscPanelServerSmokeTests(unittest.TestCase):
                 filename="jammarr.jar",
                 sha256="a" * 64,
             )
-            with mock.patch.object(smoke, "preflight", return_value={"id": "server"}):
+            def regenerate_properties(*_args: object) -> None:
+                panel.properties = (
+                    b"motd=existing\r\nlevel-name=jammarr-live-acceptance\r\n"
+                    b"online-mode=true\r\nenforce-secure-profile=true\r\n"
+                )
+
+            with (
+                mock.patch.object(
+                    smoke,
+                    "preflight",
+                    return_value={
+                        "id": "server",
+                        "description": "managed",
+                        "dockerOverrides": json.loads(json.dumps(panel.docker_overrides)),
+                    },
+                ),
+                mock.patch.object(
+                    smoke,
+                    "bootstrap_isolated_level",
+                    side_effect=regenerate_properties,
+                ),
+            ):
                 self.assertEqual(smoke.run_target(args, panel, "1.1.0", target, object()), 0)
             ready_payload = json.loads(ready.read_text())
             self.assertEqual(ready_payload["runtime"], "1.7.10-forge")
@@ -304,6 +342,9 @@ class DiscPanelServerSmokeTests(unittest.TestCase):
             self.assertTrue(evidence["clientHoldCompleted"])
             self.assertTrue(evidence["clientHoldLevelIsolated"])
             self.assertTrue(evidence["clientHoldOfflineMode"])
+            self.assertTrue(evidence["clientHoldOfflineEnvironmentApplied"])
+            self.assertTrue(evidence["clientHoldDockerOverridesRestored"])
+            self.assertTrue(evidence["clientHoldPropertiesReappliedAfterBootstrap"])
             self.assertTrue(evidence["clientHoldPropertiesRestored"])
             self.assertTrue(evidence["clientHoldConfigIsolated"])
             self.assertTrue(evidence["clientHoldConfigRestored"])
@@ -321,6 +362,10 @@ class DiscPanelServerSmokeTests(unittest.TestCase):
                 b'plexToken = ""\n',
             )
             self.assertTrue(next(mod for mod in panel.mods if mod["id"] == "cinemarr")["enabled"])
+            self.assertEqual(
+                panel.docker_overrides,
+                {"environment": {"EXISTING_SETTING": "preserve-me"}},
+            )
 
     def test_client_hold_rejects_stale_paths_before_start(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 runtime=${1:-1.7.10-forge}
-panel_url=${DISCOPANEL_URL:-http://192.168.1.73:8080}
+panel_url=${DISCOPANEL_URL:-http://192.168.1.42:8080}
 version=${JAMMARR_EXPECTED_VERSION:-$(sed -n 's/^mod_version=//p' "$repo_root/gradle.properties")}
 capture_seconds=${JAMMARR_LIVE_CAPTURE_SECONDS:-31}
 token_env=${DISCOPANEL_TOKEN_ENV:-DISCOPANEL_TOKEN}
@@ -362,10 +362,10 @@ wait_for_client_marker() {
 }
 
 start_client leader "$leader_username" "$sink_leader"
-start_client follower "$follower_username" "$sink_follower"
 wait_for_client_state leader "${client_pids[0]}" NO_STREAM 600
-wait_for_client_state follower "${client_pids[1]}" NO_STREAM 600
 wait_for_client_marker leader "${client_pids[0]}" 'Acceptance playback state:' 600
+start_client follower "$follower_username" "$sink_follower"
+wait_for_client_state follower "${client_pids[1]}" NO_STREAM 600
 wait_for_client_marker follower "${client_pids[1]}" 'Acceptance playback state:' 600
 server_command "op $leader_username"
 operator_promoted=true

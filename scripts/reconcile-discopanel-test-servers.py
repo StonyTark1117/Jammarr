@@ -1116,7 +1116,7 @@ def parse_args() -> argparse.Namespace:
         "--manifest", type=Path, default=Path("gradle/targets.json")
     )
     parser.add_argument(
-        "--url", default=os.environ.get("DISCOPANEL_URL", "http://192.168.1.73:8080")
+        "--url", default=os.environ.get("DISCOPANEL_URL", "http://192.168.1.42:8080")
     )
     parser.add_argument("--token-env", default="DISCOPANEL_TOKEN")
     parser.add_argument("--request-timeout", type=int, default=30)

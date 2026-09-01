@@ -385,12 +385,36 @@ def run_target(
     }
     run_error: BaseException | None = None
     original_properties: bytes | None = None
+    isolated_properties: bytes | None = None
+    original_docker_overrides: dict[str, Any] | None = None
     target_config_path: str | None = None
     original_target_config: bytes | None = None
     target_config_existed = False
     source_config: bytes | None = None
     disabled_non_jammarr_mods: list[dict[str, Any]] = []
     try:
+        if hold_offline_mode:
+            original_docker_overrides = json.loads(
+                json.dumps(server.get("dockerOverrides") or {})
+            )
+            isolated_overrides = json.loads(json.dumps(original_docker_overrides))
+            isolated_environment = dict(isolated_overrides.get("environment") or {})
+            isolated_environment["ONLINE_MODE"] = "false"
+            isolated_overrides["environment"] = isolated_environment
+            isolated_server = dict(server)
+            isolated_server["dockerOverrides"] = isolated_overrides
+            panel.update_server_description(
+                isolated_server, str(server.get("description", ""))
+            )
+            applied_overrides = (
+                panel.get_server(server_id).get("dockerOverrides") or {}
+            )
+            if (
+                (applied_overrides.get("environment") or {}).get("ONLINE_MODE")
+                != "false"
+            ):
+                raise RuntimeError("DiscPanel offline-mode environment did not persist")
+            result["clientHoldOfflineEnvironmentApplied"] = True
         if hold_level_name:
             original_properties = panel.get_file(server_id, "server.properties")
             try:
@@ -483,6 +507,17 @@ def run_target(
         if hold_bootstrap_level:
             bootstrap_isolated_level(panel, server_id, args, version)
             result["clientHoldLevelBootstrapped"] = True
+            # Some server images regenerate server.properties during their
+            # bootstrap start. Reapply the transaction after that start so
+            # the actual held acceptance server still uses the isolated world
+            # and offline-mode settings required by development clients.
+            assert isolated_properties is not None
+            panel.update_file(server_id, "server.properties", isolated_properties)
+            if panel.get_file(server_id, "server.properties") != isolated_properties:
+                raise RuntimeError(
+                    "DiscPanel did not preserve isolated properties after level bootstrap"
+                )
+            result["clientHoldPropertiesReappliedAfterBootstrap"] = True
         if target_config_path is not None:
             assert source_config is not None
             panel.update_file(server_id, target_config_path, source_config)
@@ -653,6 +688,28 @@ def run_target(
                 result["restoreError"] = str(restore_error)
                 if run_error is None:
                     run_error = restore_error
+        if original_docker_overrides is not None:
+            try:
+                current_server = panel.get_server(server_id)
+                restored_server = dict(current_server)
+                restored_server["dockerOverrides"] = original_docker_overrides
+                panel.update_server_description(
+                    restored_server, str(current_server.get("description", ""))
+                )
+                restored_overrides = (
+                    panel.get_server(server_id).get("dockerOverrides") or {}
+                )
+                if restored_overrides != original_docker_overrides:
+                    raise RuntimeError(
+                        "DiscPanel docker override restore verification failed"
+                    )
+                result["clientHoldDockerOverridesRestored"] = True
+            except BaseException as restore_error:
+                result["clientHoldDockerOverridesRestored"] = False
+                result["dockerOverrideRestoreErrorType"] = type(restore_error).__name__
+                result["dockerOverrideRestoreError"] = str(restore_error)
+                if run_error is None:
+                    run_error = restore_error
         if target_config_path is not None:
             try:
                 if target_config_existed:
@@ -717,7 +774,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--project-properties", type=Path, default=Path("gradle.properties"))
     parser.add_argument("--expected-version")
     parser.add_argument(
-        "--url", default=os.environ.get("DISCOPANEL_URL", "http://192.168.1.73:8080")
+        "--url", default=os.environ.get("DISCOPANEL_URL", "http://192.168.1.42:8080")
     )
     parser.add_argument("--token-env", default="DISCOPANEL_TOKEN")
     parser.add_argument("--request-timeout", type=int, default=60)
