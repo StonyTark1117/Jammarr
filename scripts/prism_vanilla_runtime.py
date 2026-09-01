@@ -39,8 +39,9 @@ def direct_launch_command(
             if "jammarr" in artifact.name.lower():
                 raise SystemExit(f"Jammarr artifact appeared in vanilla classpath: {artifact}")
             classpath.append(artifact)
-            if "-natives-" in library["name"]:
-                natives.append(artifact)
+            native = cache.native_library(library)
+            if native is not None:
+                natives.append(native)
 
     main_library = metadata.get("mainJar")
     if not isinstance(main_library, dict) or "name" not in main_library:

@@ -199,6 +199,7 @@ network_profile=${JAMMARR_NETWORK_PROFILE:-direct}
 fabric_loader_version=${JAMMARR_FABRIC_LOADER_VERSION:-}
 quilt_modmenu_gate=${JAMMARR_QUILT_MODMENU_GATE:-false}
 prism_shared_root=${JAMMARR_PRISM_SHARED_ROOT:-${XDG_DATA_HOME:-$HOME/.local/share}/PrismLauncher}
+vanilla_cache_root=${JAMMARR_VANILLA_CACHE_ROOT:-$repo_root/build/vanilla-client-cache}
 
 if [[ "$vanilla_client_gate" == "true" ]]; then
   for prism_cache in assets libraries meta java; do
@@ -794,6 +795,7 @@ run_vanilla_client() {
       --username "$username" \
       --workspace "$prism_workspace" \
       --shared-root "$prism_shared_root" \
+      --fallback-cache-root "$vanilla_cache_root" \
       > "$client_console" 2>&1
   ) &
   pid=$!
@@ -899,6 +901,13 @@ if attestation.get("accountMode") != "direct-offline":
 runtime = attestation.get("runtime", {})
 if runtime.get("allArtifactSha1Verified") is not True:
     raise SystemExit("Vanilla runtime artifacts were not all SHA-1 verified")
+if runtime.get("allArtifactSha1AndSizeVerified") is not True:
+    raise SystemExit("Vanilla runtime artifacts were not all SHA-1 and size verified")
+if runtime.get("sharedCacheMutated") is not False:
+    raise SystemExit("Vanilla runtime did not attest immutable shared-cache use")
+source_counts = runtime.get("artifactSourceCounts")
+if not isinstance(source_counts, dict) or not source_counts or sum(source_counts.values()) < 1:
+    raise SystemExit("Vanilla runtime artifact source counts are missing")
 if runtime.get("connectionTarget") != expected_target:
     raise SystemExit("Vanilla runtime connection target does not match the server")
 client_sha1 = runtime.get("clientJarSha1", "")

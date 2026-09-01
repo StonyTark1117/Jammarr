@@ -76,6 +76,13 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
             probe.rindex("restore_server_config"),
         )
 
+    def test_vanilla_gate_requires_size_verified_fallback_attestation(self) -> None:
+        source = self.source
+        self.assertIn('--fallback-cache-root "$vanilla_cache_root"', source)
+        self.assertIn('runtime.get("allArtifactSha1AndSizeVerified") is not True', source)
+        self.assertIn('runtime.get("sharedCacheMutated") is not False', source)
+        self.assertIn('source_counts = runtime.get("artifactSourceCounts")', source)
+
 
 if __name__ == "__main__":
     unittest.main()

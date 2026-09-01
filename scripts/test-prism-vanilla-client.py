@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from urllib.request import urlopen
 
 
 SCRIPT = Path(__file__).with_name("run-prism-vanilla-client.py")
@@ -37,9 +38,25 @@ class PrismVanillaClientTest(unittest.TestCase):
                 )
                 self.assertEqual(mode, "quick-play-multiplayer")
 
+    def test_direct_launch_delegates_to_verified_cache_runtime(self) -> None:
+        source = SCRIPT.read_text("utf-8")
+        launch = source[source.index("def direct_launch_command(") :]
+        launch = launch[: launch.index("def prepare_instance(")]
+        self.assertIn("from prism_vanilla_runtime import direct_launch_command", launch)
+        self.assertIn("return verified_launch_command(args, game_dir", launch)
+
     def test_connection_arguments_reject_invalid_port(self) -> None:
         with self.assertRaisesRegex(SystemExit, "port is invalid"):
             CLIENT_HELPER.server_connection_arguments("1.20.1", "127.0.0.1:70000")
+
+    def test_offline_privileges_service_allows_servers_without_credentials(self) -> None:
+        with CLIENT_HELPER.offline_privileges_service() as base_url:
+            with urlopen(base_url + "/privileges") as response:
+                value = json.loads(response.read())
+        privileges = value["privileges"]
+        self.assertTrue(privileges["onlineChat"]["enabled"])
+        self.assertTrue(privileges["multiplayerServer"]["enabled"])
+        self.assertFalse(privileges["multiplayerRealms"]["enabled"])
 
     def make_shared_root(self, root: Path, version: str = "1.20.1") -> Path:
         shared = root / "shared"

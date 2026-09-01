@@ -11,6 +11,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+import zipfile
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -50,8 +51,11 @@ class PrismVanillaRuntimeTest(unittest.TestCase):
             objects_root = remote / "objects"
             metadata_root.mkdir(parents=True)
             library = remote / "library.jar"
+            native = remote / "lwjgl-3.3.3-natives-linux.jar"
             client = remote / "client.jar"
             library.write_bytes(b"library")
+            with zipfile.ZipFile(native, "w") as archive:
+                archive.writestr("linux/x64/liblwjgl.so", b"native")
             client.write_bytes(b"client")
             asset = b"asset"
             asset_hash = hashlib.sha1(asset).hexdigest()
@@ -73,7 +77,11 @@ class PrismVanillaRuntimeTest(unittest.TestCase):
                         "libraries": [
                             {
                                 "name": "org.lwjgl:lwjgl:3.3.3",
-                                "downloads": {"artifact": descriptor(library)},
+                                "natives": {"linux": "natives-linux"},
+                                "downloads": {
+                                    "artifact": descriptor(library),
+                                    "classifiers": {"natives-linux": descriptor(native)},
+                                },
                             }
                         ],
                     }
@@ -124,6 +132,8 @@ class PrismVanillaRuntimeTest(unittest.TestCase):
             ]
             self.assertEqual(command[-len(expected_arguments):], expected_arguments)
             self.assertEqual(details["classpathEntryCount"], 2)
+            self.assertEqual(details["nativeBundleCount"], 1)
+            self.assertEqual((game_dir.parent / "natives/liblwjgl.so").read_bytes(), b"native")
             self.assertEqual(details["assetObjectCount"], 1)
             self.assertTrue(details["allArtifactSha1AndSizeVerified"])
             self.assertFalse(details["sharedCacheMutated"])

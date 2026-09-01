@@ -148,6 +148,31 @@ class VerifiedCache:
             f"library {coordinate}",
         )
 
+    def native_library(self, library: dict[str, Any]) -> Path | None:
+        coordinate = library.get("name")
+        natives = library.get("natives")
+        if not isinstance(coordinate, str) or not isinstance(natives, dict):
+            return None
+        classifier = natives.get("linux")
+        if not isinstance(classifier, str) or not classifier:
+            return None
+        classifier = classifier.replace("${arch}", "64")
+        descriptor = library.get("downloads", {}).get("classifiers", {}).get(classifier)
+        if not isinstance(descriptor, dict):
+            raise SystemExit(
+                f"Prism library {coordinate} has no Linux native download {classifier}"
+            )
+        base, separator, extension = coordinate.partition("@")
+        native_coordinate = f"{base}:{classifier}"
+        if separator:
+            native_coordinate += f"@{extension}"
+        return self.artifact(
+            maven_path(self.shared_root / "libraries", native_coordinate),
+            maven_path(self.cache_root / "libraries", native_coordinate),
+            descriptor,
+            f"native library {native_coordinate}",
+        )
+
     def component_metadata(self, uid: str, version: str) -> dict[str, Any]:
         relative = Path("meta") / uid / f"{version}.json"
         shared = self.shared_root / relative

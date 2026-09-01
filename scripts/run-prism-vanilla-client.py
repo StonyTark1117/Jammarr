@@ -10,7 +10,9 @@ but its launcher UI and account store are never opened or inspected.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager, nullcontext
 import hashlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
@@ -19,6 +21,7 @@ import shutil
 import shlex
 import subprocess
 import sys
+import threading
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
@@ -27,6 +30,48 @@ import zipfile
 
 
 SAFE_VALUE = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+class OfflinePrivilegesHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        if self.path == "/privileges":
+            payload = {
+                "privileges": {
+                    "onlineChat": {"enabled": True},
+                    "multiplayerServer": {"enabled": True},
+                    "multiplayerRealms": {"enabled": False},
+                }
+            }
+            status = 200
+        elif self.path == "/privacy/blocklist":
+            payload = {"blockedProfiles": []}
+            status = 200
+        else:
+            payload = {"error": "not available in offline acceptance"}
+            status = 404
+        body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, _format: str, *_args: object) -> None:
+        return
+
+
+@contextmanager
+def offline_privileges_service():
+    service = ThreadingHTTPServer(("127.0.0.1", 0), OfflinePrivilegesHandler)
+    thread = threading.Thread(target=service.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = service.server_address
+        yield f"http://{host}:{port}"
+    finally:
+        service.shutdown()
+        service.server_close()
+        thread.join(timeout=5)
 
 
 def parse_args() -> argparse.Namespace:
@@ -39,6 +84,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--metadata-base-url",
         default="https://meta.prismlauncher.org/v1/net.minecraft",
+    )
+    parser.add_argument(
+        "--fallback-cache-root",
+        type=Path,
+        default=Path("build/vanilla-client-cache"),
+    )
+    parser.add_argument(
+        "--metadata-root-url",
+        default="https://meta.prismlauncher.org/v1",
+    )
+    parser.add_argument(
+        "--asset-objects-base-url",
+        default="https://resources.download.minecraft.net",
     )
     parser.add_argument("--prepare-only", action="store_true")
     return parser.parse_args()
@@ -286,84 +344,9 @@ def replace_arguments(template: str, values: dict[str, str]) -> list[str]:
 def direct_launch_command(
     args: argparse.Namespace, game_dir: Path
 ) -> tuple[list[str], dict[str, Any]]:
-    shared_root = args.shared_root.resolve()
-    metadata = load_minecraft_metadata(shared_root, args.minecraft, args.metadata_base_url)
-    component_values = [metadata]
-    for requirement in metadata.get("requires", []):
-        uid = requirement.get("uid")
-        version = requirement.get("equals") or requirement.get("suggests")
-        if uid not in {"org.lwjgl", "org.lwjgl3"} or not version:
-            raise SystemExit(f"Unsupported Minecraft component requirement: {requirement!r}")
-        component_values.append(component_metadata(shared_root, uid, version))
+    from prism_vanilla_runtime import direct_launch_command as verified_launch_command
 
-    classpath: list[Path] = []
-    natives: list[Path] = []
-    for component in component_values:
-        for library in component.get("libraries", []):
-            if not library_allowed(library):
-                continue
-            artifact = verified_artifact(shared_root, library)
-            if "jammarr" in artifact.name.lower():
-                raise SystemExit(f"Jammarr artifact appeared in vanilla classpath: {artifact}")
-            classpath.append(artifact)
-            if "-natives-" in library["name"]:
-                natives.append(artifact)
-
-    main_library = metadata.get("mainJar")
-    if not isinstance(main_library, dict) or "name" not in main_library:
-        raise SystemExit("Minecraft metadata does not declare a main JAR")
-    client_jar = verified_artifact(shared_root, main_library)
-    classpath.append(client_jar)
-    native_dir = game_dir.parent / "natives"
-    extract_native_bundles(natives, native_dir)
-
-    asset_index = metadata.get("assetIndex", {}).get("id")
-    if not asset_index or not (shared_root / "assets" / "indexes" / f"{asset_index}.json").is_file():
-        raise SystemExit(f"Minecraft asset index is not cached: {asset_index!r}")
-    connection_arguments, connection_mode = server_connection_arguments(
-        args.minecraft, args.server
-    )
-    java, major = select_java(shared_root, metadata)
-    values = {
-        "auth_player_name": args.username,
-        "version_name": args.minecraft,
-        "game_directory": str(game_dir),
-        "assets_root": str(shared_root / "assets"),
-        "assets_index_name": asset_index,
-        "auth_uuid": offline_uuid(args.username),
-        "auth_access_token": "0",
-        "auth_session": "0",
-        "user_properties": "{}",
-        "user_type": "legacy",
-        "version_type": str(metadata.get("type", "release")),
-        "clientid": "",
-        "auth_xuid": "",
-    }
-    game_arguments = replace_arguments(metadata.get("minecraftArguments", ""), values)
-    game_arguments.extend(connection_arguments)
-    command = [
-        str(java),
-        "-Xms512m",
-        "-Xmx2048m",
-        f"-Djava.library.path={native_dir}",
-        "-Dminecraft.launcher.brand=JammarrAcceptance",
-        "-Dminecraft.launcher.version=1",
-        "-cp",
-        os.pathsep.join(str(path) for path in classpath),
-        metadata["mainClass"],
-        *game_arguments,
-    ]
-    details = {
-        "javaMajor": major,
-        "mainClass": metadata["mainClass"],
-        "classpathEntryCount": len(classpath),
-        "nativeBundleCount": len(natives),
-        "clientJarSha1": sha1_file(client_jar),
-        "allArtifactSha1Verified": True,
-        "connectionMode": connection_mode,
-        "connectionTarget": args.server,
-    }
-    return command, details
+    return verified_launch_command(args, game_dir, sys.modules[__name__])
 
 
 def prepare_instance(args: argparse.Namespace) -> tuple[Path, Path, list[dict[str, Any]]]:
@@ -482,15 +465,25 @@ def main() -> int:
         raise SystemExit("A private X display is required to launch the vanilla acceptance client")
 
     command, runtime_details = direct_launch_command(args, game_dir)
-    write_attestation(
-        instance_dir, game_dir, args.minecraft, components, args.username, runtime_details
-    )
-    try:
-        return subprocess.run(command, cwd=game_dir, check=False).returncode
-    finally:
+    needs_privileges_stub = (1, 16, 0) <= release_version_tuple(args.minecraft) < (1, 20, 0)
+    runtime_details["offlinePrivilegesStub"] = needs_privileges_stub
+    with offline_privileges_service() if needs_privileges_stub else nullcontext(None) as services_host:
+        if services_host is not None:
+            command[1:1] = [
+                f"-Dminecraft.api.auth.host={services_host}",
+                f"-Dminecraft.api.account.host={services_host}",
+                f"-Dminecraft.api.session.host={services_host}",
+                f"-Dminecraft.api.services.host={services_host}",
+            ]
         write_attestation(
             instance_dir, game_dir, args.minecraft, components, args.username, runtime_details
         )
+        try:
+            return subprocess.run(command, cwd=game_dir, check=False).returncode
+        finally:
+            write_attestation(
+                instance_dir, game_dir, args.minecraft, components, args.username, runtime_details
+            )
 
 
 if __name__ == "__main__":
