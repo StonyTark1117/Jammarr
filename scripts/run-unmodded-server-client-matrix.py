@@ -84,12 +84,13 @@ def accepted_evidence(attempt: Path, runtime: dict[str, Any]) -> bool:
     return (
         value.get("minecraftVersion") == minecraft
         and value.get("jammarrPresent") is False
+        and value.get("unmoddedVanillaServer") is True
         and server_size == value.get("serverSize")
         and server_sha1 == value.get("serverSha1")
         and "JammarrNoServer joined the game" in server_text
         and "Acceptance Jammarr unsupported-server screen remained open" in client_text
-        and "Modded client remained connected to the official unmodded server" in text
-        and "Official unmodded server, modded client, private X server, and port cleaned up."
+        and "Modded client remained connected to the attested unmodded server" in text
+        and "Attested unmodded server, modded client, private X server, and port cleaned up."
         in text
         and not process_mentions(attempt)
         and not port_listening(int(runtime["port"]))
@@ -149,7 +150,9 @@ def run(args: argparse.Namespace) -> int:
         "accepted": [],
         "resumed": [],
         "failures": [],
-        "officialMojangServer": True,
+        "unmoddedVanillaServer": True,
+        "officialMojangServerWhereAvailable": True,
+        "legacyArchiveExceptions": ["b1.7.3"],
         "privateXRequired": True,
     }
     interrupted: BaseException | None = None

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Resolve one exact Mojang server JAR into a verified project cache."""
+"""Resolve one exact unmodified vanilla server JAR into a verified project cache."""
 
 from __future__ import annotations
 
@@ -14,10 +14,23 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import urlopen
+import zipfile
 
 
 DEFAULT_MANIFEST = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
 SAFE_VERSION = re.compile(r"^[A-Za-z0-9._-]+$")
+LEGACY_SERVER_DOWNLOADS: dict[str, dict[str, Any]] = {
+    # Mojang's current metadata retains the Beta 1.7.3 client but omits the
+    # matching server. Babric's manifest polyfill identifies this exact
+    # archival copy of Mojang's unmodified release server.
+    "b1.7.3": {
+        "url": "https://files.betacraft.uk/server-archive/beta/b1.7.3.jar",
+        "sha1": "2f90dc1cb5ca7e9d71786801b307390a67fcf954",
+        "size": 503100,
+        "source": "Pinned Babric/Betacraft archive of the vanilla Beta server",
+        "provenanceUrl": "https://babric.github.io/manifest-polyfill/b1.7.3.json",
+    }
+}
 
 
 def sha1_bytes(payload: bytes) -> str:
@@ -93,8 +106,22 @@ def install_verified(path: Path, payload: bytes, sha1: str, size: int) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def verify_unmodded_server(path: Path) -> None:
+    if not zipfile.is_zipfile(path):
+        raise SystemExit(f"Server JAR is not a readable ZIP archive: {path}")
+    with zipfile.ZipFile(path) as archive:
+        jammarr_entries = [name for name in archive.namelist() if "jammarr" in name.lower()]
+    if jammarr_entries:
+        raise SystemExit(
+            f"Server JAR unexpectedly contains Jammarr entries: {jammarr_entries[:3]}"
+        )
+
+
 def resolve_server(
-    version: str, cache_root: Path, manifest_url: str = DEFAULT_MANIFEST
+    version: str,
+    cache_root: Path,
+    manifest_url: str = DEFAULT_MANIFEST,
+    legacy_downloads: dict[str, dict[str, Any]] | None = None,
 ) -> Path:
     if not SAFE_VERSION.fullmatch(version):
         raise SystemExit(f"Minecraft version contains unsupported characters: {version!r}")
@@ -121,6 +148,12 @@ def resolve_server(
         raise SystemExit(f"Downloaded metadata does not describe Minecraft {version}")
     downloads = metadata.get("downloads")
     server = downloads.get("server") if isinstance(downloads, dict) else None
+    legacy = (LEGACY_SERVER_DOWNLOADS if legacy_downloads is None else legacy_downloads).get(
+        version
+    )
+    official_mojang_download = server is not None
+    if server is None and legacy is not None:
+        server = legacy
     server_url, server_sha1, server_size = require_download(
         server, f"Minecraft {version} server download"
     )
@@ -140,11 +173,18 @@ def resolve_server(
         )
     if destination.stat().st_size != server_size or sha1_file(destination) != server_sha1:
         raise SystemExit(f"Cached Minecraft {version} server JAR failed final verification")
+    verify_unmodded_server(destination)
 
     attestation = {
         "schemaVersion": 1,
         "minecraftVersion": version,
-        "source": "Official Mojang version manifest",
+        "source": (
+            "Official Mojang version manifest"
+            if official_mojang_download
+            else legacy["source"]
+        ),
+        "officialMojangDownload": official_mojang_download,
+        "unmoddedVanillaServer": True,
         "manifestUrl": manifest_url,
         "metadataUrl": metadata_url,
         "metadataSha1": metadata_sha1,
@@ -155,6 +195,8 @@ def resolve_server(
         "cacheReused": cache_reused,
         "jammarrPresent": False,
     }
+    if not official_mojang_download:
+        attestation["provenanceUrl"] = legacy["provenanceUrl"]
     attestation_path = destination.with_name("server-attestation.json")
     attestation_path.write_text(json.dumps(attestation, indent=2) + "\n", encoding="utf-8")
     return attestation_path

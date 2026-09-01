@@ -52,6 +52,7 @@ class UnmoddedServerClientMatrixTest(unittest.TestCase):
                     {
                         "minecraftVersion": "1.20.1",
                         "jammarrPresent": False,
+                        "unmoddedVanillaServer": True,
                         "serverJar": str(server),
                         "serverSize": server.stat().st_size,
                         "serverSha1": hashlib.sha1(server.read_bytes()).hexdigest(),
@@ -67,8 +68,8 @@ class UnmoddedServerClientMatrixTest(unittest.TestCase):
                 encoding="utf-8",
             )
             (attempt / "gate.evidence.txt").write_text(
-                "Modded client remained connected to the official unmodded server for 10 seconds.\n"
-                "Official unmodded server, modded client, private X server, and port cleaned up.\n",
+                "Modded client remained connected to the attested unmodded server for 10 seconds.\n"
+                "Attested unmodded server, modded client, private X server, and port cleaned up.\n",
                 encoding="utf-8",
             )
             runtime = {"name": "1.20.1-fabric", "port": 26000}

@@ -149,13 +149,13 @@ server_pid=$!
 deadline=$((SECONDS + 300))
 while ! grep -Eq 'Done \(|Done \[' "$server_console" 2>/dev/null; do
   if ! group_alive "$server_pid" || (( SECONDS >= deadline )); then
-    echo "$label: official Mojang server did not become ready; see $server_console" >&2
+    echo "$label: attested unmodded server did not become ready; see $server_console" >&2
     exit 1
   fi
   sleep 1
 done
 if ! ss -ltnH "sport = :$port" | grep -q .; then
-  echo "$label: official Mojang server reported ready without listening on $port" >&2
+  echo "$label: attested unmodded server reported ready without listening on $port" >&2
   exit 1
 fi
 
@@ -212,7 +212,7 @@ fi
   grep -F "$username joined the game" "$server_console" | tail -n 1 || \
     grep -E "$username \[/[^]]+\] logged in with entity id" "$server_console" | tail -n 1
   grep -F "$ui_marker" "$client_console" | tail -n 1
-  printf 'Modded client remained connected to the official unmodded server for %s seconds after UI verification.\n' \
+  printf 'Modded client remained connected to the attested unmodded server for %s seconds after UI verification.\n' \
     "$connected_seconds"
   printf 'Client and server ran on a private X display and verified null audio output.\n'
 } > "$evidence"
@@ -223,7 +223,7 @@ printf 'stop\n' >&"$server_fd"
 deadline=$((SECONDS + 60))
 while group_alive "$server_pid" && (( SECONDS < deadline )); do sleep .5; done
 if group_alive "$server_pid"; then
-  echo "$label: official unmodded server did not stop cleanly" >&2
+  echo "$label: attested unmodded server did not stop cleanly" >&2
   exit 1
 fi
 server_pid=""
@@ -231,5 +231,5 @@ if ss -ltnH "sport = :$port" | grep -q .; then
   echo "$label: game port remained open after official server shutdown" >&2
   exit 1
 fi
-printf 'Official unmodded server, modded client, private X server, and port cleaned up.\n' >> "$evidence"
+printf 'Attested unmodded server, modded client, private X server, and port cleaned up.\n' >> "$evidence"
 echo "$label: modded-client-to-unmodded-server gate passed"
