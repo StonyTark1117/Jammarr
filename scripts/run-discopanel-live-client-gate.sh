@@ -194,6 +194,25 @@ terminate_tree() {
   if (( ${#pids[@]} )); then kill "-$signal" -- "${pids[@]}" 2>/dev/null || true; fi
 }
 
+session_process_pids() {
+  local process cmdline
+  for process in /proc/[0-9]*; do
+    [[ -r "$process/cmdline" ]] || continue
+    cmdline=$(tr '\0' ' ' < "$process/cmdline" 2>/dev/null) || continue
+    if [[ "$cmdline" == *"$session_dir"* ]]; then
+      printf '%s\n' "${process##*/}"
+    fi
+  done
+}
+
+terminate_session_processes() {
+  local signal=$1 pid
+  while read -r pid; do
+    [[ -n "$pid" ]] || continue
+    kill "-$signal" "$pid" 2>/dev/null || true
+  done < <(session_process_pids)
+}
+
 cleanup() {
   local status=$?
   trap - EXIT INT TERM
@@ -224,6 +243,18 @@ cleanup() {
     else
       wait "$server_pid" || status=1
     fi
+  fi
+  # Gradle may detach a production client after xvfb-run exits, so the
+  # launcher's original PID is not a sufficient cleanup boundary. Every gate
+  # path is unique; terminate only processes whose command line still names
+  # this exact session, then fail if even SIGKILL leaves one behind.
+  terminate_session_processes TERM
+  sleep 1
+  terminate_session_processes KILL
+  sleep 1
+  if [[ -n $(session_process_pids) ]]; then
+    echo "$runtime retained a process for $session_dir after cleanup" >&2
+    status=1
   fi
   if [[ "$acceptance_level_removed" == false ]]; then
     if remove_acceptance_level; then
