@@ -14,6 +14,7 @@ from types import SimpleNamespace
 
 
 SCRIPT = Path(__file__).with_name("run-discopanel-live-client-matrix.py")
+LIVE_GATE_SCRIPT = Path(__file__).with_name("run-discopanel-live-client-gate.sh")
 SPEC = importlib.util.spec_from_file_location("jammarr_live_client_matrix", SCRIPT)
 assert SPEC and SPEC.loader
 matrix = importlib.util.module_from_spec(SPEC)
@@ -22,6 +23,42 @@ SPEC.loader.exec_module(matrix)
 
 
 class LiveClientMatrixTests(unittest.TestCase):
+    def test_live_gate_keeps_private_sinks_active_until_cleanup(self) -> None:
+        source = LIVE_GATE_SCRIPT.read_text()
+        self.assertIn("sink_keepalive_pids=()", source)
+        self.assertIn('for sink in "$sink_leader" "$sink_follower"; do', source)
+        self.assertIn('pacat --raw --playback --device="$sink"', source)
+        self.assertIn('$NF == "RUNNING"', source)
+        self.assertIn('for pid in "${sink_keepalive_pids[@]}"; do', source)
+        self.assertLess(
+            source.index('kill -TERM "$pid"', source.index("cleanup()")),
+            source.index('pactl unload-module "$module"', source.index("cleanup()")),
+        )
+
+    def test_live_gate_isolates_audio_server_from_active_desktop(self) -> None:
+        source = LIVE_GATE_SCRIPT.read_text()
+        self.assertIn(
+            "audio_runtime_dir=$(mktemp -d /tmp/jammarr-live-gate-audio.XXXXXX)", source
+        )
+        self.assertIn('PIPEWIRE_RUNTIME_DIR="$audio_runtime_dir" pipewire', source)
+        self.assertIn(
+            'PIPEWIRE_RUNTIME_DIR="$audio_runtime_dir" wireplumber --profile=policy',
+            source,
+        )
+        self.assertIn('PIPEWIRE_RUNTIME_DIR="$audio_runtime_dir" pipewire-pulse', source)
+        self.assertIn(
+            'export PULSE_SERVER="unix:$audio_runtime_dir/pulse/native"', source
+        )
+        self.assertIn(
+            'for pid in "$private_pulse_pid" "$private_wireplumber_pid" '
+            '"$private_pipewire_pid"; do',
+            source,
+        )
+        self.assertLess(
+            source.index('pactl unload-module "$module"', source.index("cleanup()")),
+            source.index('for pid in "$private_pulse_pid"', source.index("cleanup()")),
+        )
+
     def target(self) -> SimpleNamespace:
         return SimpleNamespace(
             runtime="26.2-neoforge",

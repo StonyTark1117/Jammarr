@@ -123,7 +123,12 @@ operator_file_prepared=false
 acceptance_level_removed=false
 client_pids=()
 recorder_pids=()
+sink_keepalive_pids=()
 sink_modules=()
+private_pipewire_pid=""
+private_pulse_pid=""
+private_wireplumber_pid=""
+audio_runtime_dir=""
 leader_username="JmLiveA${session_dir##*.}"
 follower_username="JmLiveB${session_dir##*.}"
 terminal_client_pattern='Acceptance audio state: ERROR|Failed to open OpenAL device|Only one OpenAL context|UnsatisfiedLinkError: org\.lwjgl\.openal|available update failed: Broken pipe|Client disconnected with reason:|Couldn.t connect to server|Connection refused|Failed to connect to the server|Connection timed out'
@@ -398,7 +403,23 @@ cleanup() {
       status=1
     fi
   fi
+  for pid in "${sink_keepalive_pids[@]}"; do
+    kill -TERM "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+  done
+  sink_keepalive_pids=()
   for module in "${sink_modules[@]}"; do pactl unload-module "$module" >/dev/null 2>&1 || true; done
+  for pid in "$private_pulse_pid" "$private_wireplumber_pid" "$private_pipewire_pid"; do
+    [[ -n "$pid" ]] || continue
+    kill -TERM "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+  done
+  private_pulse_pid=""
+  private_wireplumber_pid=""
+  private_pipewire_pid=""
+  if [[ -n "$audio_runtime_dir" && -d "$audio_runtime_dir" ]]; then
+    rm -r -- "$audio_runtime_dir"
+  fi
   printf 'LIVE_CLIENT_GATE_EVIDENCE %s\n' "$session_dir"
   exit "$status"
 }
@@ -418,11 +439,89 @@ python3 "$recovery_tool" snapshot \
   --session-dir "$session_dir" --url "$panel_url" --token-env "$token_env" \
   --expected-version "$version"
 
+# The active desktop may be carrying unrelated real-time audio streams. Give
+# the gate a private PipeWire core and Pulse-compatible socket so desktop
+# contention, restarts, and policy cannot break or reroute either test client.
+# WirePlumber's policy-only profile links the explicit virtual nodes without
+# probing physical audio, Bluetooth, or cameras. Every daemon has an exact PID.
+audio_runtime_dir=$(mktemp -d /tmp/jammarr-live-gate-audio.XXXXXX)
+chmod 700 "$audio_runtime_dir"
+env -u DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR="$audio_runtime_dir" \
+  PIPEWIRE_RUNTIME_DIR="$audio_runtime_dir" pipewire \
+  > "$session_dir/private-pipewire.log" 2>&1 &
+private_pipewire_pid=$!
+for _ in $(seq 1 100); do
+  [[ -S "$audio_runtime_dir/pipewire-0" ]] && break
+  if ! kill -0 "$private_pipewire_pid" 2>/dev/null; then
+    echo "$runtime private PipeWire core exited during startup" >&2
+    exit 1
+  fi
+  sleep .1
+done
+if [[ ! -S "$audio_runtime_dir/pipewire-0" ]]; then
+  echo "$runtime private PipeWire core did not expose its socket" >&2
+  exit 1
+fi
+env -u DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR="$audio_runtime_dir" \
+  PIPEWIRE_RUNTIME_DIR="$audio_runtime_dir" wireplumber --profile=policy \
+  > "$session_dir/private-wireplumber.log" 2>&1 &
+private_wireplumber_pid=$!
+sleep 1
+if ! kill -0 "$private_wireplumber_pid" 2>/dev/null; then
+  echo "$runtime private WirePlumber policy manager exited during startup" >&2
+  exit 1
+fi
+env -u DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR="$audio_runtime_dir" \
+  PIPEWIRE_RUNTIME_DIR="$audio_runtime_dir" pipewire-pulse \
+  > "$session_dir/private-pipewire-pulse.log" 2>&1 &
+private_pulse_pid=$!
+for _ in $(seq 1 100); do
+  [[ -S "$audio_runtime_dir/pulse/native" ]] && break
+  if ! kill -0 "$private_pulse_pid" 2>/dev/null; then
+    echo "$runtime private PipeWire-Pulse server exited during startup" >&2
+    exit 1
+  fi
+  sleep .1
+done
+if [[ ! -S "$audio_runtime_dir/pulse/native" ]]; then
+  echo "$runtime private PipeWire-Pulse server did not expose its socket" >&2
+  exit 1
+fi
+export PULSE_SERVER="unix:$audio_runtime_dir/pulse/native"
+pactl info > /dev/null
+
 sink_prefix="jammarr_live_${BASHPID}_${runtime//[^a-zA-Z0-9]/_}"
 sink_leader="${sink_prefix}_leader"
 sink_follower="${sink_prefix}_follower"
 sink_modules+=("$(pactl load-module module-null-sink sink_name="$sink_leader" rate=48000 channels=2)")
 sink_modules+=("$(pactl load-module module-null-sink sink_name="$sink_follower" rate=48000 channels=2)")
+
+# A slow client may leave its private sink idle for tens of seconds while the
+# second client starts. PipeWire-Pulse can suspend that route in the gap, after
+# which OpenAL reports `available update failed: Broken pipe`. Keep each sink
+# active with an exact-PID, zero-valued PCM stream until cleanup. The stream is
+# silent, so it does not alter the captured client output.
+for sink in "$sink_leader" "$sink_follower"; do
+  pacat --raw --playback --device="$sink" --format=s16le --rate=48000 --channels=2 \
+    --latency-msec=50 --client-name=jammarr-live-gate \
+    --stream-name="${sink}_keepalive" < /dev/zero > /dev/null 2>&1 &
+  sink_keepalive_pids+=("$!")
+done
+audio_ready_deadline=$((SECONDS + 10))
+while true; do
+  keepalives_alive=true
+  for pid in "${sink_keepalive_pids[@]}"; do
+    if ! kill -0 "$pid" 2>/dev/null; then keepalives_alive=false; fi
+  done
+  running_sinks=$(pactl list short sinks | awk -v leader="$sink_leader" -v follower="$sink_follower" \
+    '($2 == leader || $2 == follower) && $NF == "RUNNING" { count++ } END { print count + 0 }')
+  if [[ "$keepalives_alive" == true && "$running_sinks" == 2 ]]; then break; fi
+  if [[ "$keepalives_alive" == false || SECONDS -ge audio_ready_deadline ]]; then
+    echo "$runtime private live-gate audio sinks did not become active" >&2
+    exit 1
+  fi
+  sleep .2
+done
 
 if [[ "$runtime" == b1.7.3-babric ]]; then
   operator_file_prepared=true
