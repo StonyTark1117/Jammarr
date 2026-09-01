@@ -2511,7 +2511,7 @@ run_mixed_vanilla_audio() {
   local churn_requested=0 cycle=1 completed=0 result=0
   local started=$SECONDS deadline=$((SECONDS + vanilla_churn_min_seconds)) padded username
   local raw_leader raw_follower metrics_leader metrics_follower timing classification evidence
-  local leader_trace follower_trace leader_trace_tail follower_trace_tail
+  local leader_trace_dir follower_trace_dir leader_trace_tail follower_trace_tail
   local leader_feed_timing follower_feed_timing trace_bytes
   local server_pid rss_kib descriptors
   local baseline_rss_kib=0 baseline_descriptors=0 egress_items egress_bytes work_active work_queued
@@ -2573,13 +2573,9 @@ run_mixed_vanilla_audio() {
       if ! python3 "$repo_root/scripts/analyze-audio-timing.py" \
           "$raw_leader" --reference "$raw_follower" --minimum-duration-ms 10000 \
           > "$timing"; then
-        leader_trace=$(find "$output_root/$label.audio-leader/pcm-trace" -type f \
-          -name '*.s16le' -printf '%T@\t%p\n' 2>/dev/null \
-          | sort -nr | head -n 1 | cut -f 2-)
-        follower_trace=$(find "$output_root/$label.audio-follower/pcm-trace" -type f \
-          -name '*.s16le' -printf '%T@\t%p\n' 2>/dev/null \
-          | sort -nr | head -n 1 | cut -f 2-)
-        if [[ -n "$leader_trace" && -n "$follower_trace" ]]; then
+        leader_trace_dir="$output_root/$label.audio-leader/pcm-trace"
+        follower_trace_dir="$output_root/$label.audio-follower/pcm-trace"
+        if [[ -d "$leader_trace_dir" && -d "$follower_trace_dir" ]]; then
           leader_trace_tail="${timing%.json}.leader-fed-tail.s16le"
           follower_trace_tail="${timing%.json}.follower-fed-tail.s16le"
           leader_feed_timing="${timing%.json}.leader-fed-timing.json"
@@ -2589,18 +2585,26 @@ run_mixed_vanilla_audio() {
           # captures the failing rendered interval plus backend queue lead
           # without repeatedly analyzing an hours-long trace.
           trace_bytes=$((30 * 44100 * 2 * 2))
-          tail -c "$trace_bytes" "$leader_trace" > "$leader_trace_tail"
-          tail -c "$trace_bytes" "$follower_trace" > "$follower_trace_tail"
-          python3 "$repo_root/scripts/analyze-audio-timing.py" "$leader_trace_tail" \
-            --sample-rate 44100 --minimum-duration-ms 10000 \
-            > "$leader_feed_timing" || true
-          python3 "$repo_root/scripts/analyze-audio-timing.py" "$follower_trace_tail" \
-            --sample-rate 44100 --minimum-duration-ms 10000 \
-            > "$follower_feed_timing" || true
-          python3 "$repo_root/scripts/classify-shared-clock-audio.py" "$timing" \
-            --leader-feed-report "$leader_feed_timing" \
-            --follower-feed-report "$follower_feed_timing" \
-            > "$classification" || true
+          if python3 "$repo_root/scripts/extract-pcm-trace-tail.py" \
+              "$leader_trace_dir" "$leader_trace_tail" --bytes "$trace_bytes" \
+              > "${leader_feed_timing%.json}.extract.json" \
+              && python3 "$repo_root/scripts/extract-pcm-trace-tail.py" \
+              "$follower_trace_dir" "$follower_trace_tail" --bytes "$trace_bytes" \
+              > "${follower_feed_timing%.json}.extract.json"; then
+            python3 "$repo_root/scripts/analyze-audio-timing.py" "$leader_trace_tail" \
+              --sample-rate 44100 --minimum-duration-ms 10000 \
+              > "$leader_feed_timing" || true
+            python3 "$repo_root/scripts/analyze-audio-timing.py" "$follower_trace_tail" \
+              --sample-rate 44100 --minimum-duration-ms 10000 \
+              > "$follower_feed_timing" || true
+            python3 "$repo_root/scripts/classify-shared-clock-audio.py" "$timing" \
+              --leader-feed-report "$leader_feed_timing" \
+              --follower-feed-report "$follower_feed_timing" \
+              > "$classification" || true
+          else
+            python3 "$repo_root/scripts/classify-shared-clock-audio.py" "$timing" \
+              > "$classification" || true
+          fi
         else
           python3 "$repo_root/scripts/classify-shared-clock-audio.py" "$timing" \
             > "$classification" || true
@@ -2811,11 +2815,15 @@ run_two_client_audio() {
     result=1
   fi
   if (( result == 0 )) && uses_legacy_audio_profile "$label"; then
-    local role trace
+    local role trace trace_dir trace_bytes
+    trace_bytes=$((40 * 44100 * 2 * 2))
     for role in leader follower; do
-      trace=$(find "$output_root/$label.audio-$role/pcm-trace" -type f -name '*.s16le' \
-        -printf '%s\t%p\n' 2>/dev/null | sort -nr | head -n 1 | cut -f 2-)
-      if [[ -z "$trace" ]] || ! python3 "$repo_root/scripts/analyze-audio-timing.py" \
+      trace_dir="$output_root/$label.audio-$role/pcm-trace"
+      trace="$output_root/$label.audio-$role-fed-tail.s16le"
+      if ! python3 "$repo_root/scripts/extract-pcm-trace-tail.py" \
+          "$trace_dir" "$trace" --bytes "$trace_bytes" \
+          > "$output_root/$label.audio-$role-fed-extract.json" \
+          || ! python3 "$repo_root/scripts/analyze-audio-timing.py" \
           "$trace" --sample-rate 44100 --minimum-duration-ms "$minimum_duration_ms" \
           > "$output_root/$label.audio-$role-fed-timing.json"; then
         echo "$label: $role PCM supplied to OpenAL failed strict timing thresholds" >&2

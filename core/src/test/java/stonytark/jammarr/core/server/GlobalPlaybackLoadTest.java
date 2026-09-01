@@ -215,6 +215,7 @@ class GlobalPlaybackLoadTest {
         @Override public boolean isOperator(TestPlayer player, int permissionLevel) { return true; }
         @Override public List<TestPlayer> players() { return Collections.unmodifiableList(players); }
         @Override public int playerCount() { return players.size(); }
+        @Override public int totalPlayerCount() { return players.size(); }
         @Override public Path cacheDirectory() { return cache; }
         @Override public void execute(Runnable action) { action.run(); }
         @Override public void send(TestPlayer player, JammarrMessage message) {

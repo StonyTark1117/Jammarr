@@ -3,20 +3,19 @@ package stonytark.jammarr.client;
 import net.minecraft.client.sounds.AudioStream;
 import javax.sound.sampled.AudioFormat;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import stonytark.jammarr.Jammarr;
 import stonytark.jammarr.core.protocol.ProtocolLimits;
 import stonytark.jammarr.core.protocol.AudioTimingTrace;
+import stonytark.jammarr.core.protocol.RotatingPcmTrace;
 
 final class PcmAudioStream implements AudioStream {
     private final StreamingMp3Decoder decoder;
     private byte[] remainder;
     private int remainderOffset;
     private int acceptanceReads;
-    private OutputStream acceptancePcmTrace;
+    private RotatingPcmTrace acceptancePcmTrace;
 
     PcmAudioStream(StreamingMp3Decoder decoder) {
         this.decoder = decoder;
@@ -50,15 +49,14 @@ final class PcmAudioStream implements AudioStream {
         return output;
     }
 
-    private static OutputStream openAcceptancePcmTrace() {
+    private static RotatingPcmTrace openAcceptancePcmTrace() {
         if (!ProtocolLimits.audioProbeEnabled()) return null;
         String traceDirectory = System.getProperty("jammarr.acceptance.pcmTraceDir", "");
         if (traceDirectory.isEmpty()) return null;
         File directory = new File(traceDirectory);
         if (!directory.isDirectory() && !directory.mkdirs()) return null;
-        File trace = new File(directory, "pcm-feed-" + System.nanoTime() + ".s16le");
         try {
-            return new FileOutputStream(trace);
+            return RotatingPcmTrace.open(directory, "pcm-feed-" + System.nanoTime());
         } catch (IOException error) {
             Jammarr.LOGGER.warn("Unable to open the acceptance PCM trace", error);
             return null;

@@ -13,11 +13,11 @@ import stonytark.jammarr.core.protocol.StatePackets;
 import stonytark.jammarr.core.protocol.TransportPackets;
 import stonytark.jammarr.core.protocol.AudioTimingTrace;
 import stonytark.jammarr.core.protocol.ProtocolLimits;
+import stonytark.jammarr.core.protocol.RotatingPcmTrace;
 import stonytark.jammarr.network.LegacyNetwork;
 import stonytark.jammarr.network.LegacyPacketTypes;
 
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.Optional;
 import java.util.UUID;
@@ -67,7 +67,7 @@ final class LegacyAudioPlayer {
     private boolean started;
     private boolean timingDrainRecorded;
     private double appliedVolume = Double.NaN;
-    private FileOutputStream acceptancePcmTrace;
+    private RotatingPcmTrace acceptancePcmTrace;
 
     LegacyAudioPlayer(ClockSynchronizer clock) { this.clock = clock; }
 
@@ -435,10 +435,9 @@ final class LegacyAudioPlayer {
         if (traceDirectory.length() == 0) return;
         File directory = new File(traceDirectory);
         if (!directory.isDirectory() && !directory.mkdirs()) return;
-        File trace = new File(directory, manifest.sessionId() + "-" + manifest.firstChunk()
-                + "-" + System.nanoTime() + ".s16le");
         try {
-            acceptancePcmTrace = new FileOutputStream(trace);
+            acceptancePcmTrace = RotatingPcmTrace.open(directory, manifest.sessionId() + "-"
+                    + manifest.firstChunk() + "-" + System.nanoTime());
         } catch (IOException error) {
             Jammarr.LOGGER.warn("Unable to open the legacy acceptance PCM trace", error);
         }
