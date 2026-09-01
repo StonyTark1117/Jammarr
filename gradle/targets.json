@@ -95,7 +95,8 @@
             "commandMarkers": "legacy-response",
             "audioProfile": "legacy-openal",
             "logProfile": "legacy-babric",
-            "disableConfigurationCache": false
+            "disableConfigurationCache": false,
+            "optionalClientProfile": "loader-only"
           },
           "path": "platforms/b1.7.3/babric",
           "artifact": "jammarr-1.1.0+mcb1.7.3-babric.jar"
@@ -121,7 +122,8 @@
             "commandMarkers": "legacy-response",
             "audioProfile": "legacy-openal",
             "logProfile": "legacy-fml16",
-            "disableConfigurationCache": false
+            "disableConfigurationCache": false,
+            "optionalClientProfile": "loader-only"
           },
           "path": "platforms/mc1.6.4/forge",
           "artifact": "jammarr-1.1.0+mc1.6.4-forge.jar"
@@ -140,7 +142,8 @@
             "commandMarkers": "legacy-response",
             "audioProfile": "legacy-openal",
             "logProfile": "legacy-fabric16",
-            "disableConfigurationCache": false
+            "disableConfigurationCache": false,
+            "optionalClientProfile": "loader-only"
           },
           "path": "platforms/mc1.6.4/fabric",
           "artifact": "jammarr-1.1.0+mc1.6.4-fabric.jar"
@@ -159,7 +162,8 @@
             "commandMarkers": "legacy-response",
             "audioProfile": "legacy-openal",
             "logProfile": "legacy-ornithe16",
-            "disableConfigurationCache": false
+            "disableConfigurationCache": false,
+            "optionalClientProfile": "loader-only"
           },
           "path": "platforms/mc1.6.4/ornithe",
           "artifact": "jammarr-1.1.0+mc1.6.4-ornithe.jar"
@@ -259,7 +263,8 @@
             "commandMarkers": "legacy-response",
             "audioProfile": "legacy-openal",
             "logProfile": "latest",
-            "disableConfigurationCache": false
+            "disableConfigurationCache": false,
+            "optionalClientProfile": "loader-only"
           },
           "path": "platforms/mc1.8.9/fabric",
           "artifact": "jammarr-1.1.0+mc1.8.9-fabric.jar"
@@ -277,7 +282,8 @@
             "commandMarkers": "legacy-response",
             "audioProfile": "legacy-openal",
             "logProfile": "latest",
-            "disableConfigurationCache": false
+            "disableConfigurationCache": false,
+            "optionalClientProfile": "loader-only"
           },
           "path": "platforms/mc1.8.9/ornithe",
           "artifact": "jammarr-1.1.0+mc1.8.9-ornithe.jar"

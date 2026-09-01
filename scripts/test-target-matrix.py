@@ -64,6 +64,26 @@ def fixture() -> dict:
 
 
 class TargetMatrixTests(unittest.TestCase):
+    def test_actual_modless_legacy_launchers_are_classified_loader_only(self) -> None:
+        manifest = target_matrix.load_manifest(ROOT / "gradle/targets.json")
+        profiles = {
+            runtime["name"]: runtime["optionalClientProfile"]
+            for runtime in target_matrix.runtimes(manifest)
+        }
+        expected = {
+            "b1.7.3-babric",
+            "1.6.4-forge",
+            "1.6.4-fabric",
+            "1.6.4-ornithe",
+            "1.7.10-forge",
+            "1.8.9-fabric",
+            "1.8.9-ornithe",
+        }
+        self.assertEqual(
+            {runtime for runtime, profile in profiles.items() if profile == "loader-only"},
+            expected,
+        )
+
     def test_library_fallback_comments_match_music_first_behavior(self) -> None:
         config_sources = [ROOT / "src/main/java/stonytark/jammarr/config/JammarrConfig.java"]
         config_sources.extend(ROOT.glob("platforms/**/JammarrConfig.java"))
