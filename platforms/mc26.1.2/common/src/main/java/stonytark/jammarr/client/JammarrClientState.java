@@ -218,6 +218,21 @@ public final class JammarrClientState {
         }
     }
     private void probeScreenRendering() {
+        boolean unsupportedServer = Boolean.getBoolean("jammarr.acceptance.unmoddedServerProbe")
+                && "This server does not support Jammarr".equals(notice);
+        if (unsupportedServer) {
+            Minecraft minecraft = Minecraft.getInstance();
+            if (acceptanceScreenVerified) return;
+            if (!(minecraft.screen instanceof JammarrScreen)) {
+                acceptanceScreenTicks = 0;
+                if (minecraft.player != null) minecraft.setScreen(new JammarrScreen(this));
+                return;
+            }
+            if (++acceptanceScreenTicks < 20) return;
+            acceptanceScreenVerified = true;
+            Jammarr.LOGGER.info("Acceptance Jammarr unsupported-server screen remained open across rendered frames");
+            return;
+        }
         if (!acceptanceScreenProbeSent || acceptanceConfigScreenVerified) return;
         Minecraft minecraft = Minecraft.getInstance();
         if (!acceptanceScreenVerified) {

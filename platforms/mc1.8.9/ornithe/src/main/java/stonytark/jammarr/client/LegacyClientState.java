@@ -122,6 +122,7 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
     void tick() {
         if (!helloSent) {
             hello();
+            runAcceptanceScreenProbe();
             return;
         }
         if (serverHelloReceived && ProtocolLimits.commandProbeEnabled() && !commandProbeSent
@@ -209,6 +210,21 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
     }
 
     private void runAcceptanceScreenProbe() {
+        if (Boolean.getBoolean("jammarr.acceptance.unmoddedServerProbe")
+                && "This server does not support Jammarr".equals(notice)) {
+            Minecraft minecraft = Minecraft.getInstance();
+            if (!acceptanceScreenOpened) {
+                minecraft.openScreen(new LegacyScreen(this));
+                acceptanceScreenOpened = true;
+                return;
+            }
+            if (!acceptanceScreenLogged && minecraft.screen instanceof LegacyScreen
+                    && ++acceptanceScreenTicks >= 2) {
+                acceptanceScreenLogged = true;
+                Jammarr.LOGGER.info("Acceptance Jammarr unsupported-server screen remained open across client ticks");
+            }
+            return;
+        }
         if (!ProtocolLimits.commandProbeEnabled() || !serverHelloReceived) return;
         Minecraft minecraft = Minecraft.getInstance();
         if (!acceptanceScreenOpened) {
