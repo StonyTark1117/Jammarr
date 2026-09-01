@@ -57,6 +57,25 @@ class LiveAudioAnalyzerTests(unittest.TestCase):
         left_common, right_common = analyzer.aligned(left, right, lag)
         self.assertGreater(analyzer.normalized_correlation(left_common, right_common), 0.999999)
 
+    def test_joint_subaudible_recorder_prefix_is_not_divergence(self) -> None:
+        material = self.material()
+        prefix = self.RATE // 2
+        left = np.concatenate((np.full(prefix, 0.1), material))
+        right = np.concatenate((np.zeros(prefix), material))
+        report = analyzer.analyze_pair(left, right, self.RATE, 250, 100)
+        self.assertEqual(analyzer.validate("pair", report, self.args()), [])
+        self.assertEqual(report["leading_joint_inactive_ms"], 500)
+
+    def test_one_sided_audible_prefix_remains_divergent(self) -> None:
+        material = self.material()
+        prefix = self.RATE // 2
+        left = np.concatenate((material[:prefix], material))
+        right = np.concatenate((np.zeros(prefix), material))
+        report = analyzer.analyze_pair(left, right, self.RATE, 250, 100)
+        failures = analyzer.validate("pair", report, self.args())
+        self.assertEqual(report["leading_joint_inactive_ms"], 0)
+        self.assertTrue(any("divergent" in failure for failure in failures), failures)
+
     def test_skipped_region_fails(self) -> None:
         left = self.material()
         start = self.RATE * 5

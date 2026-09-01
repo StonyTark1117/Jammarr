@@ -111,6 +111,41 @@ def longest_silence_ms(value: np.ndarray, sample_rate: int, block_ms: int = 20) 
     return longest
 
 
+def trim_jointly_inactive_prefix(
+    left: np.ndarray,
+    right: np.ndarray,
+    sample_rate: int,
+    block_ms: int,
+) -> tuple[np.ndarray, np.ndarray, int]:
+    """Ignore recorder/backend settling before either aligned stream is audible.
+
+    Pulse monitor captures can contain sub-integer idle noise on one sink while
+    the other remains digital zero. Correlation is meaningless there and used
+    to turn a healthy synchronized program into a false divergent prefix. We
+    trim only complete leading blocks where *both* streams are inactive. A
+    one-sided audible start remains in the analysis and therefore still fails.
+    """
+    block = max(1, sample_rate * block_ms // 1000)
+    usable = min(left.size, right.size)
+    usable -= usable % block
+    if usable <= 0:
+        return left, right, 0
+    left_rms = np.sqrt(np.mean(left[:usable].reshape(-1, block) ** 2, axis=1))
+    right_rms = np.sqrt(np.mean(right[:usable].reshape(-1, block) ** 2, axis=1))
+    combined = np.maximum(left_rms, right_rms)
+    active = combined[combined > 0]
+    if active.size == 0:
+        return left, right, 0
+    threshold = max(24.0, float(np.percentile(active, 75)) * 0.015)
+    leading_blocks = 0
+    for left_level, right_level in zip(left_rms, right_rms):
+        if left_level > threshold or right_level > threshold:
+            break
+        leading_blocks += 1
+    trim = leading_blocks * block
+    return left[trim:], right[trim:], leading_blocks * block_ms
+
+
 def analyze_pair(
     left: np.ndarray,
     right: np.ndarray,
@@ -122,6 +157,9 @@ def analyze_pair(
     factor = max(1, sample_rate // 4000)
     lag = best_lag(left, right, maximum_lag, factor)
     left_common, right_common = aligned(left, right, lag)
+    left_common, right_common, leading_inactive_ms = trim_jointly_inactive_prefix(
+        left_common, right_common, sample_rate, block_ms
+    )
     block = max(1, sample_rate * block_ms // 1000)
     usable = min(left_common.size, right_common.size)
     usable -= usable % block
@@ -141,6 +179,7 @@ def analyze_pair(
             current_bad_run = 0
     return {
         "duration_ms": usable * 1000 // sample_rate,
+        "leading_joint_inactive_ms": leading_inactive_ms,
         "lag_ms": round(lag * 1000.0 / sample_rate, 3),
         "correlation": round(normalized_correlation(left_common, right_common), 6),
         "median_block_correlation": round(float(np.median(correlations)), 6)
