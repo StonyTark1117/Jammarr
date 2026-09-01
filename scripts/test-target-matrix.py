@@ -4,7 +4,11 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import re
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -183,6 +187,25 @@ class TargetMatrixTests(unittest.TestCase):
         self.assertEqual(runtimes[-1]["serverTask"], "runServer")
         self.assertEqual(runtimes[-1]["stressProfile"], "none")
         self.assertEqual(runtimes[-1]["optionalClientProfile"], "mod-suppressed")
+
+    def test_unmodded_client_lines_include_both_java_roles(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            manifest = Path(temporary) / "targets.json"
+            manifest.write_text(json.dumps(fixture()), encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "unmodded-client-lines", str(manifest)],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(
+            result.stdout.splitlines(),
+            [
+                "1.20.1-fabric|platforms/fabric|21|17|26000|runClient|false|fabric",
+                "1.20.1-quilt|platforms/fabric|21|17|26001|runClient|false|quilt",
+                "1.20.1-forge|platforms/forge|21|17|26002|runClient|true|forge",
+            ],
+        )
 
     def test_duplicate_target_fails_closed(self) -> None:
         manifest = fixture()

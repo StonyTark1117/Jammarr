@@ -206,6 +206,7 @@ def main() -> None:
             "artifact-matrix",
             "runtime-matrix",
             "gate-lines",
+            "unmodded-client-lines",
             "companion-lines",
             "summary",
         ),
@@ -263,6 +264,19 @@ def main() -> None:
                 entry["serverTask"],
                 entry["stressProfile"],
                 entry["optionalClientProfile"],
+            )
+            print("|".join(map(str, values)))
+    elif args.mode == "unmodded-client-lines":
+        for entry in runtime_entries:
+            values = (
+                entry["name"],
+                entry["path"],
+                entry["buildJava"],
+                entry["runtimeJava"],
+                entry["port"],
+                entry["clientTask"],
+                str(entry["disableConfigurationCache"]).lower(),
+                entry["runtime"].rsplit("-", 1)[1],
             )
             print("|".join(map(str, values)))
     elif args.mode == "companion-lines":
