@@ -6,6 +6,7 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.loading.FMLPaths;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.server.ServerStartedEvent;
+import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import stonytark.jammarr.Jammarr;
@@ -26,9 +27,7 @@ public final class JammarrServer {
     public JammarrServer() { INSTANCE = this; }
     public static JammarrServer instance() { return INSTANCE; }
 
-    @SubscribeEvent public void started(ServerStartedEvent event) {
-        ticks = 0L;
-        capabilities.clear();
+    @SubscribeEvent public void starting(ServerStartingEvent event) {
         try {
             java.nio.file.Path configDirectory = FMLPaths.CONFIGDIR.get();
             java.nio.file.Path canonical = event.getServer().getWorldPath(LevelResource.ROOT)
@@ -39,8 +38,13 @@ public final class JammarrServer {
             if (config.importedFrom() != null) {
                 Jammarr.LOGGER.info("Imported legacy Jammarr server settings from {}", config.importedFrom());
             }
-            player = new GlobalPlayer(event.getServer(), this::accepted);
         }
+        catch (Exception error) { throw new IllegalStateException("Unable to initialize Jammarr", error); }
+    }
+    @SubscribeEvent public void started(ServerStartedEvent event) {
+        ticks = 0L;
+        capabilities.clear();
+        try { player = new GlobalPlayer(event.getServer(), this::accepted); }
         catch (Exception error) { throw new IllegalStateException("Unable to initialize Jammarr", error); }
     }
     @SubscribeEvent public void stopping(ServerStoppingEvent event) { if (player != null) { player.close(); player = null; } capabilities.clear(); }
