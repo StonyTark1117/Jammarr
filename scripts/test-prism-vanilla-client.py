@@ -109,6 +109,25 @@ class PrismVanillaClientTest(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("must be supplied together", result.stderr)
 
+    def test_shutdown_trigger_closes_the_private_minecraft_window(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            trigger = Path(temporary) / "shutdown.trigger"
+            trigger.touch()
+            process = mock.Mock()
+            process.poll.return_value = None
+            search = subprocess.CompletedProcess(
+                args=[], returncode=0, stdout="17\n23\n", stderr=""
+            )
+            success = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+            with mock.patch.object(
+                CLIENT_HELPER.subprocess, "run", side_effect=[search, success]
+            ) as run:
+                CLIENT_HELPER.close_when_triggered(trigger, process)
+            self.assertEqual(run.call_count, 2)
+            self.assertEqual(
+                run.call_args_list[1].args[0], ["xdotool", "windowclose", "23"]
+            )
+
     def make_shared_root(self, root: Path, version: str = "1.20.1") -> Path:
         shared = root / "shared"
         for name in ("assets", "libraries", "java"):

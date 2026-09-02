@@ -490,6 +490,17 @@ activate_shared_audio_sinks() {
       --stream-name="${sink}_keepalive" < /dev/zero > /dev/null 2>&1 &
     active_audio_keepalive_pids+=("$!")
   done
+  # The per-cycle recorder intentionally starts and stops around each vanilla
+  # coexistence window. Keep a second monitor consumer alive between those
+  # windows so the four-channel master branch never suspends and then has to
+  # renegotiate buffers during the next client's CPU-heavy launch. Pulse
+  # monitor sources fan out independently, so this silent drain does not take
+  # samples away from the evidence recorder.
+  parec --raw --latency-msec=200 --device="${sink_master}.monitor" \
+    --format=s16le --rate=48000 --channels=4 \
+    --channel-map=front-left,front-right,rear-left,rear-right \
+    > /dev/null 2>&1 &
+  active_audio_keepalive_pids+=("$!")
   deadline=$((SECONDS + 10))
   while true; do
     keepalives_alive=true
@@ -780,6 +791,7 @@ run_vanilla_client() {
   local post_diagnostics="$output_root/$label.$scenario.post-disconnect-diagnostics.txt"
   local chat_evidence="$output_root/$label.$scenario.chat.evidence.txt"
   local chat_trigger="$output_root/$label.$scenario.chat.trigger"
+  local shutdown_trigger="$output_root/$label.$scenario.shutdown.trigger"
   local chat_message="JammarrVanillaChat_$username"
   local expected_diagnostics="capableListeners=$expected_capable, vanillaListeners=$expected_vanilla, listenerStats=$expected_listener_stats"
   local expected_after_disconnect="capableListeners=$expected_capable, vanillaListeners=$((expected_vanilla - 1)), listenerStats=$expected_listener_stats"
@@ -822,6 +834,7 @@ run_vanilla_client() {
       --workspace "$prism_workspace" \
       --shared-root "$prism_shared_root" \
       --fallback-cache-root "$vanilla_cache_root" \
+      --shutdown-trigger-file "$shutdown_trigger" \
       "${interaction_args[@]}" \
       > "$client_console" 2>&1
   ) &
@@ -1020,6 +1033,16 @@ PY
       printf 'Artifact-free vanilla client remained connected for %s seconds.\n' "$connected_seconds"
       printf 'Plex request count remained unchanged at %s.\n' "$request_end"
     } > "$evidence"
+  fi
+  # Let Minecraft stop its OpenAL mixer before tearing down the private Xvfb
+  # and launcher group. A simultaneous group TERM can otherwise crash inside
+  # libopenal even though the client uses the isolated null backend.
+  : > "$shutdown_trigger"
+  deadline=$((SECONDS + 15))
+  while group_alive "$pid" && (( SECONDS < deadline )); do sleep .2; done
+  if grep -Fq 'VANILLA_SHUTDOWN_FAILED' "$client_console" 2>/dev/null; then
+    echo "$label: exact vanilla client could not perform a graceful private-X shutdown" >&2
+    result=1
   fi
   terminate_client_launch "$pid" 20 || result=1
   active_client_pid=""
@@ -1619,7 +1642,12 @@ start_audio_client() {
   local role=$5
   local username=$6
   local sink=$7
-  local pcm_type=${JAMMARR_ALSA_PCM_TYPE:-pipewire}
+  # The direct ALSA PipeWire plugin can initialize against a Pulse-created
+  # remap sink and then lose that stream after prolonged churn. Route modern
+  # OpenAL through ALSA's Pulse plugin by default, matching the already
+  # qualified DiscPanel live-client topology. Keep the explicit pipewire
+  # option for targeted host-backend diagnostics only.
+  local pcm_type=${JAMMARR_ALSA_PCM_TYPE:-pulse}
   local alsoft_drivers=alsa pulse_sink=
   local client_dir="$output_root/$label.audio-$role"
   local client_console="$output_root/$label.audio-$role.console.log"
@@ -1738,8 +1766,7 @@ wait_for_audio_playing() {
       echo "$label: $role client could not initialize its headless display; see $client_console" >&2
       return 1
     fi
-    if grep -Eq 'Acceptance audio state: ERROR|Failed to open OpenAL device|Error starting SoundSystem|NoClassDefFoundError: (javazoom|de/sciss)' \
-        "$client_console" 2>/dev/null; then
+    if audio_log_has_terminal_backend_failure "$client_console"; then
       echo "$label: $role client failed before playback; see $client_console" >&2
       return 2
     fi
@@ -1757,6 +1784,17 @@ wait_for_audio_playing() {
     fi
     sleep 1
   done
+}
+
+audio_log_has_terminal_backend_failure() {
+  local client_console=$1
+  grep -Eq 'Acceptance audio state: ERROR|Failed to open OpenAL device|Error starting SoundSystem|available update failed: Broken pipe|NoClassDefFoundError: (javazoom|de/sciss)|SIGSEGV.*libopenal' \
+    "$client_console" 2>/dev/null
+}
+
+private_audio_graph_has_buffer_starvation() {
+  local label=$1
+  grep -Eq 'out of buffers' "$output_root/$label.private-pipewire-pulse.log" 2>/dev/null
 }
 
 latest_audio_state_is() {
@@ -1777,6 +1815,11 @@ wait_for_audio_pair_playing() {
   while (( SECONDS < deadline )); do
     if ! group_alive "$leader_pid" || ! group_alive "$follower_pid"; then
       echo "$label: an audio client exited before synchronized capture" >&2
+      return 1
+    fi
+    if audio_log_has_terminal_backend_failure "$leader_console" \
+        || audio_log_has_terminal_backend_failure "$follower_console"; then
+      echo "$label: an audio client reported a terminal backend failure before synchronized capture" >&2
       return 1
     fi
     if latest_audio_state_is "$leader_console" PLAYING \
@@ -2638,7 +2681,10 @@ run_mixed_vanilla_audio() {
     fi
 
     if (( result == 0 )) \
-        && { ! group_alive "$leader_pid" || ! group_alive "$follower_pid" \
+        && { private_audio_graph_has_buffer_starvation "$label" \
+          || audio_log_has_terminal_backend_failure "$output_root/$label.audio-leader.console.log" \
+          || audio_log_has_terminal_backend_failure "$output_root/$label.audio-follower.console.log" \
+          || ! group_alive "$leader_pid" || ! group_alive "$follower_pid" \
           || ! latest_audio_state_is "$output_root/$label.audio-leader.console.log" PLAYING \
           || ! latest_audio_state_is "$output_root/$label.audio-follower.console.log" PLAYING; }; then
       echo "$label: a matching client stopped playback during vanilla coexistence cycle $cycle" >&2
@@ -2860,6 +2906,9 @@ run_two_client_audio() {
     recorder_pid=$!; active_audio_recorder_pids+=("$recorder_pid")
     sleep "$capture_seconds"
     if ! ss -ltnH "sport = :$port" | grep -q . \
+        || private_audio_graph_has_buffer_starvation "$label" \
+        || audio_log_has_terminal_backend_failure "$output_root/$label.audio-leader.console.log" \
+        || audio_log_has_terminal_backend_failure "$output_root/$label.audio-follower.console.log" \
         || grep -Fq 'Client disconnected with reason:' \
           "$output_root/$label.audio-leader.console.log" \
           "$output_root/$label.audio-follower.console.log"; then

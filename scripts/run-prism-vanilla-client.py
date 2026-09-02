@@ -102,6 +102,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--chat-trigger-file", type=Path)
     parser.add_argument("--chat-message")
+    parser.add_argument("--shutdown-trigger-file", type=Path)
     parser.add_argument("--prepare-only", action="store_true")
     args = parser.parse_args()
     if (args.chat_trigger_file is None) != (args.chat_message is None):
@@ -171,6 +172,33 @@ def send_chat_when_triggered(
         print(f"VANILLA_CHAT_SENT message={message}", flush=True)
     except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
         print(f"VANILLA_CHAT_FAILED error={exc}", file=sys.stderr, flush=True)
+
+
+def close_when_triggered(trigger_file: Path, process: subprocess.Popen[bytes]) -> None:
+    """Ask Minecraft to close normally before its private X group is torn down."""
+    while process.poll() is None and not trigger_file.is_file():
+        time.sleep(0.1)
+    if process.poll() is not None:
+        return
+    try:
+        search = subprocess.run(
+            ["xdotool", "search", "--onlyvisible", "--name", "Minecraft"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        windows = [line for line in search.stdout.splitlines() if line.isdigit()]
+        if not windows:
+            raise RuntimeError("no visible Minecraft window was found for shutdown")
+        subprocess.run(
+            ["xdotool", "windowclose", windows[-1]],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        print("VANILLA_SHUTDOWN_REQUESTED", flush=True)
+    except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
+        print(f"VANILLA_SHUTDOWN_FAILED error={exc}", file=sys.stderr, flush=True)
 
 
 def checked_value(name: str, value: str) -> str:
@@ -551,6 +579,7 @@ def main() -> int:
         )
         process = subprocess.Popen(command, cwd=game_dir)
         chat_thread: threading.Thread | None = None
+        shutdown_thread: threading.Thread | None = None
         if args.chat_trigger_file is not None and args.chat_message is not None:
             args.chat_trigger_file.unlink(missing_ok=True)
             chat_thread = threading.Thread(
@@ -559,11 +588,21 @@ def main() -> int:
                 daemon=True,
             )
             chat_thread.start()
+        if args.shutdown_trigger_file is not None:
+            args.shutdown_trigger_file.unlink(missing_ok=True)
+            shutdown_thread = threading.Thread(
+                target=close_when_triggered,
+                args=(args.shutdown_trigger_file, process),
+                daemon=True,
+            )
+            shutdown_thread.start()
         try:
             return process.wait()
         finally:
             if chat_thread is not None:
                 chat_thread.join(timeout=2)
+            if shutdown_thread is not None:
+                shutdown_thread.join(timeout=2)
             write_attestation(
                 instance_dir, game_dir, args.minecraft, components, args.username, runtime_details
             )

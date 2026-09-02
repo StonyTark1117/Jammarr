@@ -24,6 +24,26 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
             'export PULSE_SERVER="unix:$active_audio_runtime_dir/pulse/native"', source
         )
 
+    def test_modern_openal_defaults_to_the_qualified_pulse_route(self) -> None:
+        source = self.source
+        audio_client = source[source.index("start_audio_client()") :]
+        audio_client = audio_client[: audio_client.index("wait_for_audio_playing()")]
+        self.assertIn("local pcm_type=${JAMMARR_ALSA_PCM_TYPE:-pulse}", audio_client)
+        self.assertIn("pcm.!default {", audio_client)
+        self.assertIn("'  type pulse'", audio_client)
+        self.assertIn('ALSOFT_DRIVERS="$alsoft_drivers"', audio_client)
+
+    def test_sustained_audio_rejects_a_backend_break_immediately(self) -> None:
+        source = self.source
+        self.assertIn("audio_log_has_terminal_backend_failure()", source)
+        self.assertIn("available update failed: Broken pipe", source)
+        churn = source[source.index("run_mixed_vanilla_audio()") :]
+        churn = churn[: churn.index("run_two_client_audio()")]
+        self.assertIn("audio_log_has_terminal_backend_failure", churn)
+        self.assertIn("private_audio_graph_has_buffer_starvation()", source)
+        self.assertIn("out of buffers", source)
+        self.assertIn("private_audio_graph_has_buffer_starvation", churn)
+
     def test_audio_gate_records_both_clients_on_one_clock(self) -> None:
         source = self.source
         self.assertIn("activate_shared_audio_sinks()", source)
@@ -37,6 +57,16 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         self.assertIn("--channels=4", initial)
         self.assertIn("pan=stereo|c0=c0|c1=c1[leader]", initial)
         self.assertIn("pan=stereo|c0=c2|c1=c3[follower]", initial)
+
+    def test_shared_master_monitor_stays_drained_between_captures(self) -> None:
+        source = self.source
+        activate = source[source.index("activate_shared_audio_sinks()") :]
+        activate = activate[: activate.index("stop_listening_port()")]
+        self.assertIn('--device="${sink_master}.monitor"', activate)
+        self.assertIn('> /dev/null 2>&1 &', activate)
+        self.assertGreaterEqual(
+            activate.count('active_audio_keepalive_pids+=("$!")'), 2
+        )
 
     def test_mixed_churn_analyzes_and_classifies_both_clients(self) -> None:
         source = self.source
@@ -99,6 +129,9 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         vanilla = source[source.index("run_vanilla_client()") :]
         vanilla = vanilla[: vanilla.index("run_client_companion()")]
         self.assertIn('--chat-trigger-file "$chat_trigger"', vanilla)
+        self.assertIn('--shutdown-trigger-file "$shutdown_trigger"', vanilla)
+        self.assertIn(': > "$shutdown_trigger"', vanilla)
+        self.assertIn("VANILLA_SHUTDOWN_FAILED", vanilla)
         self.assertIn("exact vanilla client did not send player-originated chat", vanilla)
         self.assertIn('"${scenario}-reconnect"', vanilla)
         self.assertIn("completed a second clean lifecycle", vanilla)
