@@ -51,9 +51,26 @@ class UnmoddedServerClientGateSourceTest(unittest.TestCase):
     def test_disposable_server_bounds_generation_and_processor_pressure(self) -> None:
         self.assertIn("JAMMARR_UNMODDED_ACTIVE_PROCESSORS", self.source)
         self.assertIn('-XX:ActiveProcessorCount="$active_processors"', self.source)
+        self.assertIn('-XX:ActiveProcessorCount=$active_processors', self.source)
         self.assertIn("printf 'level-type=flat", self.source)
         self.assertIn("printf 'generate-structures=false", self.source)
         self.assertIn("printf 'spawn-animals=false", self.source)
+
+    def test_forge_client_bootstrap_and_shared_cache_are_serialized(self) -> None:
+        source = self.source
+        self.assertIn("forge_client_bootstrap_lock=", source)
+        self.assertIn("forgegradle_gate_lock=", source)
+        self.assertIn('if [[ "$runtime_loader" == forge ]]; then', source)
+        self.assertIn(
+            'if [[ "$runtime_loader" == forge || "$runtime_loader" == neoforge ]]; then',
+            source,
+        )
+        self.assertIn('exec 6>"$forgegradle_gate_lock"', source)
+        self.assertIn('exec 7>"$forge_client_bootstrap_lock"', source)
+        self.assertLess(source.index("flock 6"), source.index("flock 7"))
+        self.assertLess(source.index("flock 7"), source.index("./gradlew"))
+        self.assertLess(source.index('terminate_group "$client_pid"'), source.index("flock -u 7"))
+        self.assertLess(source.index("flock -u 7"), source.index("flock -u 6"))
 
     def test_disposable_server_cleanup_is_bounded_and_classified(self) -> None:
         self.assertIn("JAMMARR_UNMODDED_GRACEFUL_STOP_SECONDS", self.source)

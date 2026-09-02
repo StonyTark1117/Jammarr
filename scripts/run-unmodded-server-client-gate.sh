@@ -10,6 +10,8 @@ fi
 
 output_root=${JAMMARR_UNMODDED_GATE_OUTPUT_ROOT:-"$repo_root/build/unmodded-server-client-gate/$requested"}
 cache_root=${JAMMARR_VANILLA_SERVER_CACHE_ROOT:-"$repo_root/build/vanilla-server-cache"}
+forge_client_bootstrap_lock="$repo_root/build/.dedicated-server-gate.forge-client-bootstrap.lock"
+forgegradle_gate_lock="$repo_root/build/.dedicated-server-gate.forgegradle.lock"
 connected_seconds=${JAMMARR_UNMODDED_CONNECTED_SECONDS:-10}
 active_processors=${JAMMARR_UNMODDED_ACTIVE_PROCESSORS:-4}
 graceful_stop_seconds=${JAMMARR_UNMODDED_GRACEFUL_STOP_SECONDS:-20}
@@ -214,12 +216,37 @@ runtime_args=()
 cache_args=()
 [[ "$runtime_loader" == quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
 [[ "$disable_configuration_cache" == true ]] && cache_args+=(--no-configuration-cache)
+serialize_forgegradle=false
+serialize_forge_bootstrap=false
+
+# Match the dedicated-server matrix's proven lock order. Modern ForgeGradle
+# projects share Mavenizer metadata outside their project/runtime workspaces,
+# while concurrent Forge-family development clients can race model baking
+# against development-only config attachment when they saturate the host.
+# Serialize only those unsafe boundaries; other loader/version work remains
+# parallel in the surrounding matrix.
+if [[ "$runtime_loader" == forge ]]; then
+  serialize_forgegradle=true
+  exec 6>"$forgegradle_gate_lock"
+  if ! flock 6; then
+    echo "$label: interrupted while waiting for the ForgeGradle cache lock" >&2
+    exit 1
+  fi
+fi
+if [[ "$runtime_loader" == forge || "$runtime_loader" == neoforge ]]; then
+  serialize_forge_bootstrap=true
+  exec 7>"$forge_client_bootstrap_lock"
+  if ! flock 7; then
+    echo "$label: interrupted while waiting for the Forge client bootstrap lock" >&2
+    exit 1
+  fi
+fi
 (
   cd "$target_dir"
   exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 ALSOFT_DRIVERS=null \
     xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' env \
     JAVA_HOME="$build_java_home" PATH="$build_java_home/bin:$PATH" \
-    JAVA_TOOL_OPTIONS='-Djammarr.acceptance.enabled=true -Djammarr.acceptance.unmoddedServerProbe=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
+    JAVA_TOOL_OPTIONS="-XX:ActiveProcessorCount=$active_processors -Djammarr.acceptance.enabled=true -Djammarr.acceptance.unmoddedServerProbe=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true" \
     LIBGL_ALWAYS_SOFTWARE=1 \
     ./gradlew "$client_task" --no-daemon --max-workers=2 --console=plain \
       "${cache_args[@]}" "${runtime_args[@]}" \
@@ -269,6 +296,14 @@ cp -- "$functional_evidence" "$evidence"
 
 terminate_group "$client_pid" 20
 client_pid=""
+if [[ "$serialize_forge_bootstrap" == true ]]; then
+  flock -u 7
+  exec 7>&-
+fi
+if [[ "$serialize_forgegradle" == true ]]; then
+  flock -u 6
+  exec 6>&-
+fi
 printf 'stop\n' >&"$server_fd"
 deadline=$((SECONDS + graceful_stop_seconds))
 while group_alive "$server_pid" && (( SECONDS < deadline )); do sleep .5; done
