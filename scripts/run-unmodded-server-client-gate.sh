@@ -11,8 +11,13 @@ fi
 output_root=${JAMMARR_UNMODDED_GATE_OUTPUT_ROOT:-"$repo_root/build/unmodded-server-client-gate/$requested"}
 cache_root=${JAMMARR_VANILLA_SERVER_CACHE_ROOT:-"$repo_root/build/vanilla-server-cache"}
 connected_seconds=${JAMMARR_UNMODDED_CONNECTED_SECONDS:-10}
+active_processors=${JAMMARR_UNMODDED_ACTIVE_PROCESSORS:-4}
 if [[ ! "$connected_seconds" =~ ^[0-9]+$ ]] || (( connected_seconds < 10 || connected_seconds > 300 )); then
   echo "JAMMARR_UNMODDED_CONNECTED_SECONDS must be an integer from 10 through 300" >&2
+  exit 2
+fi
+if [[ ! "$active_processors" =~ ^[0-9]+$ ]] || (( active_processors < 2 || active_processors > 8 )); then
+  echo "JAMMARR_UNMODDED_ACTIVE_PROCESSORS must be an integer from 2 through 8" >&2
   exit 2
 fi
 mkdir -p "$output_root" "$repo_root/build"
@@ -164,6 +169,11 @@ printf 'eula=true\n' > "$server_dir/eula.txt"
   printf 'motd=Jammarr unmodded-server acceptance\n'
   printf 'view-distance=3\n'
   printf 'simulation-distance=3\n'
+  printf 'level-type=flat\n'
+  printf 'generate-structures=false\n'
+  printf 'spawn-animals=false\n'
+  printf 'spawn-monsters=false\n'
+  printf 'spawn-npcs=false\n'
   printf 'max-players=4\n'
   printf 'spawn-protection=0\n'
 } > "$server_dir/server.properties"
@@ -171,7 +181,8 @@ mkfifo "$server_fifo"
 exec {server_fd}<>"$server_fifo"
 (
   cd "$server_dir"
-  exec setsid "$runtime_java_home/bin/java" -Xms512m -Xmx2048m -jar "$server_jar" nogui \
+  exec setsid "$runtime_java_home/bin/java" -XX:ActiveProcessorCount="$active_processors" \
+    -Xms512m -Xmx2048m -jar "$server_jar" nogui \
     <&"$server_fd" > "$server_console" 2>&1
 ) &
 server_pid=$!

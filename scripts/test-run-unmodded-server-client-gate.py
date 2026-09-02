@@ -46,6 +46,13 @@ class UnmoddedServerClientGateSourceTest(unittest.TestCase):
         self.assertIn('wait "$pid" 2>/dev/null || true', self.source)
         self.assertIn('if ! wait "$server_pid"; then', self.source)
 
+    def test_disposable_server_bounds_generation_and_processor_pressure(self) -> None:
+        self.assertIn("JAMMARR_UNMODDED_ACTIVE_PROCESSORS", self.source)
+        self.assertIn('-XX:ActiveProcessorCount="$active_processors"', self.source)
+        self.assertIn("printf 'level-type=flat", self.source)
+        self.assertIn("printf 'generate-structures=false", self.source)
+        self.assertIn("printf 'spawn-animals=false", self.source)
+
 
 if __name__ == "__main__":
     unittest.main()
