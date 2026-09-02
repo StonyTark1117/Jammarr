@@ -73,12 +73,13 @@ def prepare_version(cache: VerifiedCache, version: str) -> dict[str, Any]:
         for library in component.get("libraries", []):
             if not library_allowed(library):
                 continue
-            path = cache.library(library)
-            if "jammarr" in path.name.lower():
-                raise SystemExit(f"Jammarr appeared in vanilla classpath: {path}")
-            if path not in library_seen:
-                libraries.append(path)
-                library_seen.add(path)
+            path = cache.classpath_library(library)
+            if path is not None:
+                if "jammarr" in path.name.lower():
+                    raise SystemExit(f"Jammarr appeared in vanilla classpath: {path}")
+                if path not in library_seen:
+                    libraries.append(path)
+                    library_seen.add(path)
             native = cache.native_library(library)
             if native is not None and native not in native_seen:
                 natives.append(native)

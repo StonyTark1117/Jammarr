@@ -158,6 +158,7 @@ tasks.register('verifyRelease') {
                     'stonytark/jammarr/core/server/GlobalPlaybackCoordinator.class',
                     'stonytark/jammarr/core/server/PlaybackStore.class',
                     'stonytark/jammarr/network/LegacyNetwork.class',
+                    'stonytark/jammarr/network/VanillaAttributePacketFilter.class',
                     'stonytark/jammarr/server/LegacyGlobalPlayer.class',
                     'stonytark/jammarr/client/LegacyAudioPlayer.class',
                     'stonytark/jammarr/client/LegacyScreen.class',

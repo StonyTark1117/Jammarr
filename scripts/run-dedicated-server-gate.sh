@@ -880,9 +880,10 @@ run_vanilla_client() {
   if (( result == 0 )) && [[ "$interaction_gate" == "true" ]]; then
     first_line=$(wc -l < "$server_console")
     # The server's join marker can precede the client's first fully rendered
-    # world frame. Give the private-X window time to enter gameplay before the
-    # key press so loading screens cannot consume the chat shortcut.
-    sleep 3
+    # world frame, especially for LWJGL 2 clients using llvmpipe. Give the
+    # private-X window time to enter gameplay before the key press so a terrain
+    # loading screen cannot consume the chat shortcut.
+    sleep 8
     if ! group_alive "$pid"; then
       echo "$label: exact vanilla client exited before chat interaction" >&2
       result=1

@@ -174,13 +174,24 @@ def send_chat_when_triggered(
         print(f"VANILLA_CHAT_FAILED error={exc}", file=sys.stderr, flush=True)
 
 
-def close_when_triggered(trigger_file: Path, process: subprocess.Popen[bytes]) -> None:
-    """Ask Minecraft to close normally before its private X group is torn down."""
+def close_when_triggered(
+    trigger_file: Path, process: subprocess.Popen[bytes], version: str
+) -> None:
+    """Stop Minecraft before its private X group is torn down."""
     while process.poll() is None and not trigger_file.is_file():
         time.sleep(0.1)
     if process.poll() is not None:
         return
     try:
+        # LWJGL 2 turns an X11 WM_DELETE/window-close into a destroyed drawable
+        # before Minecraft's render loop exits, producing a false BadDrawable
+        # crash. Terminating the disposable JVM avoids that X race; HotSpot
+        # still runs its shutdown hooks and the enclosing gate reaps the whole
+        # isolated process group. GLFW clients handle WM_DELETE normally.
+        if release_version_tuple(version) <= (1, 12, 2):
+            process.terminate()
+            print("VANILLA_SHUTDOWN_REQUESTED method=terminate-lwjgl2", flush=True)
+            return
         search = subprocess.run(
             ["xdotool", "search", "--onlyvisible", "--name", "Minecraft"],
             check=True,
@@ -518,7 +529,8 @@ def prepare_instance(args: argparse.Namespace) -> tuple[Path, Path, list[dict[st
     # screens cannot prevent the direct client launch from reaching the server.
     write_text(
         game_dir / "options.txt",
-        "onboardAccessibility:false\nskipMultiplayerWarning:true\njoinedFirstServer:true\nnarrator:0\n",
+        "onboardAccessibility:false\nskipMultiplayerWarning:true\njoinedFirstServer:true\n"
+        "narrator:0\npauseOnLostFocus:false\n",
     )
     return instance_dir, game_dir, components
 
@@ -592,7 +604,7 @@ def main() -> int:
             args.shutdown_trigger_file.unlink(missing_ok=True)
             shutdown_thread = threading.Thread(
                 target=close_when_triggered,
-                args=(args.shutdown_trigger_file, process),
+                args=(args.shutdown_trigger_file, process, args.minecraft),
                 daemon=True,
             )
             shutdown_thread.start()

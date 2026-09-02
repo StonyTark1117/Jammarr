@@ -52,10 +52,13 @@ class PrismVanillaRuntimeTest(unittest.TestCase):
             metadata_root.mkdir(parents=True)
             library = remote / "library.jar"
             native = remote / "lwjgl-3.3.3-natives-linux.jar"
+            native_only = remote / "jinput-platform-2.0.5-natives-linux.jar"
             client = remote / "client.jar"
             library.write_bytes(b"library")
             with zipfile.ZipFile(native, "w") as archive:
                 archive.writestr("linux/x64/liblwjgl.so", b"native")
+            with zipfile.ZipFile(native_only, "w") as archive:
+                archive.writestr("linux/x64/libjinput.so", b"native-only")
             client.write_bytes(b"client")
             asset = b"asset"
             asset_hash = hashlib.sha1(asset).hexdigest()
@@ -82,7 +85,16 @@ class PrismVanillaRuntimeTest(unittest.TestCase):
                                     "artifact": descriptor(library),
                                     "classifiers": {"natives-linux": descriptor(native)},
                                 },
-                            }
+                            },
+                            {
+                                "name": "net.java.jinput:jinput-platform:2.0.5",
+                                "natives": {"linux": "natives-linux"},
+                                "downloads": {
+                                    "classifiers": {
+                                        "natives-linux": descriptor(native_only)
+                                    }
+                                },
+                            },
                         ],
                     }
                 ),
@@ -132,8 +144,11 @@ class PrismVanillaRuntimeTest(unittest.TestCase):
             ]
             self.assertEqual(command[-len(expected_arguments):], expected_arguments)
             self.assertEqual(details["classpathEntryCount"], 2)
-            self.assertEqual(details["nativeBundleCount"], 1)
+            self.assertEqual(details["nativeBundleCount"], 2)
             self.assertEqual((game_dir.parent / "natives/liblwjgl.so").read_bytes(), b"native")
+            self.assertEqual(
+                (game_dir.parent / "natives/libjinput.so").read_bytes(), b"native-only"
+            )
             self.assertEqual(details["assetObjectCount"], 1)
             self.assertTrue(details["allArtifactSha1AndSizeVerified"])
             self.assertFalse(details["sharedCacheMutated"])

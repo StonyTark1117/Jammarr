@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import importlib.util
 import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
+from urllib.error import URLError
 
 
 SCRIPT = Path(__file__).with_name("prism_verified_cache.py")
@@ -66,6 +69,31 @@ class PrismVerifiedCacheTest(unittest.TestCase):
             self.assertEqual(cache.attestation()["artifactSourceCounts"], {"downloaded": 1})
             self.assertEqual(len(list((root / "isolated/.locks").glob("*.lock"))), 1)
 
+    def test_native_only_library_is_not_required_on_the_classpath(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            native = root / "jinput-platform-natives-linux.jar"
+            native.write_bytes(b"native")
+            library = {
+                "name": "net.java.jinput:jinput-platform:2.0.5",
+                "natives": {"linux": "natives-linux"},
+                "downloads": {
+                    "classifiers": {"natives-linux": descriptor(native)}
+                },
+            }
+            cache = CACHE.VerifiedCache(root / "shared", root / "isolated")
+            self.assertIsNone(cache.classpath_library(library))
+            self.assertEqual(
+                cache.native_library(library).read_bytes(), b"native"
+            )
+
+    def test_library_without_artifact_or_native_classifier_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cache = CACHE.VerifiedCache(root / "shared", root / "isolated")
+            with self.assertRaisesRegex(SystemExit, "has no artifact download"):
+                cache.classpath_library({"name": "example:missing:1.0"})
+
     def test_download_rejects_digest_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -77,6 +105,31 @@ class PrismVerifiedCacheTest(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "failed verification"):
                 cache.artifact(root / "missing", root / "isolated/file", value, "fixture")
             self.assertFalse((root / "isolated/file").exists())
+
+    def test_download_retries_transport_failure_before_verification(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            value = b"verified"
+            descriptor_value = {
+                "url": "https://example.invalid/fixture.jar",
+                "sha1": hashlib.sha1(value).hexdigest(),
+                "size": len(value),
+            }
+            cache = CACHE.VerifiedCache(root / "shared", root / "isolated")
+            with patch.object(
+                CACHE,
+                "urlopen",
+                side_effect=[URLError("temporary reset"), io.BytesIO(value)],
+            ) as open_mock, patch.object(CACHE.time, "sleep") as sleep_mock:
+                result = cache.artifact(
+                    root / "missing",
+                    root / "isolated/fixture.jar",
+                    descriptor_value,
+                    "fixture",
+                )
+            self.assertEqual(result.read_bytes(), value)
+            self.assertEqual(open_mock.call_count, 2)
+            sleep_mock.assert_called_once_with(1)
 
     def test_component_metadata_download_is_isolated_and_identity_checked(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

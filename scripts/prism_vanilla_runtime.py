@@ -37,12 +37,13 @@ def direct_launch_command(
         for library in component.get("libraries", []):
             if not library_allowed(library):
                 continue
-            artifact = cache.library(library)
-            if "jammarr" in artifact.name.lower():
-                raise SystemExit(f"Jammarr artifact appeared in vanilla classpath: {artifact}")
-            if artifact not in classpath_seen:
-                classpath.append(artifact)
-                classpath_seen.add(artifact)
+            artifact = cache.classpath_library(library)
+            if artifact is not None:
+                if "jammarr" in artifact.name.lower():
+                    raise SystemExit(f"Jammarr artifact appeared in vanilla classpath: {artifact}")
+                if artifact not in classpath_seen:
+                    classpath.append(artifact)
+                    classpath_seen.add(artifact)
             native = cache.native_library(library)
             if native is not None and native not in natives_seen:
                 natives.append(native)

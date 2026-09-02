@@ -49,12 +49,15 @@ class PrepareVanillaClientCacheTest(unittest.TestCase):
             objects_root = remote / "objects"
             library_file = remote / "library.jar"
             native_file = remote / "lwjgl-3.3.3-natives-linux.jar"
+            native_only_file = remote / "jinput-platform-2.0.5-natives-linux.jar"
             client_file = remote / "client.jar"
             asset_file = objects_root / "placeholder"
             library_file.parent.mkdir(parents=True, exist_ok=True)
             library_file.write_bytes(b"library")
             with zipfile.ZipFile(native_file, "w") as archive:
                 archive.writestr("linux/x64/liblwjgl.so", b"native")
+            with zipfile.ZipFile(native_only_file, "w") as archive:
+                archive.writestr("linux/x64/libjinput.so", b"native-only")
             client_file.write_bytes(b"client")
             asset_bytes = b"asset"
             asset_hash = hashlib.sha1(asset_bytes).hexdigest()
@@ -84,7 +87,16 @@ class PrepareVanillaClientCacheTest(unittest.TestCase):
                                         "natives-linux": descriptor(native_file)
                                     },
                                 },
-                            }
+                            },
+                            {
+                                "name": "net.java.jinput:jinput-platform:2.0.5",
+                                "natives": {"linux": "natives-linux"},
+                                "downloads": {
+                                    "classifiers": {
+                                        "natives-linux": descriptor(native_only_file)
+                                    }
+                                },
+                            },
                         ],
                     }
                 ),
@@ -117,7 +129,7 @@ class PrepareVanillaClientCacheTest(unittest.TestCase):
             value = PREPARE.prepare_version(cache, "1.21.11")
             self.assertEqual(value["componentUids"], ["org.lwjgl3", "net.minecraft"])
             self.assertEqual(value["classpathEntryCount"], 2)
-            self.assertEqual(value["nativeBundleCount"], 1)
+            self.assertEqual(value["nativeBundleCount"], 2)
             self.assertEqual(value["assetObjectCount"], 1)
             self.assertTrue(value["allArtifactSha1AndSizeVerified"])
             self.assertFalse(value["sharedCacheMutated"])

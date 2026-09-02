@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import time
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse
@@ -19,6 +20,7 @@ from urllib.request import urlopen
 
 
 SHA1 = re.compile(r"^[0-9a-f]{40}$")
+DOWNLOAD_ATTEMPTS = 3
 
 
 def sha1_file(path: Path) -> str:
@@ -119,19 +121,31 @@ class VerifiedCache:
         destination.parent.mkdir(parents=True, exist_ok=True)
         temporary = destination.with_name(f".{destination.name}.part-{os.getpid()}")
         try:
-            try:
-                with urlopen(url, timeout=60) as response, temporary.open("wb") as output:
-                    shutil.copyfileobj(response, output, 1024 * 1024)
-            except (HTTPError, URLError, TimeoutError, OSError) as exc:
-                raise SystemExit(f"Cannot download {label} from {url}: {exc}") from exc
-            if not verified(temporary, sha1, size):
-                actual_size = temporary.stat().st_size if temporary.exists() else -1
-                actual_sha1 = sha1_file(temporary) if temporary.is_file() else "missing"
-                raise SystemExit(
-                    f"Downloaded {label} failed verification: "
-                    f"size={actual_size}/{size} sha1={actual_sha1}/{sha1}"
-                )
-            os.replace(temporary, destination)
+            for attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
+                temporary.unlink(missing_ok=True)
+                try:
+                    with urlopen(url, timeout=60) as response, temporary.open("wb") as output:
+                        shutil.copyfileobj(response, output, 1024 * 1024)
+                except (HTTPError, URLError, TimeoutError, OSError) as exc:
+                    retryable = not isinstance(exc, HTTPError) or (
+                        exc.code in {408, 425, 429} or exc.code >= 500
+                    )
+                    if not retryable or attempt == DOWNLOAD_ATTEMPTS:
+                        raise SystemExit(
+                            f"Cannot download {label} from {url} after {attempt} "
+                            f"attempt{'s' if attempt != 1 else ''}: {exc}"
+                        ) from exc
+                    time.sleep(attempt)
+                    continue
+                if not verified(temporary, sha1, size):
+                    actual_size = temporary.stat().st_size if temporary.exists() else -1
+                    actual_sha1 = sha1_file(temporary) if temporary.is_file() else "missing"
+                    raise SystemExit(
+                        f"Downloaded {label} failed verification: "
+                        f"size={actual_size}/{size} sha1={actual_sha1}/{sha1}"
+                    )
+                os.replace(temporary, destination)
+                break
         finally:
             temporary.unlink(missing_ok=True)
         self.sources["downloaded"] += 1
@@ -174,6 +188,24 @@ class VerifiedCache:
             descriptor,
             f"library {coordinate}",
         )
+
+    def classpath_library(self, library: dict[str, Any]) -> Path | None:
+        """Resolve a classpath artifact while preserving native-only entries."""
+        descriptor = library.get("downloads", {}).get("artifact")
+        if isinstance(descriptor, dict):
+            return self.library(library)
+        coordinate = library.get("name")
+        natives = library.get("natives")
+        classifiers = library.get("downloads", {}).get("classifiers")
+        if (
+            isinstance(coordinate, str)
+            and isinstance(natives, dict)
+            and natives
+            and isinstance(classifiers, dict)
+            and classifiers
+        ):
+            return None
+        raise SystemExit(f"Prism library has no artifact download: {coordinate}")
 
     def native_library(self, library: dict[str, Any]) -> Path | None:
         coordinate = library.get("name")

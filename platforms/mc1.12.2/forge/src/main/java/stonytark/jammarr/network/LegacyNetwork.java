@@ -1,6 +1,7 @@
 package stonytark.jammarr.network;
 
 import net.minecraftforge.fml.common.FMLCommonHandler;
+import net.minecraftforge.fml.common.eventhandler.EventPriority;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.PlayerEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
@@ -73,6 +74,17 @@ public final class LegacyNetwork {
         INSTANCE.capabilities.clear();
         INSTANCE.serverListener = null;
         INSTANCE.clientListener = null;
+    }
+
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public void serverConnected(FMLNetworkEvent.ServerConnectionFromClientEvent event) {
+        Boolean forgeClient = event.getManager().channel()
+                .attr(NetworkRegistry.FML_MARKER).get();
+        if (!Boolean.TRUE.equals(forgeClient)) {
+            if (VanillaAttributePacketFilter.install(event.getManager())) {
+                Jammarr.LOGGER.info("Protecting an unmodified 1.12.2 client from Forge-only entity attributes");
+            }
+        }
     }
 
     @SubscribeEvent

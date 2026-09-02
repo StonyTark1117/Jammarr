@@ -81,6 +81,10 @@ class PrismVanillaClientTest(unittest.TestCase):
             self.assertEqual(run.call_args_list[1].args[0][-1], "23")
             self.assertIn("JammarrVanillaChat_Test", run.call_args_list[3].args[0])
 
+    def test_private_client_does_not_open_pause_menu_when_focus_changes(self) -> None:
+        source = SCRIPT.read_text("utf-8")
+        self.assertIn('"narrator:0\\npauseOnLostFocus:false\\n"', source)
+
     def test_chat_arguments_must_be_supplied_together(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -122,11 +126,22 @@ class PrismVanillaClientTest(unittest.TestCase):
             with mock.patch.object(
                 CLIENT_HELPER.subprocess, "run", side_effect=[search, success]
             ) as run:
-                CLIENT_HELPER.close_when_triggered(trigger, process)
+                CLIENT_HELPER.close_when_triggered(trigger, process, "1.20.1")
             self.assertEqual(run.call_count, 2)
             self.assertEqual(
                 run.call_args_list[1].args[0], ["xdotool", "windowclose", "23"]
             )
+
+    def test_lwjgl2_shutdown_terminates_jvm_without_destroying_drawable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            trigger = Path(temporary) / "shutdown.trigger"
+            trigger.touch()
+            process = mock.Mock()
+            process.poll.return_value = None
+            with mock.patch.object(CLIENT_HELPER.subprocess, "run") as run:
+                CLIENT_HELPER.close_when_triggered(trigger, process, "1.12.2")
+            process.terminate.assert_called_once_with()
+            run.assert_not_called()
 
     def make_shared_root(self, root: Path, version: str = "1.20.1") -> Path:
         shared = root / "shared"
