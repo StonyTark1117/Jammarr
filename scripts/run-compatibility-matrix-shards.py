@@ -36,6 +36,23 @@ KIND_CONFIG = {
         "output": Path("build/unmodded-server-client-matrix"),
     },
 }
+OUTPUT_SUFFIX_PATTERN = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
+
+
+def output_suffix(value: str) -> str:
+    if OUTPUT_SUFFIX_PATTERN.fullmatch(value) is None:
+        raise argparse.ArgumentTypeError(
+            "--output-suffix must be 1-64 lowercase letters, digits, dots, "
+            "underscores, or hyphens and must start with a letter or digit"
+        )
+    return value
+
+
+def matrix_output_root(kind: str, suffix: str | None = None) -> Path:
+    base = KIND_CONFIG[kind]["output"]
+    if suffix is not None:
+        base = base.with_name(f"{base.name}-{suffix}")
+    return (REPO_ROOT / base).resolve()
 
 
 def release_tuple(version: str) -> tuple[int, int, int] | None:
@@ -235,9 +252,12 @@ def run_kind(
     return 0
 
 
-def plan_value(kind: str, lanes: list[list[dict[str, Any]]]) -> dict[str, Any]:
+def plan_value(
+    kind: str, lanes: list[list[dict[str, Any]]], output_root: Path
+) -> dict[str, Any]:
     return {
         "kind": kind,
+        "outputRoot": str(output_root),
         "selected": sum(len(lane) for lane in lanes),
         "lanes": [
             {
@@ -260,6 +280,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--shard-root", type=Path, default=Path("build/compatibility-matrix-shards")
     )
+    parser.add_argument(
+        "--output-suffix",
+        type=output_suffix,
+        help=(
+            "append a safe candidate identifier to both canonical output roots; "
+            "use this for fresh commit-specific release evidence"
+        ),
+    )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     if not 1 <= args.jobs <= 8:
@@ -278,10 +306,10 @@ def main() -> int:
     for kind in kinds:
         runtimes = selected_runtimes(kind, manifest)
         lanes = partition_runtimes(runtimes, args.jobs)
-        plans.append(plan_value(kind, lanes))
+        output_root = matrix_output_root(kind, args.output_suffix)
+        plans.append(plan_value(kind, lanes, output_root))
         if args.dry_run:
             continue
-        output_root = (REPO_ROOT / KIND_CONFIG[kind]["output"]).resolve()
         status = run_kind(
             kind=kind,
             runtimes=runtimes,

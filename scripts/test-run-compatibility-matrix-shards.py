@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import importlib.util
 from pathlib import Path
 import unittest
@@ -15,6 +16,23 @@ SPEC.loader.exec_module(SHARDS)
 
 
 class CompatibilityMatrixShardsTest(unittest.TestCase):
+    def test_candidate_suffix_selects_fresh_confined_output_roots(self) -> None:
+        suffix = SHARDS.output_suffix("audio-a8f7000")
+        vanilla = SHARDS.matrix_output_root("vanilla", suffix)
+        unmodded = SHARDS.matrix_output_root("unmodded", suffix)
+        self.assertEqual(vanilla.name, "vanilla-client-matrix-audio-a8f7000")
+        self.assertEqual(
+            unmodded.name, "unmodded-server-client-matrix-audio-a8f7000"
+        )
+        self.assertEqual(vanilla.parent, SHARDS.REPO_ROOT / "build")
+        self.assertEqual(unmodded.parent, SHARDS.REPO_ROOT / "build")
+
+    def test_candidate_suffix_rejects_path_and_shell_syntax(self) -> None:
+        for value in ("../old", "/tmp/reuse", "audio latest", "audio;false", ""):
+            with self.subTest(value=value):
+                with self.assertRaises(argparse.ArgumentTypeError):
+                    SHARDS.output_suffix(value)
+
     def test_partition_keeps_minecraft_cache_family_in_one_lane(self) -> None:
         runtimes = [
             {"name": "a-fabric", "minecraft": "a", "path": "platforms/a"},
