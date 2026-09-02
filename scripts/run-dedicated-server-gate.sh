@@ -1714,10 +1714,10 @@ start_audio_client() {
   local username=$6
   local sink=$7
   # The direct ALSA PipeWire plugin can initialize against a Pulse-created
-  # remap sink and then lose that stream after prolonged churn. Route modern
-  # OpenAL through ALSA's Pulse plugin by default, matching the already
-  # qualified DiscPanel live-client topology. Keep the explicit pipewire
-  # option for targeted host-backend diagnostics only.
+  # remap sink and then lose that stream after prolonged churn. Route OpenAL
+  # Soft directly through Pulse by default; an ALSA-to-Pulse bridge adds a
+  # second clock domain that can insert or discard rendered frames. Keep the
+  # explicit pipewire option for targeted host-backend diagnostics only.
   local pcm_type=${JAMMARR_ALSA_PCM_TYPE:-pulse}
   local alsoft_drivers=alsa pulse_sink=
   local client_dir="$output_root/$label.audio-$role"
@@ -1775,10 +1775,8 @@ start_audio_client() {
       # Prefer OpenAL Soft's native Pulse backend. The ALSA Pulse plugin can
       # silently drop/resample frames while correcting its bridge clock,
       # which makes a healthy client look like it skipped an audio chunk.
-      if uses_legacy_audio_profile "$label"; then
-        alsoft_drivers=pulse
-        pulse_sink=$sink
-      fi
+      alsoft_drivers=pulse
+      pulse_sink=$sink
       printf '%s\n' \
         'pcm.!default {' \
         '  type pulse' \

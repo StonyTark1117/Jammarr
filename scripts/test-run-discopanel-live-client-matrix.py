@@ -104,6 +104,7 @@ class LiveClientMatrixTests(unittest.TestCase):
         self.assertIn(
             'export PULSE_SERVER="unix:$audio_runtime_dir/pulse/native"', source
         )
+        self.assertIn("local alsoft_drivers=pulse pulse_sink=$sink", source)
         self.assertIn(
             'for pid in "$private_pulse_pid" "$private_wireplumber_pid" '
             '"$private_pipewire_pid"; do',
