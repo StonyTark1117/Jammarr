@@ -39,6 +39,8 @@ class UnmoddedServerClientGateSourceTest(unittest.TestCase):
         self.assertIn('sleep "$connected_seconds"', self.source)
         self.assertIn("modded-client-to-unmodded-server gate passed", self.source)
         self.assertIn('ss -ltnH "sport = :$port"', self.source)
+        self.assertIn("gate.functional.evidence.txt", self.source)
+        self.assertIn("gate.cleanup.evidence.txt", self.source)
 
     def test_shutdown_ignores_and_reaps_an_exited_group_leader(self) -> None:
         self.assertIn("ps -o stat= -g", self.source)
@@ -52,6 +54,12 @@ class UnmoddedServerClientGateSourceTest(unittest.TestCase):
         self.assertIn("printf 'level-type=flat", self.source)
         self.assertIn("printf 'generate-structures=false", self.source)
         self.assertIn("printf 'spawn-animals=false", self.source)
+
+    def test_disposable_server_cleanup_is_bounded_and_classified(self) -> None:
+        self.assertIn("JAMMARR_UNMODDED_GRACEFUL_STOP_SECONDS", self.source)
+        self.assertIn("forced-after-timeout", self.source)
+        self.assertIn("forcing fixture cleanup", self.source)
+        self.assertIn('Official server shutdown mode: %s.', self.source)
 
 
 if __name__ == "__main__":

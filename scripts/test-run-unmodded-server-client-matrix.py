@@ -105,7 +105,15 @@ class UnmoddedServerClientMatrixTest(unittest.TestCase):
             )
             (attempt / "gate.evidence.txt").write_text(
                 "Modded client remained connected to the attested unmodded server for 10 seconds after UI verification.\n"
-                "Attested unmodded server, modded client, private X server, and port cleaned up.\n",
+                "Attested unmodded server, modded client, private X server, and port cleaned up. Official server shutdown mode: graceful.\n",
+                encoding="utf-8",
+            )
+            (attempt / "gate.functional.evidence.txt").write_text(
+                "Modded client remained connected to the attested unmodded server for 10 seconds after UI verification.\n",
+                encoding="utf-8",
+            )
+            (attempt / "gate.cleanup.evidence.txt").write_text(
+                "Attested unmodded server, modded client, private X server, and port cleaned up. Official server shutdown mode: graceful.\n",
                 encoding="utf-8",
             )
             runtime = {"name": "1.20.1-fabric", "minecraft": "1.20.1", "port": 26000}

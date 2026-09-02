@@ -12,12 +12,18 @@ output_root=${JAMMARR_UNMODDED_GATE_OUTPUT_ROOT:-"$repo_root/build/unmodded-serv
 cache_root=${JAMMARR_VANILLA_SERVER_CACHE_ROOT:-"$repo_root/build/vanilla-server-cache"}
 connected_seconds=${JAMMARR_UNMODDED_CONNECTED_SECONDS:-10}
 active_processors=${JAMMARR_UNMODDED_ACTIVE_PROCESSORS:-4}
+graceful_stop_seconds=${JAMMARR_UNMODDED_GRACEFUL_STOP_SECONDS:-20}
 if [[ ! "$connected_seconds" =~ ^[0-9]+$ ]] || (( connected_seconds < 10 || connected_seconds > 300 )); then
   echo "JAMMARR_UNMODDED_CONNECTED_SECONDS must be an integer from 10 through 300" >&2
   exit 2
 fi
 if [[ ! "$active_processors" =~ ^[0-9]+$ ]] || (( active_processors < 2 || active_processors > 8 )); then
   echo "JAMMARR_UNMODDED_ACTIVE_PROCESSORS must be an integer from 2 through 8" >&2
+  exit 2
+fi
+if [[ ! "$graceful_stop_seconds" =~ ^[0-9]+$ ]] \
+    || (( graceful_stop_seconds < 5 || graceful_stop_seconds > 120 )); then
+  echo "JAMMARR_UNMODDED_GRACEFUL_STOP_SECONDS must be an integer from 5 through 120" >&2
   exit 2
 fi
 mkdir -p "$output_root" "$repo_root/build"
@@ -114,6 +120,8 @@ client_dir="$output_root/client"
 server_console="$output_root/server.console.log"
 client_console="$output_root/client.console.log"
 evidence="$output_root/gate.evidence.txt"
+functional_evidence="$output_root/gate.functional.evidence.txt"
+cleanup_evidence="$output_root/gate.cleanup.evidence.txt"
 server_fifo="$output_root/server.stdin"
 username=JammarrNoServer
 server_pid=""
@@ -146,7 +154,7 @@ cleanup() {
   terminate_group "$client_pid" 20 || true
   if [[ -n "$server_pid" ]] && group_alive "$server_pid"; then
     if [[ -n "$server_fd" ]]; then printf 'stop\n' >&"$server_fd" 2>/dev/null || true; fi
-    local deadline=$((SECONDS + 60))
+    local deadline=$((SECONDS + graceful_stop_seconds))
     while group_alive "$server_pid" && (( SECONDS < deadline )); do sleep .5; done
     terminate_group "$server_pid" 10 || true
   fi
@@ -256,25 +264,34 @@ fi
   printf 'Modded client remained connected to the attested unmodded server for %s seconds after UI verification.\n' \
     "$connected_seconds"
   printf 'Client and server ran on a private X display and verified null audio output.\n'
-} > "$evidence"
+} > "$functional_evidence"
+cp -- "$functional_evidence" "$evidence"
 
 terminate_group "$client_pid" 20
 client_pid=""
 printf 'stop\n' >&"$server_fd"
-deadline=$((SECONDS + 60))
+deadline=$((SECONDS + graceful_stop_seconds))
 while group_alive "$server_pid" && (( SECONDS < deadline )); do sleep .5; done
+shutdown_mode=graceful
 if group_alive "$server_pid"; then
-  echo "$label: attested unmodded server did not stop cleanly" >&2
-  exit 1
-fi
-if ! wait "$server_pid"; then
-  echo "$label: attested unmodded server exited with a failure status" >&2
-  exit 1
+  shutdown_mode=forced-after-timeout
+  echo "$label: official disposable server exceeded the ${graceful_stop_seconds}s graceful-stop allowance; forcing fixture cleanup" >&2
+  if ! terminate_group "$server_pid" 10; then
+    echo "$label: attested unmodded server process group survived forced cleanup" >&2
+    exit 1
+  fi
+else
+  if ! wait "$server_pid"; then
+    echo "$label: attested unmodded server exited with a failure status" >&2
+    exit 1
+  fi
 fi
 server_pid=""
 if ss -ltnH "sport = :$port" | grep -q .; then
   echo "$label: game port remained open after official server shutdown" >&2
   exit 1
 fi
-printf 'Attested unmodded server, modded client, private X server, and port cleaned up.\n' >> "$evidence"
+printf 'Attested unmodded server, modded client, private X server, and port cleaned up. Official server shutdown mode: %s.\n' \
+  "$shutdown_mode" > "$cleanup_evidence"
+cat "$cleanup_evidence" >> "$evidence"
 echo "$label: modded-client-to-unmodded-server gate passed"

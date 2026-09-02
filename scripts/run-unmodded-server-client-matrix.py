@@ -132,11 +132,15 @@ def accepted_evidence(
     connected_seconds: int = 10,
 ) -> bool:
     evidence = attempt / "gate.evidence.txt"
+    functional_evidence = attempt / "gate.functional.evidence.txt"
+    cleanup_evidence = attempt / "gate.cleanup.evidence.txt"
     attestation = attempt / "server-attestation.json"
     server_log = attempt / "server.console.log"
     client_log = attempt / "client.console.log"
     try:
         text = evidence.read_text("utf-8")
+        functional_text = functional_evidence.read_text("utf-8")
+        cleanup_text = cleanup_evidence.read_text("utf-8")
         value = json.loads(attestation.read_text("utf-8"))
         server_text = server_log.read_text("utf-8", errors="replace")
         client_text = client_log.read_text("utf-8", errors="replace")
@@ -146,6 +150,13 @@ def accepted_evidence(
     except (OSError, KeyError, TypeError, json.JSONDecodeError):
         return False
     minecraft = runtime["minecraft"]
+    functional_marker = (
+        "Modded client remained connected to the attested unmodded server "
+        f"for {connected_seconds} seconds after UI verification."
+    )
+    cleanup_marker = (
+        "Attested unmodded server, modded client, private X server, and port cleaned up."
+    )
     return (
         value.get("schemaVersion") == 1
         and value.get("minecraftVersion") == minecraft
@@ -157,12 +168,15 @@ def accepted_evidence(
         and accepted_provenance(value, minecraft)
         and server_joined(server_text)
         and "Acceptance Jammarr unsupported-server screen remained open" in client_text
-        and (
-            "Modded client remained connected to the attested unmodded server "
-            f"for {connected_seconds} seconds after UI verification."
-        ) in text
-        and "Attested unmodded server, modded client, private X server, and port cleaned up."
-        in text
+        and functional_marker in functional_text
+        and functional_marker in text
+        and functional_text in text
+        and cleanup_marker in cleanup_text
+        and cleanup_text in text
+        and re.search(
+            r"Official server shutdown mode: (?:graceful|forced-after-timeout)\.",
+            cleanup_text,
+        ) is not None
         and not process_mentions(attempt)
         and not port_listening(int(runtime["port"]))
     )
