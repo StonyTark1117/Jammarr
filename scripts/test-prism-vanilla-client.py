@@ -133,14 +133,21 @@ class PrismVanillaClientTest(unittest.TestCase):
             with mock.patch.object(
                 CLIENT_HELPER.subprocess,
                 "run",
-                side_effect=[search, success, success, success, success],
+                side_effect=[search, success, success, success, success, success, success],
             ) as run:
                 CLIENT_HELPER.send_chat_when_triggered(
                     trigger, "JammarrVanillaChat_Test", process
                 )
-            self.assertEqual(run.call_count, 5)
+            self.assertEqual(run.call_count, 7)
             self.assertEqual(run.call_args_list[1].args[0][-1], "23")
-            self.assertIn("JammarrVanillaChat_Test", run.call_args_list[3].args[0])
+            self.assertEqual(
+                run.call_args_list[4].args[0],
+                ["xclip", "-selection", "clipboard", "-loops", "1"],
+            )
+            self.assertEqual(
+                run.call_args_list[4].kwargs["input"], "JammarrVanillaChat_Test"
+            )
+            self.assertEqual(run.call_args_list[5].args[0][-1], "ctrl+v")
 
     def test_private_client_does_not_open_pause_menu_when_focus_changes(self) -> None:
         source = SCRIPT.read_text("utf-8")

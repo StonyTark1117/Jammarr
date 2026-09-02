@@ -835,6 +835,10 @@ run_vanilla_client() {
       echo "$label: exact vanilla chat acceptance requires xdotool" >&2
       return 1
     fi
+    if ! command -v xclip > /dev/null; then
+      echo "$label: exact vanilla chat acceptance requires xclip" >&2
+      return 1
+    fi
     rm -f -- "$chat_trigger" "$chat_evidence"
     interaction_args+=(--chat-trigger-file "$chat_trigger" --chat-message "$chat_message")
   fi

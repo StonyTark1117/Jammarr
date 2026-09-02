@@ -260,21 +260,51 @@ def send_chat_when_triggered(
             check=True,
             capture_output=True,
         )
-        time.sleep(0.2)
+        # A saturated software-rendering client may not install its chat widget
+        # during the same frame that consumes the shortcut. Wait for that frame,
+        # clear any partial input, and paste the complete marker as one X
+        # selection operation rather than dropping early synthetic key events.
+        time.sleep(1)
         subprocess.run(
             [
                 "xdotool",
-                "type",
+                "key",
                 "--window",
                 window,
                 "--clearmodifiers",
-                "--delay",
-                "5",
-                message,
+                "ctrl+a",
+                "BackSpace",
             ],
             check=True,
             capture_output=True,
         )
+        subprocess.run(
+            [
+                "xclip",
+                "-selection",
+                "clipboard",
+                "-loops",
+                "1",
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            input=message,
+            text=True,
+        )
+        subprocess.run(
+            [
+                "xdotool",
+                "key",
+                "--window",
+                window,
+                "--clearmodifiers",
+                "ctrl+v",
+            ],
+            check=True,
+            capture_output=True,
+        )
+        time.sleep(0.2)
         subprocess.run(
             ["xdotool", "key", "--window", window, "--clearmodifiers", "Return"],
             check=True,
