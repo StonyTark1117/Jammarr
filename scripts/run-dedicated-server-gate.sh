@@ -2705,7 +2705,7 @@ run_mixed_vanilla_audio() {
   local churn_evidence="$output_root/$label.mixed-client-churn.evidence.txt"
   local resource_evidence="$output_root/$label.mixed-client-churn-resources.tsv"
   local post_diagnostics="$output_root/$label.mixed-vanilla-client.post-disconnect-diagnostics.txt"
-  local churn_requested=0 cycle=1 completed=0 result=0
+  local churn_requested=0 cycle=1 completed=0 result=0 playback_unhealthy=0
   local started=$SECONDS deadline=$((SECONDS + vanilla_churn_min_seconds)) padded username
   local raw_leader raw_follower metrics_leader metrics_follower timing classification evidence
   local leader_trace_dir follower_trace_dir leader_trace_tail follower_trace_tail
@@ -2723,6 +2723,7 @@ run_mixed_vanilla_audio() {
   keep_up_before=$(grep -Fc "Can't keep up!" "$server_log" 2>/dev/null || true)
 
   while (( cycle <= vanilla_churn_cycles || SECONDS < deadline )); do
+    playback_unhealthy=0
     printf -v padded '%05d' "$cycle"
     if (( churn_requested )); then
       raw_leader="$output_root/$label.mixed-client-churn-$padded.leader.s16le"
@@ -2759,7 +2760,7 @@ run_mixed_vanilla_audio() {
           || ! latest_audio_state_is "$output_root/$label.audio-leader.console.log" PLAYING \
           || ! latest_audio_state_is "$output_root/$label.audio-follower.console.log" PLAYING; }; then
       echo "$label: a matching client stopped playback during vanilla coexistence cycle $cycle" >&2
-      result=1
+      playback_unhealthy=1
     fi
     if (( result == 0 )) && ! audio_capture_is_audible "$raw_leader" "$metrics_leader"; then
       echo "$label: leader emitted no program audio during vanilla coexistence cycle $cycle" >&2
@@ -2828,6 +2829,12 @@ run_mixed_vanilla_audio() {
         printf 'Two matching clients remained PLAYING while the artifact-free vanilla client was connected.\n'
       } > "$evidence"
     fi
+
+    # Preserve the rendered and pre-backend timing classification even when a
+    # client ends the capture in RECOVERING or otherwise unhealthy. The state
+    # remains a hard failure, but its audio evidence is what distinguishes a
+    # backend interruption from transport or chunk-order corruption.
+    if (( playback_unhealthy != 0 )); then result=1; fi
 
     if (( result == 0 && churn_requested )); then
       server_pid=$(minecraft_java_pid "$active_server_group" || true)

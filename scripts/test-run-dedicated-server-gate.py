@@ -123,6 +123,17 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         self.assertIn("30 * 44100 * 2 * 2", churn)
         self.assertNotIn('"$sink_leader" "$raw"', churn)
 
+    def test_mixed_churn_retains_timing_evidence_for_unhealthy_playback(self) -> None:
+        source = self.source
+        churn = source[source.index("run_mixed_vanilla_audio()") :]
+        churn = churn[: churn.index("run_two_client_audio()")]
+        unhealthy = churn.index("playback_unhealthy=1")
+        analyzer = churn.index("analyze-audio-timing.py")
+        deferred_failure = churn.index("if (( playback_unhealthy != 0 )); then")
+        self.assertLess(unhealthy, analyzer)
+        self.assertLess(analyzer, deferred_failure)
+        self.assertIn("backend interruption from transport or chunk-order corruption", churn)
+
     def test_cleanup_preserves_audio_graph_dependency_order(self) -> None:
         cleanup = self.source[
             self.source.index("cleanup_audio_processes()") :
