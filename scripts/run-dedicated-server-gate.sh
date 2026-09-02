@@ -866,8 +866,19 @@ run_vanilla_client() {
   pid=$!
   active_client_pid=$pid
 
+  # The background subshell inherits the gate's process group until `setsid`
+  # executes. Under parallel matrix load the join loop can otherwise inspect
+  # the PID during that brief handoff, find no group whose PGID equals the
+  # future session leader, and report an immediate false client exit while the
+  # verifier is still preparing its exact libraries and natives.
+  if ! wait_for_group_start "$pid" 10; then
+    echo "$label: exact vanilla client did not establish its private process group" >&2
+    result=1
+  fi
+
   deadline=$((SECONDS + 600))
-  while ! optional_client_joined "$label" "$server_console" "$client_console" "$username" \
+  while (( result == 0 )) \
+      && ! optional_client_joined "$label" "$server_console" "$client_console" "$username" \
       "$join_start_line"; do
     if client_bootstrap_failed "$client_console" || ! group_alive "$pid" || (( SECONDS >= deadline )); then
       echo "$label: pure vanilla client did not join; see $client_console" >&2

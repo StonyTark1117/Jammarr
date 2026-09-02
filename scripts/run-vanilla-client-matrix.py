@@ -115,6 +115,7 @@ def accepted_evidence(
     if version is None:
         return False
     expected_stub = (1, 16, 0) <= version < (1, 20, 0)
+    expected_deferred_connection = (1, 16, 0) <= version < (1, 20, 0)
     expected_mode = "quick-play-multiplayer" if version >= (1, 20, 0) else "legacy-server-port"
     expected_instance = (
         output
@@ -150,6 +151,9 @@ def accepted_evidence(
         and details.get("connectionTarget") == f"127.0.0.1:{runtime['port']}"
         and details.get("connectionMode") == expected_mode
         and details.get("offlinePrivilegesStub") is expected_stub
+        and details.get("deferredInitialConnection") is expected_deferred_connection
+        and details.get("connectionDelaySeconds")
+        == (12 if expected_deferred_connection else 0)
         and isinstance(client_sha1, str)
         and re.fullmatch(r"[0-9a-f]{40}", client_sha1) is not None
         and isinstance(counts, dict)

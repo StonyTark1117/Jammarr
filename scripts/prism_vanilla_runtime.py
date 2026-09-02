@@ -11,7 +11,11 @@ from prism_verified_cache import VerifiedCache, library_allowed, sha1_file
 
 
 def direct_launch_command(
-    args: Any, game_dir: Path, helper: Any
+    args: Any,
+    game_dir: Path,
+    helper: Any,
+    *,
+    launch_server: str | None = None,
 ) -> tuple[list[str], dict[str, Any]]:
     shared_root = args.shared_root.resolve()
     cache = VerifiedCache(
@@ -60,7 +64,7 @@ def direct_launch_command(
     assets_root, asset_index, asset_object_count = cache.assets(metadata)
 
     connection_arguments, connection_mode = helper.server_connection_arguments(
-        args.minecraft, args.server
+        args.minecraft, launch_server or args.server
     )
     java, major = helper.select_java(shared_root, metadata)
     values = {

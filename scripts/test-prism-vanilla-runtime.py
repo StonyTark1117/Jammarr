@@ -155,6 +155,18 @@ class PrismVanillaRuntimeTest(unittest.TestCase):
             self.assertGreater(details["artifactSourceCounts"].get("downloaded", 0), 0)
             self.assertFalse(any(shared.rglob("*.jar")))
 
+            relay_command, relay_details = RUNTIME.direct_launch_command(
+                args,
+                game_dir,
+                HELPER,
+                launch_server="127.0.0.1:26001",
+            )
+            self.assertEqual(
+                relay_command[-2:],
+                ["--quickPlayMultiplayer", "127.0.0.1:26001"],
+            )
+            self.assertEqual(relay_details["connectionTarget"], args.server)
+
 
 if __name__ == "__main__":
     unittest.main()

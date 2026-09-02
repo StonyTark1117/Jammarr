@@ -5,9 +5,11 @@ from __future__ import annotations
 import json
 import importlib.util
 from pathlib import Path
+import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest import mock
 from urllib.request import urlopen
@@ -44,7 +46,9 @@ class PrismVanillaClientTest(unittest.TestCase):
         launch = source[source.index("def direct_launch_command(") :]
         launch = launch[: launch.index("def prepare_instance(")]
         self.assertIn("from prism_vanilla_runtime import direct_launch_command", launch)
-        self.assertIn("return verified_launch_command(args, game_dir", launch)
+        self.assertIn("return verified_launch_command(", launch)
+        self.assertIn("args, game_dir, sys.modules[__name__]", launch)
+        self.assertIn("launch_server=launch_server", launch)
 
     def test_connection_arguments_reject_invalid_port(self) -> None:
         with self.assertRaisesRegex(SystemExit, "port is invalid"):
@@ -58,6 +62,38 @@ class PrismVanillaClientTest(unittest.TestCase):
         self.assertTrue(privileges["onlineChat"]["enabled"])
         self.assertTrue(privileges["multiplayerServer"]["enabled"])
         self.assertFalse(privileges["multiplayerRealms"]["enabled"])
+
+    def test_delayed_connection_relay_holds_then_forwards_loopback_traffic(self) -> None:
+        upstream = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        upstream.bind(("127.0.0.1", 0))
+        upstream.listen(1)
+        accepted = threading.Event()
+
+        def echo_once() -> None:
+            connection, _ = upstream.accept()
+            accepted.set()
+            with connection:
+                connection.sendall(connection.recv(16))
+
+        thread = threading.Thread(target=echo_once, daemon=True)
+        thread.start()
+        target = f"127.0.0.1:{upstream.getsockname()[1]}"
+        try:
+            with CLIENT_HELPER.DelayedConnectionRelay(target) as relay:
+                with socket.create_connection(
+                    ("127.0.0.1", int(relay.endpoint.rpartition(":")[2]))
+                ) as client:
+                    client.settimeout(0.1)
+                    client.sendall(b"ready")
+                    with self.assertRaises(socket.timeout):
+                        client.recv(5)
+                    self.assertFalse(accepted.is_set())
+                    relay.release_after(0)
+                    self.assertEqual(client.recv(5), b"ready")
+                    self.assertTrue(accepted.wait(1))
+        finally:
+            upstream.close()
+            thread.join(timeout=2)
 
     def test_chat_trigger_targets_the_private_minecraft_window(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

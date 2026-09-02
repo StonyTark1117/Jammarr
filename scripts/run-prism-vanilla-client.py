@@ -17,8 +17,10 @@ import json
 import os
 from pathlib import Path
 import re
+import select
 import shutil
 import shlex
+import socket
 import subprocess
 import sys
 import threading
@@ -32,6 +34,7 @@ import zipfile
 
 SAFE_VALUE = re.compile(r"^[A-Za-z0-9._-]+$")
 SAFE_CHAT_MESSAGE = re.compile(r"^[A-Za-z0-9 ._-]+$")
+DEFERRED_CONNECTION_SECONDS = 12
 
 
 class OfflinePrivilegesHandler(BaseHTTPRequestHandler):
@@ -60,6 +63,93 @@ class OfflinePrivilegesHandler(BaseHTTPRequestHandler):
 
     def log_message(self, _format: str, *_args: object) -> None:
         return
+
+
+class DelayedConnectionRelay:
+    """Hold a loopback client connection until initial rendering is ready.
+
+    Minecraft 1.16 through 1.19 begins its legacy ``--server`` connection in
+    parallel with the first resource reload. A fast local server can deliver
+    chunks before ModelManager has applied its baked registry, crashing an
+    otherwise unmodified client while tessellating an ordinary block. The
+    official client still owns the complete protocol connection; this relay
+    only delays opening the upstream loopback socket for a bounded interval.
+    """
+
+    def __init__(self, target: str) -> None:
+        host, separator, port_text = target.rpartition(":")
+        if not separator or host not in {"127.0.0.1", "localhost"} or not port_text.isdigit():
+            raise ValueError("deferred vanilla connection target must be loopback host:port")
+        self.target = (host, int(port_text))
+        self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.listener.bind(("127.0.0.1", 0))
+        self.listener.listen(1)
+        self.listener.settimeout(0.2)
+        self.stop_event = threading.Event()
+        self.release_event = threading.Event()
+        self.release_at = 0.0
+        self.thread = threading.Thread(target=self._run, daemon=True)
+        self.sockets: list[socket.socket] = []
+        self.error: BaseException | None = None
+
+    @property
+    def endpoint(self) -> str:
+        return f"127.0.0.1:{self.listener.getsockname()[1]}"
+
+    def __enter__(self) -> "DelayedConnectionRelay":
+        self.thread.start()
+        return self
+
+    def release_after(self, seconds: int) -> None:
+        self.release_at = time.monotonic() + seconds
+        self.release_event.set()
+
+    def _run(self) -> None:
+        try:
+            client: socket.socket | None = None
+            while not self.stop_event.is_set() and client is None:
+                try:
+                    client, _ = self.listener.accept()
+                except socket.timeout:
+                    continue
+            if client is None:
+                return
+            self.sockets.append(client)
+            while not self.stop_event.is_set() and not self.release_event.wait(0.1):
+                pass
+            while not self.stop_event.is_set():
+                remaining = self.release_at - time.monotonic()
+                if remaining <= 0:
+                    break
+                self.stop_event.wait(min(remaining, 0.1))
+            if self.stop_event.is_set():
+                return
+            upstream = socket.create_connection(self.target, timeout=10)
+            upstream.settimeout(None)
+            self.sockets.append(upstream)
+            while not self.stop_event.is_set():
+                readable, _, _ = select.select((client, upstream), (), (), 0.2)
+                for source in readable:
+                    destination = upstream if source is client else client
+                    data = source.recv(65536)
+                    if not data:
+                        return
+                    destination.sendall(data)
+        except OSError as exc:
+            if not self.stop_event.is_set():
+                self.error = exc
+
+    def __exit__(self, _type: object, _value: object, _traceback: object) -> None:
+        self.stop_event.set()
+        for connection in self.sockets:
+            try:
+                connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            connection.close()
+        self.listener.close()
+        self.thread.join(timeout=5)
 
 
 @contextmanager
@@ -452,11 +542,13 @@ def replace_arguments(template: str, values: dict[str, str]) -> list[str]:
 
 
 def direct_launch_command(
-    args: argparse.Namespace, game_dir: Path
+    args: argparse.Namespace, game_dir: Path, launch_server: str | None = None
 ) -> tuple[list[str], dict[str, Any]]:
     from prism_vanilla_runtime import direct_launch_command as verified_launch_command
 
-    return verified_launch_command(args, game_dir, sys.modules[__name__])
+    return verified_launch_command(
+        args, game_dir, sys.modules[__name__], launch_server=launch_server
+    )
 
 
 def prepare_instance(args: argparse.Namespace) -> tuple[Path, Path, list[dict[str, Any]]]:
@@ -575,49 +667,65 @@ def main() -> int:
     if not os.environ.get("DISPLAY"):
         raise SystemExit("A private X display is required to launch the vanilla acceptance client")
 
-    command, runtime_details = direct_launch_command(args, game_dir)
+    version = release_version_tuple(args.minecraft)
     needs_privileges_stub = (1, 16, 0) <= release_version_tuple(args.minecraft) < (1, 20, 0)
-    runtime_details["offlinePrivilegesStub"] = needs_privileges_stub
-    with offline_privileges_service() if needs_privileges_stub else nullcontext(None) as services_host:
-        if services_host is not None:
-            command[1:1] = [
-                f"-Dminecraft.api.auth.host={services_host}",
-                f"-Dminecraft.api.account.host={services_host}",
-                f"-Dminecraft.api.session.host={services_host}",
-                f"-Dminecraft.api.services.host={services_host}",
-            ]
-        write_attestation(
-            instance_dir, game_dir, args.minecraft, components, args.username, runtime_details
+    needs_deferred_connection = (1, 16, 0) <= version < (1, 20, 0)
+    relay_context = (
+        DelayedConnectionRelay(args.server)
+        if needs_deferred_connection
+        else nullcontext(None)
+    )
+    with relay_context as relay:
+        command, runtime_details = direct_launch_command(
+            args, game_dir, relay.endpoint if relay is not None else None
         )
-        process = subprocess.Popen(command, cwd=game_dir)
-        chat_thread: threading.Thread | None = None
-        shutdown_thread: threading.Thread | None = None
-        if args.chat_trigger_file is not None and args.chat_message is not None:
-            args.chat_trigger_file.unlink(missing_ok=True)
-            chat_thread = threading.Thread(
-                target=send_chat_when_triggered,
-                args=(args.chat_trigger_file, args.chat_message, process),
-                daemon=True,
-            )
-            chat_thread.start()
-        if args.shutdown_trigger_file is not None:
-            args.shutdown_trigger_file.unlink(missing_ok=True)
-            shutdown_thread = threading.Thread(
-                target=close_when_triggered,
-                args=(args.shutdown_trigger_file, process, args.minecraft),
-                daemon=True,
-            )
-            shutdown_thread.start()
-        try:
-            return process.wait()
-        finally:
-            if chat_thread is not None:
-                chat_thread.join(timeout=2)
-            if shutdown_thread is not None:
-                shutdown_thread.join(timeout=2)
+        runtime_details["offlinePrivilegesStub"] = needs_privileges_stub
+        runtime_details["deferredInitialConnection"] = needs_deferred_connection
+        runtime_details["connectionDelaySeconds"] = (
+            DEFERRED_CONNECTION_SECONDS if needs_deferred_connection else 0
+        )
+        with offline_privileges_service() if needs_privileges_stub else nullcontext(None) as services_host:
+            if services_host is not None:
+                command[1:1] = [
+                    f"-Dminecraft.api.auth.host={services_host}",
+                    f"-Dminecraft.api.account.host={services_host}",
+                    f"-Dminecraft.api.session.host={services_host}",
+                    f"-Dminecraft.api.services.host={services_host}",
+                ]
             write_attestation(
                 instance_dir, game_dir, args.minecraft, components, args.username, runtime_details
             )
+            process = subprocess.Popen(command, cwd=game_dir)
+            if relay is not None:
+                relay.release_after(DEFERRED_CONNECTION_SECONDS)
+            chat_thread: threading.Thread | None = None
+            shutdown_thread: threading.Thread | None = None
+            if args.chat_trigger_file is not None and args.chat_message is not None:
+                args.chat_trigger_file.unlink(missing_ok=True)
+                chat_thread = threading.Thread(
+                    target=send_chat_when_triggered,
+                    args=(args.chat_trigger_file, args.chat_message, process),
+                    daemon=True,
+                )
+                chat_thread.start()
+            if args.shutdown_trigger_file is not None:
+                args.shutdown_trigger_file.unlink(missing_ok=True)
+                shutdown_thread = threading.Thread(
+                    target=close_when_triggered,
+                    args=(args.shutdown_trigger_file, process, args.minecraft),
+                    daemon=True,
+                )
+                shutdown_thread.start()
+            try:
+                return process.wait()
+            finally:
+                if chat_thread is not None:
+                    chat_thread.join(timeout=2)
+                if shutdown_thread is not None:
+                    shutdown_thread.join(timeout=2)
+                write_attestation(
+                    instance_dir, game_dir, args.minecraft, components, args.username, runtime_details
+                )
 
 
 if __name__ == "__main__":

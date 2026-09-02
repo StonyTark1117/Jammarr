@@ -175,6 +175,15 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         source = self.source
         vanilla = source[source.index("run_vanilla_client()") :]
         vanilla = vanilla[: vanilla.index("run_client_companion()")]
+        self.assertIn('wait_for_group_start "$pid" 10', vanilla)
+        self.assertIn(
+            "exact vanilla client did not establish its private process group",
+            vanilla,
+        )
+        self.assertLess(
+            vanilla.index('wait_for_group_start "$pid" 10'),
+            vanilla.index("deadline=$((SECONDS + 600))"),
+        )
         self.assertIn('--chat-trigger-file "$chat_trigger"', vanilla)
         self.assertIn('--shutdown-trigger-file "$shutdown_trigger"', vanilla)
         self.assertIn(': > "$shutdown_trigger"', vanilla)

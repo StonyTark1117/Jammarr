@@ -89,6 +89,8 @@ class VanillaClientMatrixTest(unittest.TestCase):
                             "sharedCacheMutated": False,
                             "connectionTarget": "127.0.0.1:26000",
                             "connectionMode": "quick-play-multiplayer",
+                            "deferredInitialConnection": False,
+                            "connectionDelaySeconds": 0,
                             "offlinePrivilegesStub": False,
                             "artifactSourceCounts": {"shared-cache": 4},
                         },
