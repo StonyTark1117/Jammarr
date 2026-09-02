@@ -3238,7 +3238,7 @@ run_invalid_config_check_once() {
   local port=$5
   local level_name=$6
   local console_log="$output_root/$label.invalid-config.console.log"
-  local pid server_pid="" server_group="" result=0 marker_seen=0
+  local pid server_pid="" server_group="" result=0 marker_seen=0 ready_marker_deadline=0
   local -a cache_args=()
   local -a runtime_args=(-PjammarrServerGameDir="$run_dir")
   [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
@@ -3298,9 +3298,18 @@ run_invalid_config_check_once() {
       break
     fi
     if grep -Eq 'Done \([^)]*\)! For help' "$console_log" 2>/dev/null; then
-      echo "$label: server became ready despite the invalid Jammarr configuration" >&2
-      result=1
-      break
+      # Fabric, Forge, and NeoForge print their vanilla Done marker immediately
+      # before invoking the server-started callback where the per-world
+      # serverconfig path first exists. Give that same-thread callback a small,
+      # bounded opportunity to reject the config; no client is launched, and
+      # acceptance still requires the exact validation marker and a closed port.
+      if (( ready_marker_deadline == 0 )); then
+        ready_marker_deadline=$((SECONDS + 5))
+      elif (( SECONDS >= ready_marker_deadline )); then
+        echo "$label: invalid Jammarr configuration remained live after the server-started callback" >&2
+        result=1
+        break
+      fi
     fi
     if grep -Eq 'Failed to get asset:|SocketTimeoutException|HttpTimeoutException|Could not download' \
         "$console_log" 2>/dev/null && ! kill -0 "$pid" 2>/dev/null; then
@@ -3566,11 +3575,12 @@ run_target() {
     return 1
   fi
   ensure_runtime_files "$run_dir" "$default_port"
-  port=$(sed -n 's/^server-port=\([0-9][0-9]*\)$/\1/p' "$run_dir/server.properties" | tail -n 1)
-  if [[ -z "$port" ]]; then
-    echo "$label: unable to resolve server port" >&2
-    return 1
-  fi
+  # The manifest owns acceptance ports. Persistent Gradle run directories may
+  # contain an older gate allocation or a developer-selected port; using it
+  # would invalidate evidence identity and could collide with another lane.
+  # Install the manifest value only after checking availability, then restore
+  # the original server.properties through the normal transaction cleanup.
+  port=$default_port
   if ss -ltnH "sport = :$port" | grep -q .; then
     echo "$label: port $port is already in use" >&2
     return 1
@@ -3584,6 +3594,7 @@ run_target() {
   active_game_port=$port
   if ! uses_console_control "$label"; then active_rcon_port=$rcon_port; fi
   backup_server_properties "$run_dir/server.properties" "$label"
+  set_property "$run_dir/server.properties" server-port "$port"
   # Keep the gate isolated from developer worlds and from damage left by an
   # interrupted prior run. The run directories are ignored build state.
   level_name=jammarr-gate-world

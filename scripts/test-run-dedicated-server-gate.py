@@ -113,6 +113,46 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
             probe.rindex("restore_server_config"),
         )
 
+    def test_invalid_config_allows_the_loader_started_callback_to_reject(self) -> None:
+        source = self.source
+        probe = source[source.index("run_invalid_config_check_once()") :]
+        probe = probe[: probe.index("run_invalid_config_check()")]
+        self.assertIn("ready_marker_deadline=0", probe)
+        self.assertIn("ready_marker_deadline=$((SECONDS + 5))", probe)
+        self.assertIn("SECONDS >= ready_marker_deadline", probe)
+        self.assertIn(
+            "invalid Jammarr configuration remained live after the server-started callback",
+            probe,
+        )
+        self.assertLess(
+            probe.index("Invalid Jammarr configuration value for plexUrl"),
+            probe.index("ready_marker_deadline=$((SECONDS + 5))"),
+        )
+
+    def test_runtime_uses_and_restores_the_manifest_port(self) -> None:
+        source = self.source
+        target = source[source.index("run_target()") :]
+        target = target[: target.index("matched=0")]
+        self.assertIn("port=$default_port", target)
+        self.assertIn(
+            'set_property "$run_dir/server.properties" server-port "$port"', target
+        )
+        self.assertNotIn(
+            "port=$(sed -n 's/^server-port=", target
+        )
+        self.assertLess(
+            target.index('backup_server_properties "$run_dir/server.properties"'),
+            target.index(
+                'set_property "$run_dir/server.properties" server-port "$port"'
+            ),
+        )
+        self.assertLess(
+            target.index(
+                'set_property "$run_dir/server.properties" server-port "$port"'
+            ),
+            target.rindex("restore_server_properties"),
+        )
+
     def test_vanilla_gate_requires_size_verified_fallback_attestation(self) -> None:
         source = self.source
         self.assertIn('--fallback-cache-root "$vanilla_cache_root"', source)
