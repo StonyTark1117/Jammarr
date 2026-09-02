@@ -30,6 +30,7 @@
 - Stage the exact 1.1.0 release-candidate artifact on all 99 DiscPanel runtime profiles, verify every remote digest, retain 21 stable 1.0.2 rollback files disabled, and finish with no active older Jammarr artifact or deployment-created server start.
 - Refresh all 99 stopped DiscPanel profiles with the frozen post-soak candidate after rebuilding, testing, checksum-verifying, and centrally inspecting all 78 artifacts; an independent no-apply audit confirms exact remote hashes with no configuration or loader drift.
 - Fix the GitHub release-gate preflight to count all 78 manifest artifacts, including the three LiteLoader `.litemod` companions, before authoritative indexing and centralized inspection.
+- Define accurate release-platform coverage from live taxonomies: all 78 artifacts on GitHub and Modrinth, and the 70 standard-loader artifacts on CurseForge, with eight legacy-loader files withheld there instead of mislabeled.
 - Audit and remove 158 never-started DiscPanel Docker objects without force or volume deletion, proving their writable layers and diffs were empty while preserving all 158 persistent server directories and 5,611 bound files.
 - Pin each DiscPanel native runtime to the exact Fabric, Forge, NeoForge, or Quilt loader declared by the release manifest instead of allowing container defaults to drift.
 - Add a guarded live-Plex DiscPanel configurator that keeps credentials environment-only, blanks the library setting to exercise the `Music` metadata fallback, preserves existing canonical configs by default, and never starts a server.
