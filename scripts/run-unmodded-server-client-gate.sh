@@ -261,6 +261,17 @@ fi
 [[ "$disable_configuration_cache" == true ]] && cache_args+=(--no-configuration-cache)
 serialize_forgegradle=false
 serialize_forge_bootstrap=false
+client_java_tool_options="-XX:ActiveProcessorCount=$active_processors -Djammarr.acceptance.enabled=true -Djammarr.acceptance.unmoddedServerProbe=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true"
+
+# Forge 64/65's development launcher leaves ForgeConfig.SERVER unattached when
+# its modded client joins an unmodified server. If any client entity tick throws,
+# Level.guardEntityTick then masks the original failure by reading the absent
+# config and raising ForgeConfigSpec's explicitly development-only exception.
+# Forge's production runtime returns the documented defaults in that state, so
+# exercise that production behavior for the 26.x reverse-compatibility rows.
+if [[ "$runtime_loader" == forge && "$minecraft_version" == 26.* ]]; then
+  client_java_tool_options+=" -Dproduction"
+fi
 
 # Match the dedicated-server matrix's proven lock order. Modern ForgeGradle
 # projects share Mavenizer metadata outside their project/runtime workspaces,
@@ -289,7 +300,7 @@ fi
   exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 ALSOFT_DRIVERS=null \
     xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' env \
     JAVA_HOME="$build_java_home" PATH="$build_java_home/bin:$PATH" \
-    JAVA_TOOL_OPTIONS="-XX:ActiveProcessorCount=$active_processors -Djammarr.acceptance.enabled=true -Djammarr.acceptance.unmoddedServerProbe=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true" \
+    JAVA_TOOL_OPTIONS="$client_java_tool_options" \
     LIBGL_ALWAYS_SOFTWARE=1 \
     ./gradlew "$client_task" --no-daemon --max-workers=2 --console=plain \
       "${cache_args[@]}" "${runtime_args[@]}" \

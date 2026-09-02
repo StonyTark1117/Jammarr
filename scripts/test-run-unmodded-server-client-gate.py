@@ -83,6 +83,14 @@ class UnmoddedServerClientGateSourceTest(unittest.TestCase):
         self.assertLess(source.index('terminate_group "$client_pid"'), source.index("flock -u 7"))
         self.assertLess(source.index("flock -u 7"), source.index("flock -u 6"))
 
+    def test_forge_26_reverse_gate_uses_production_config_semantics(self) -> None:
+        self.assertIn(
+            'if [[ "$runtime_loader" == forge && "$minecraft_version" == 26.* ]]; then',
+            self.source,
+        )
+        self.assertIn('client_java_tool_options+=" -Dproduction"', self.source)
+        self.assertIn('JAVA_TOOL_OPTIONS="$client_java_tool_options"', self.source)
+
     def test_disposable_server_cleanup_is_bounded_and_classified(self) -> None:
         self.assertIn("JAMMARR_UNMODDED_GRACEFUL_STOP_SECONDS", self.source)
         self.assertIn("forced-after-timeout", self.source)
