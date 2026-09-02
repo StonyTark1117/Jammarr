@@ -9,7 +9,10 @@ import org.lwjgl.input.Keyboard;
 import stonytark.jammarr.Jammarr;
 import stonytark.jammarr.config.LegacyConfig;
 import stonytark.jammarr.core.protocol.ProtocolLimits;
+import stonytark.jammarr.core.protocol.LegacyServerProbe;
 import stonytark.jammarr.network.LegacyNetwork;
+
+import java.util.UUID;
 
 public final class LegacyClient implements ClientModInitializer {
     static final LegacyClient INSTANCE = new LegacyClient();
@@ -18,6 +21,9 @@ public final class LegacyClient implements ClientModInitializer {
     private boolean acceptanceConnectAttempted;
     private boolean joinedWorldObserved;
     private long joinedWorldReadyAt;
+    private boolean serverProbeSent;
+    private long serverProbeDeadline;
+    private String serverProbeNonce = "";
     private static boolean initialized;
 
     @Override public void onInitializeClient() { ensureInitialized(); }
@@ -36,16 +42,21 @@ public final class LegacyClient implements ClientModInitializer {
         connectAcceptanceServer(client);
         updateVanillaMusicSuppression(client);
         if (client.world != null) {
-            // StationAPI's login-success event can be missed on Beta 1.7.3 even
-            // after the play world is installed. The world is the authoritative
-            // fallback signal that the client transport may send its hello.
-            if (!LegacyNetwork.serverAvailable()) LegacyNetwork.clientConnected();
             if (!joinedWorldObserved) {
                 joinedWorldObserved = true;
                 joinedWorldReadyAt = System.currentTimeMillis() + 1_000L;
+                serverProbeNonce = UUID.randomUUID().toString().replace("-", "");
                 Jammarr.LOGGER.info("Jammarr client observed the joined Beta 1.7.3 world");
             }
             if (client.getNetworkHandler() != null && System.currentTimeMillis() >= joinedWorldReadyAt) {
+                if (!serverProbeSent && client.player != null) {
+                    serverProbeSent = true;
+                    serverProbeDeadline = System.currentTimeMillis() + 1_500L;
+                    client.player.sendChatMessage(LegacyServerProbe.command(Jammarr.PROTOCOL, serverProbeNonce));
+                    Jammarr.LOGGER.info("Jammarr client sent a vanilla-safe Beta server capability probe");
+                    return;
+                }
+                if (!LegacyNetwork.serverAvailable() && System.currentTimeMillis() < serverProbeDeadline) return;
                 LegacyClientState.INSTANCE.tick();
             }
         } else {
@@ -67,6 +78,12 @@ public final class LegacyClient implements ClientModInitializer {
         Jammarr.LOGGER.info("Client disconnected with reason: {}", reason == null ? "Disconnected" : reason);
         LegacyNetwork.clientDisconnected();
         LegacyClientState.INSTANCE.stop();
+        resetServerProbe();
+    }
+
+    void loginSucceeded() {
+        LegacyNetwork.clientDisconnected();
+        resetServerProbe();
     }
 
     void audioEngineReloaded() { LegacyClientState.INSTANCE.audioEngineReloaded(); }
@@ -95,7 +112,41 @@ public final class LegacyClient implements ClientModInitializer {
                 Integer.parseInt(address.substring(separator + 1))));
     }
 
-    public static void acceptanceChat(String message) {
+    public static boolean receiveChat(String message) {
+        if (INSTANCE.receiveServerProbe(message)) return true;
+        acceptanceChat(message);
+        return false;
+    }
+
+    private boolean receiveServerProbe(String message) {
+        if (!serverProbeSent) return false;
+        int protocol = LegacyServerProbe.responseProtocol(message, serverProbeNonce);
+        if (protocol > 0) {
+            if (protocol == Jammarr.PROTOCOL) {
+                LegacyNetwork.clientConnected();
+                Jammarr.LOGGER.info("Jammarr client verified Beta server capability through vanilla chat");
+            } else {
+                Jammarr.LOGGER.warn("Jammarr protocol mismatch: server requires version {}", protocol);
+            }
+            return true;
+        }
+        if (System.currentTimeMillis() <= serverProbeDeadline && LegacyServerProbe.unknownCommand(message)) {
+            serverProbeDeadline = 0L;
+            Jammarr.LOGGER.info("Jammarr client verified that the Beta server is unmodded");
+            return true;
+        }
+        return false;
+    }
+
+    private void resetServerProbe() {
+        joinedWorldObserved = false;
+        joinedWorldReadyAt = 0L;
+        serverProbeSent = false;
+        serverProbeDeadline = 0L;
+        serverProbeNonce = "";
+    }
+
+    private static void acceptanceChat(String message) {
         if (!ProtocolLimits.commandProbeEnabled() || message == null) return;
         String normalized = message.replaceAll("(?i)\\u00a7[0-9A-FK-OR]", "");
         Jammarr.LOGGER.info("Acceptance command response: {}", normalized);

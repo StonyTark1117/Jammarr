@@ -7,6 +7,7 @@ import net.minecraft.server.command.CommandOutput;
 import stonytark.jammarr.Jammarr;
 import stonytark.jammarr.core.model.StationModels;
 import stonytark.jammarr.core.protocol.ControlPackets;
+import stonytark.jammarr.core.protocol.LegacyServerProbe;
 import stonytark.jammarr.network.LegacyPacketTypes;
 
 import java.util.Arrays;
@@ -26,6 +27,11 @@ public final class LegacyCommands {
 
         CommandOutput output = command.output;
         ServerPlayerEntity player = server.playerManager.getPlayer(output.getName());
+        if (tokens.length == 4 && "handshake".equalsIgnoreCase(tokens[1])
+                && LegacyServerProbe.validNonce(tokens[3])) {
+            reply(output, LegacyServerProbe.response(Jammarr.PROTOCOL, tokens[3]));
+            return true;
+        }
         try {
             requireCapable(player);
             LegacyGlobalPlayer coordinator = coordinator();

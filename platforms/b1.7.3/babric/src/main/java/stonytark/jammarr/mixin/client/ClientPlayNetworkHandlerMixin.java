@@ -10,8 +10,8 @@ import stonytark.jammarr.client.LegacyClient;
 
 @Mixin(ClientNetworkHandler.class)
 abstract class ClientPlayNetworkHandlerMixin {
-    @Inject(method = "onChatMessage", at = @At("HEAD"))
+    @Inject(method = "onChatMessage", at = @At("HEAD"), cancellable = true)
     private void jammarr$acceptanceChat(ChatMessagePacket packet, CallbackInfo callback) {
-        LegacyClient.acceptanceChat(packet.chatMessage);
+        if (LegacyClient.receiveChat(packet.chatMessage)) callback.cancel();
     }
 }

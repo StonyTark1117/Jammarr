@@ -7,7 +7,6 @@ import net.modificationstation.stationapi.api.client.event.network.ServerLoginSu
 import net.modificationstation.stationapi.api.client.event.option.KeyBindingRegisterEvent;
 import net.modificationstation.stationapi.api.client.event.resource.TexturePackLoadedEvent;
 import org.lwjgl.input.Keyboard;
-import stonytark.jammarr.network.LegacyNetwork;
 
 public final class BabricClientEvents {
     @EventListener
@@ -23,7 +22,7 @@ public final class BabricClientEvents {
     }
 
     @EventListener
-    public void login(ServerLoginSuccessEvent event) { LegacyNetwork.clientConnected(); }
+    public void login(ServerLoginSuccessEvent event) { LegacyClient.INSTANCE.loginSucceeded(); }
 
     @EventListener
     public void logout(MultiplayerLogoutEvent event) {
