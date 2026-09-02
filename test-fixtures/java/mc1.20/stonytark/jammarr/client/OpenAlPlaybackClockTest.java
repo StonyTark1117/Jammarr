@@ -51,14 +51,17 @@ class OpenAlPlaybackClockTest {
     }
 
     @Test void backendDriftMustPersistAcrossSamplesAndMonotonicTime() {
-        BackendDriftGuard guard = new BackendDriftGuard(40, 2, 1_500);
+        BackendDriftGuard guard = new BackendDriftGuard(150, 2, 1_500);
         assertEquals(false, guard.observe(-468, 1_000));
         assertEquals(false, guard.observe(-320, 1_001));
-        assertEquals(false, guard.observe(-105, 2_499));
-        assertEquals(true, guard.observe(-105, 2_500));
+        assertEquals(false, guard.observe(-97, 2_499));
+        assertEquals(false, guard.observe(-97, 2_500));
+        assertEquals(false, guard.observe(-175, 3_000));
+        assertEquals(false, guard.observe(-175, 4_499));
+        assertEquals(true, guard.observe(-175, 4_500));
         assertEquals(false, guard.observe(10, 3_000));
         guard.reset();
-        assertEquals(false, guard.observe(-105, 4_000));
-        assertEquals(false, guard.observe(105, 6_000));
+        assertEquals(false, guard.observe(-175, 5_000));
+        assertEquals(false, guard.observe(175, 7_000));
     }
 }

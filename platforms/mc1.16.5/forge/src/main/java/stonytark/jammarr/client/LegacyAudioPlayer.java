@@ -32,7 +32,8 @@ public final class LegacyAudioPlayer {
     private static final long START_BUFFER_MS = 2_000;
     private static final long START_ALIGNMENT_TOLERANCE_MS = 2;
     private static final long DRIFT_REBUFFER_MS = 500;
-    private static final long BACKEND_DRIFT_REBUFFER_MS = 40;
+    private static final long BACKEND_DRIFT_LOG_MS = 40;
+    private static final long BACKEND_DRIFT_REBUFFER_MS = 150;
     private static final long BACKEND_PROBE_INTERVAL_MS = 500;
     private static final int BACKEND_DRIFT_REQUIRED_SAMPLES = 2;
     private static final long BACKEND_DRIFT_MINIMUM_PERSISTENCE_MS = 1_500;
@@ -407,7 +408,7 @@ public final class LegacyAudioPlayer {
         long drift = estimatedPosition - authoritativePosition;
         if (ProtocolLimits.audioProbeEnabled()
                 && (lastBackendLogMs == 0 || measured.observedAtMs - lastBackendLogMs >= 5_000
-                || Math.abs(drift) > BACKEND_DRIFT_REBUFFER_MS)) {
+                || Math.abs(drift) > BACKEND_DRIFT_LOG_MS)) {
             lastBackendLogMs = measured.observedAtMs;
             Jammarr.LOGGER.info("Acceptance backend clock: playedMs={} latencyMs={} estimatedMs={} authoritativeMs={} driftMs={}",
                     measured.position.playedMillis(), measured.position.deviceLatencyMillis(),

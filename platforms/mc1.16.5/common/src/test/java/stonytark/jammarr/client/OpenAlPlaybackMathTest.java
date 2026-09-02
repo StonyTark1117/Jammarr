@@ -39,12 +39,15 @@ class OpenAlPlaybackMathTest {
     }
 
     @Test void backendDriftMustPersistInOneDirectionAndMonotonicTime() {
-        BackendDriftGuard guard = new BackendDriftGuard(40, 2, 1_500);
+        BackendDriftGuard guard = new BackendDriftGuard(150, 2, 1_500);
         assertFalse(guard.observe(-468, 1_000));
         assertFalse(guard.observe(-320, 1_001));
-        assertFalse(guard.observe(-105, 2_499));
-        assertTrue(guard.observe(-105, 2_500));
+        assertFalse(guard.observe(-97, 2_499));
+        assertFalse(guard.observe(-97, 2_500));
+        assertFalse(guard.observe(-175, 3_000));
+        assertFalse(guard.observe(-175, 4_499));
+        assertTrue(guard.observe(-175, 4_500));
         assertFalse(guard.observe(10, 3_000));
-        assertFalse(guard.observe(105, 5_000));
+        assertFalse(guard.observe(175, 5_000));
     }
 }
