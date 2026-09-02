@@ -43,7 +43,7 @@ class VanillaClientMatrixTest(unittest.TestCase):
     def test_resume_requires_complete_attested_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary)
-            runtime = {"name": "1.20.1-fabric"}
+            runtime = {"name": "1.20.1-fabric", "minecraft": "1.20.1", "port": 26000}
             instance = output / (
                 "1.20.1-fabric.vanilla-client.prism/instances/"
                 "jammarr-vanilla-1.20.1"
@@ -52,14 +52,24 @@ class VanillaClientMatrixTest(unittest.TestCase):
             (instance / "vanilla-attestation.json").write_text(
                 json.dumps(
                     {
+                        "schemaVersion": 1,
+                        "launcher": "Direct Mojang client from verified Prism caches",
                         "minecraftVersion": "1.20.1",
+                        "componentUids": ["org.lwjgl3", "net.minecraft"],
                         "jammarrComponentPresent": False,
                         "mods": [],
                         "accountMode": "direct-offline",
+                        "offlineUsername": "PureVanilla",
+                        "instanceDirectory": str(instance.resolve()),
+                        "gameDirectory": str((instance / "minecraft").resolve()),
                         "runtime": {
+                            "clientJarSha1": "1" * 40,
                             "allArtifactSha1Verified": True,
                             "allArtifactSha1AndSizeVerified": True,
                             "sharedCacheMutated": False,
+                            "connectionTarget": "127.0.0.1:26000",
+                            "connectionMode": "quick-play-multiplayer",
+                            "offlinePrivilegesStub": False,
                             "artifactSourceCounts": {"shared-cache": 4},
                         },
                     }
@@ -75,7 +85,18 @@ class VanillaClientMatrixTest(unittest.TestCase):
                 "Plex request count remained unchanged at 0.\n",
                 encoding="utf-8",
             )
-            self.assertTrue(MATRIX.accepted_evidence(output, runtime))
+            with mock.patch.object(MATRIX, "process_mentions", return_value=False), mock.patch.object(
+                MATRIX, "port_listening", return_value=False
+            ):
+                self.assertTrue(MATRIX.accepted_evidence(output, runtime))
+            with mock.patch.object(MATRIX, "process_mentions", return_value=True), mock.patch.object(
+                MATRIX, "port_listening", return_value=False
+            ):
+                self.assertFalse(MATRIX.accepted_evidence(output, runtime))
+            with mock.patch.object(MATRIX, "process_mentions", return_value=False), mock.patch.object(
+                MATRIX, "port_listening", return_value=True
+            ):
+                self.assertFalse(MATRIX.accepted_evidence(output, runtime))
             evidence.write_text(
                 evidence.read_text("utf-8").replace(
                     "Artifact-free vanilla client reconnected and completed a second clean lifecycle.\n",
@@ -83,7 +104,10 @@ class VanillaClientMatrixTest(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            self.assertFalse(MATRIX.accepted_evidence(output, runtime))
+            with mock.patch.object(MATRIX, "process_mentions", return_value=False), mock.patch.object(
+                MATRIX, "port_listening", return_value=False
+            ):
+                self.assertFalse(MATRIX.accepted_evidence(output, runtime))
             evidence.write_text(
                 "capableListeners=0, vanillaListeners=1, listenerStats=0\n"
                 "Artifact-free vanilla client remained connected for 10 seconds.\n"
@@ -95,7 +119,10 @@ class VanillaClientMatrixTest(unittest.TestCase):
             value = json.loads((instance / "vanilla-attestation.json").read_text("utf-8"))
             value["runtime"]["sharedCacheMutated"] = True
             (instance / "vanilla-attestation.json").write_text(json.dumps(value), "utf-8")
-            self.assertFalse(MATRIX.accepted_evidence(output, runtime))
+            with mock.patch.object(MATRIX, "process_mentions", return_value=False), mock.patch.object(
+                MATRIX, "port_listening", return_value=False
+            ):
+                self.assertFalse(MATRIX.accepted_evidence(output, runtime))
 
     def test_run_gate_uses_isolated_session_and_returns_status(self) -> None:
         process = mock.Mock()

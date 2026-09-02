@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import socket
 import subprocess
 import sys
 from typing import Any
@@ -35,7 +36,7 @@ def artifact_free_runtimes(manifest: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         runtime
         for runtime in target_matrix.runtimes(manifest)
-        if (release_tuple(runtime["name"].rsplit("-", 1)[0]) or (0, 0, 0))
+        if (release_tuple(runtime["minecraft"]) or (0, 0, 0))
         >= (1, 12, 2)
     ]
 
@@ -56,9 +57,28 @@ def select_runtimes(
     return [by_name[name] for name in requested]
 
 
+def port_listening(port: int) -> bool:
+    with socket.socket() as probe:
+        probe.settimeout(0.2)
+        return probe.connect_ex(("127.0.0.1", port)) == 0
+
+
+def process_mentions(path: Path) -> bool:
+    needle = os.fsencode(str(path.resolve()))
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit() or int(entry.name) == os.getpid():
+            continue
+        try:
+            if needle in (entry / "cmdline").read_bytes():
+                return True
+        except (FileNotFoundError, PermissionError, ProcessLookupError):
+            continue
+    return False
+
+
 def accepted_evidence(output: Path, runtime: dict[str, Any]) -> bool:
     label = runtime["name"]
-    minecraft = label.rsplit("-", 1)[0]
+    minecraft = runtime["minecraft"]
     evidence = output / f"{label}.vanilla-client.evidence.txt"
     attestation = (
         output
@@ -72,21 +92,48 @@ def accepted_evidence(output: Path, runtime: dict[str, Any]) -> bool:
         return False
     details = value.get("runtime", {})
     counts = details.get("artifactSourceCounts")
+    version = release_tuple(minecraft)
+    if version is None:
+        return False
+    expected_stub = (1, 16, 0) <= version < (1, 20, 0)
+    expected_mode = "quick-play-multiplayer" if version >= (1, 20, 0) else "legacy-server-port"
+    expected_instance = (
+        output
+        / f"{label}.vanilla-client.prism/instances"
+        / f"jammarr-vanilla-{minecraft}"
+    ).resolve()
+    component_uids = value.get("componentUids")
+    client_sha1 = details.get("clientJarSha1")
     return (
-        value.get("minecraftVersion") == minecraft
+        value.get("schemaVersion") == 1
+        and value.get("launcher") == "Direct Mojang client from verified Prism caches"
+        and value.get("minecraftVersion") == minecraft
+        and component_uids in (["org.lwjgl", "net.minecraft"], ["org.lwjgl3", "net.minecraft"])
         and value.get("jammarrComponentPresent") is False
         and value.get("mods") == []
         and value.get("accountMode") == "direct-offline"
+        and value.get("offlineUsername") == "PureVanilla"
+        and Path(value.get("instanceDirectory", "")).resolve() == expected_instance
+        and Path(value.get("gameDirectory", "")).resolve() == expected_instance / "minecraft"
         and details.get("allArtifactSha1Verified") is True
         and details.get("allArtifactSha1AndSizeVerified") is True
         and details.get("sharedCacheMutated") is False
+        and details.get("connectionTarget") == f"127.0.0.1:{runtime['port']}"
+        and details.get("connectionMode") == expected_mode
+        and details.get("offlinePrivilegesStub") is expected_stub
+        and isinstance(client_sha1, str)
+        and re.fullmatch(r"[0-9a-f]{40}", client_sha1) is not None
         and isinstance(counts, dict)
+        and counts
+        and all(type(count) is int and count >= 0 for count in counts.values())
         and sum(counts.values()) > 0
         and "capableListeners=0, vanillaListeners=1, listenerStats=0" in text
         and "Artifact-free vanilla client remained connected" in text
         and "Artifact-free vanilla client sent player-originated chat" in text
         and "Artifact-free vanilla client reconnected and completed a second clean lifecycle" in text
         and "Plex request count remained unchanged" in text
+        and not process_mentions(output)
+        and not port_listening(int(runtime["port"]))
     )
 
 
