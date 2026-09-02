@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+import hashlib
 import importlib.util
 import json
 import os
@@ -76,7 +77,11 @@ def process_mentions(path: Path) -> bool:
     return False
 
 
-def accepted_evidence(output: Path, runtime: dict[str, Any]) -> bool:
+def accepted_evidence(
+    output: Path,
+    runtime: dict[str, Any],
+    connected_seconds: int = 10,
+) -> bool:
     label = runtime["name"]
     minecraft = runtime["minecraft"]
     evidence = output / f"{label}.vanilla-client.evidence.txt"
@@ -90,7 +95,11 @@ def accepted_evidence(output: Path, runtime: dict[str, Any]) -> bool:
         value = json.loads(attestation.read_text("utf-8"))
     except (OSError, json.JSONDecodeError):
         return False
+    if not isinstance(value, dict):
+        return False
     details = value.get("runtime", {})
+    if not isinstance(details, dict):
+        return False
     counts = details.get("artifactSourceCounts")
     version = release_tuple(minecraft)
     if version is None:
@@ -104,6 +113,8 @@ def accepted_evidence(output: Path, runtime: dict[str, Any]) -> bool:
     ).resolve()
     component_uids = value.get("componentUids")
     client_sha1 = details.get("clientJarSha1")
+    instance_directory = value.get("instanceDirectory")
+    game_directory = value.get("gameDirectory")
     return (
         value.get("schemaVersion") == 1
         and value.get("launcher") == "Direct Mojang client from verified Prism caches"
@@ -113,8 +124,10 @@ def accepted_evidence(output: Path, runtime: dict[str, Any]) -> bool:
         and value.get("mods") == []
         and value.get("accountMode") == "direct-offline"
         and value.get("offlineUsername") == "PureVanilla"
-        and Path(value.get("instanceDirectory", "")).resolve() == expected_instance
-        and Path(value.get("gameDirectory", "")).resolve() == expected_instance / "minecraft"
+        and isinstance(instance_directory, str)
+        and Path(instance_directory).resolve() == expected_instance
+        and isinstance(game_directory, str)
+        and Path(game_directory).resolve() == expected_instance / "minecraft"
         and details.get("allArtifactSha1Verified") is True
         and details.get("allArtifactSha1AndSizeVerified") is True
         and details.get("sharedCacheMutated") is False
@@ -128,7 +141,7 @@ def accepted_evidence(output: Path, runtime: dict[str, Any]) -> bool:
         and all(type(count) is int and count >= 0 for count in counts.values())
         and sum(counts.values()) > 0
         and "capableListeners=0, vanillaListeners=1, listenerStats=0" in text
-        and "Artifact-free vanilla client remained connected" in text
+        and f"Artifact-free vanilla client remained connected for {connected_seconds} seconds." in text
         and "Artifact-free vanilla client sent player-originated chat" in text
         and "Artifact-free vanilla client reconnected and completed a second clean lifecycle" in text
         and "Plex request count remained unchanged" in text
@@ -189,6 +202,8 @@ def run(args: argparse.Namespace) -> int:
         "schemaVersion": 1,
         "startedAt": datetime.now(timezone.utc).isoformat(),
         "manifest": str(args.manifest),
+        "manifestSha256": hashlib.sha256(args.manifest.read_bytes()).hexdigest(),
+        "connectedSeconds": args.connected_seconds,
         "selected": [runtime["name"] for runtime in runtimes],
         "accepted": [],
         "resumed": [],
@@ -201,7 +216,7 @@ def run(args: argparse.Namespace) -> int:
         for index, runtime in enumerate(runtimes, start=1):
             label = runtime["name"]
             output = args.output_root / label
-            if args.resume and accepted_evidence(output, runtime):
+            if args.resume and accepted_evidence(output, runtime, args.connected_seconds):
                 summary["resumed"].append(label)
                 print(f"VANILLA_MATRIX_RESUME {index}/{len(runtimes)} {label}", flush=True)
                 continue
@@ -223,13 +238,14 @@ def run(args: argparse.Namespace) -> int:
                 cwd=args.gate_script.resolve().parent.parent,
                 env=environment,
             )
-            if exit_code == 0 and accepted_evidence(output, runtime):
+            accepted = accepted_evidence(output, runtime, args.connected_seconds)
+            if exit_code == 0 and accepted:
                 summary["accepted"].append(label)
                 continue
             failure = {
                 "runtime": label,
                 "exitCode": exit_code,
-                "acceptedEvidence": accepted_evidence(output, runtime),
+                "acceptedEvidence": accepted,
             }
             summary["failures"].append(failure)
             if not args.continue_on_error:

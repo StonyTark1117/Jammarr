@@ -89,6 +89,7 @@ class VanillaClientMatrixTest(unittest.TestCase):
                 MATRIX, "port_listening", return_value=False
             ):
                 self.assertTrue(MATRIX.accepted_evidence(output, runtime))
+                self.assertFalse(MATRIX.accepted_evidence(output, runtime, 30))
             with mock.patch.object(MATRIX, "process_mentions", return_value=True), mock.patch.object(
                 MATRIX, "port_listening", return_value=False
             ):
@@ -122,6 +123,23 @@ class VanillaClientMatrixTest(unittest.TestCase):
             with mock.patch.object(MATRIX, "process_mentions", return_value=False), mock.patch.object(
                 MATRIX, "port_listening", return_value=False
             ):
+                self.assertFalse(MATRIX.accepted_evidence(output, runtime))
+
+    def test_resume_rejects_malformed_attestation_shapes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            runtime = {"name": "1.20.1-fabric", "minecraft": "1.20.1", "port": 26000}
+            instance = output / (
+                "1.20.1-fabric.vanilla-client.prism/instances/"
+                "jammarr-vanilla-1.20.1"
+            )
+            instance.mkdir(parents=True)
+            (output / "1.20.1-fabric.vanilla-client.evidence.txt").write_text(
+                "not sufficient\n", encoding="utf-8"
+            )
+            attestation = instance / "vanilla-attestation.json"
+            for value in ([], {"runtime": []}, {"runtime": {}, "instanceDirectory": None}):
+                attestation.write_text(json.dumps(value), encoding="utf-8")
                 self.assertFalse(MATRIX.accepted_evidence(output, runtime))
 
     def test_run_gate_uses_isolated_session_and_returns_status(self) -> None:
