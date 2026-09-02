@@ -16,6 +16,7 @@ final class PcmAudioStream implements AudioStream {
     private int remainderOffset;
     private int acceptanceReads;
     private RotatingPcmTrace acceptancePcmTrace;
+    private final PcmSubmissionTracker submissions = new PcmSubmissionTracker();
 
     PcmAudioStream(StreamingMp3Decoder decoder) {
         this.decoder = decoder;
@@ -40,6 +41,7 @@ final class PcmAudioStream implements AudioStream {
             return null;
         }
         output.flip();
+        submissions.submitted(output.remaining(), getFormat().getFrameSize());
         if (acceptanceReads == 0) AudioTimingTrace.record("pcm_drained", "bytes", output.remaining(),
                 "bufferedMs", decoder.bufferedMillis());
         if (ProtocolLimits.audioProbeEnabled() && acceptanceReads++ < 12) {
@@ -47,6 +49,10 @@ final class PcmAudioStream implements AudioStream {
                     requested, output.remaining(), decoder.finished(), decoder.bufferedMillis());
         }
         return output;
+    }
+
+    PcmSubmissionTracker.Snapshot submissionSnapshot(int queuedBuffers) {
+        return submissions.snapshot(queuedBuffers);
     }
 
     private static RotatingPcmTrace openAcceptancePcmTrace() {

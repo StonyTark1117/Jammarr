@@ -29,6 +29,10 @@ public final class JammarrAudioPlayer {
     private static final long START_BUFFER_MS = 2_000;
     private static final long START_ALIGNMENT_TOLERANCE_MS = 2;
     private static final long DRIFT_REBUFFER_MS = 500;
+    private static final long BACKEND_DRIFT_REBUFFER_MS = 40;
+    private static final long BACKEND_PROBE_INTERVAL_MS = 500;
+    private static final int BACKEND_DRIFT_REQUIRED_SAMPLES = 2;
+    private static final long MAX_BACKEND_LEAD_MS = 1_000;
     private static final long UNDERRUN_GRACE_MS = 5_000;
     private static final long MISSING_MANIFEST_RETRY_MS = 2_000;
     private static final int MAX_RECOVERY_ATTEMPTS = 3;
@@ -39,6 +43,18 @@ public final class JammarrAudioPlayer {
     private ChunkWindowTracker window;
     private int chunksPerRequest = stonytark.jammarr.core.protocol.ProtocolCapabilities.CHUNKS_PER_REQUEST;
     private volatile ChannelAccess.ChannelHandle channel;
+    private volatile PcmAudioStream pcmStream;
+    private volatile BackendPosition backendPosition;
+    private volatile boolean backendProbePending;
+    private volatile long backendProbeGeneration;
+    private volatile boolean backendCalibrating;
+    private long backendCalibrationDeadlineMs;
+    private long backendProbeRequestedMs;
+    private BackendPosition lastEvaluatedBackendPosition;
+    private final BackendDriftGuard backendDrift = new BackendDriftGuard(
+            BACKEND_DRIFT_REBUFFER_MS, BACKEND_DRIFT_REQUIRED_SAMPLES);
+    private volatile long backendLeadCompensationMs;
+    private long lastBackendLogMs;
     private long firstChunkStartMs = -1;
     private long channelStartedLocalMs;
     private long channelStartedPositionMs;
@@ -160,7 +176,13 @@ public final class JammarrAudioPlayer {
             startChannel(now);
         }
         if (channel != null) {
-            float volume = JammarrSettings.enabled() ? (float)(JammarrSettings.volume() * minecraft.options.getSoundSourceVolume(SoundSource.MUSIC)) : 0;
+            if (backendCalibrating && now >= backendCalibrationDeadlineMs) {
+                backendCalibrating = false;
+                appliedVolume = Float.NaN;
+                Jammarr.LOGGER.debug("Jammarr backend clock unavailable during muted startup calibration");
+            }
+            float volume = JammarrSettings.enabled() && !backendCalibrating
+                    ? (float)(JammarrSettings.volume() * minecraft.options.getSoundSourceVolume(SoundSource.MUSIC)) : 0;
             if (Float.compare(volume, appliedVolume) != 0) {
                 appliedVolume = volume;
                 channel.execute(c -> {
@@ -188,6 +210,14 @@ public final class JammarrAudioPlayer {
                 }
                 else stop();
                 return;
+            }
+            if (!manifest.paused()) {
+                scheduleBackendProbe(now);
+                BackendPosition measured = backendPosition;
+                if (measured != null && measured != lastEvaluatedBackendPosition) {
+                    lastEvaluatedBackendPosition = measured;
+                    if (evaluateBackendPosition(measured)) return;
+                }
             }
             if (!manifest.paused() && now - lastCorrectionMs >= 2_000) {
                 long estimatedPosition = channelStartedPositionMs + Math.max(0, now - channelStartedLocalMs);
@@ -226,7 +256,7 @@ public final class JammarrAudioPlayer {
         if (manifest.paused()) return AudioPlaybackState.PAUSED;
         if (recovering) return AudioPlaybackState.RECOVERING;
         if (decoder != null && decoder.failure() != null && decoder.format() == null) return AudioPlaybackState.ERROR;
-        return started ? AudioPlaybackState.PLAYING : AudioPlaybackState.BUFFERING;
+        return started && !backendCalibrating ? AudioPlaybackState.PLAYING : AudioPlaybackState.BUFFERING;
     }
     public String status() {
         return switch (state()) {
@@ -265,6 +295,7 @@ public final class JammarrAudioPlayer {
         UUID startingSession = manifest.sessionId();
         long startingPosition = Math.max(0, firstChunkStartMs) + startingDecoder.initialPcmDelayMillis();
         long startingEpochMs = manifest.startedAtEpochMs();
+        long retainedBackendLeadMs = backendLeadCompensationMs;
         ChannelAccess access = channelAccess(Minecraft.getInstance().getSoundManager());
         access.createHandle(Library.Pool.STREAMING).whenComplete((handle, error) -> {
             if (error != null || handle == null) {
@@ -273,8 +304,12 @@ public final class JammarrAudioPlayer {
             }
             handle.execute(value -> {
                 long readyNow = System.currentTimeMillis();
+                long measuredDeviceLatencyMs = OpenAlPlaybackClock.deviceLatencyMillis();
+                long startingBackendLeadMs = Math.min(MAX_BACKEND_LEAD_MS,
+                        measuredDeviceLatencyMs >= 0 ? measuredDeviceLatencyMs : retainedBackendLeadMs);
                 long requiredSkipMs = Math.max(0,
-                        clock.toServerTime(readyNow) - startingEpochMs - startingPosition);
+                        clock.toServerTime(readyNow) - startingEpochMs - startingPosition
+                                + startingBackendLeadMs);
                 long bufferedBeforeSkipMs = startingDecoder.bufferedMillis();
                 long skippedMillis = startingDecoder.discardMillis(requiredSkipMs);
                 if (!PlaybackStartPolicy.caughtUp(requiredSkipMs, skippedMillis,
@@ -288,22 +323,28 @@ public final class JammarrAudioPlayer {
                     if (current) requestRebuffer("late audio channel startup");
                     return;
                 }
+                PcmAudioStream startingStream = new PcmAudioStream(startingDecoder);
                 boolean published = channelStarts.complete(startToken, () -> {
                     long actualPosition = startingPosition + skippedMillis;
                     AudioTimingTrace.record("channel_started", "positionMs", actualPosition,
                             "scheduledLocalMs", now, "readyLocalMs", readyNow,
                             "requiredSkipMs", requiredSkipMs, "skippedMs", skippedMillis,
+                            "backendLeadMs", startingBackendLeadMs,
                             "decoderWarmupMs", startingDecoder.initialPcmDelayMillis(),
                             "session", startingSession);
                     // Recovery attempts are consecutive failures, not a lifetime budget
                     // for the current track. Reaching a working OpenAL channel proves the
                     // previous attempt succeeded and restores the normal retry allowance.
                     recoveryAttempts = 0;
+                    backendLeadCompensationMs = startingBackendLeadMs;
+                    backendCalibrating = startingBackendLeadMs <= 0;
+                    backendCalibrationDeadlineMs = readyNow + 1_500;
                     channelStartedLocalMs = readyNow;
                     channelStartedPositionMs = actualPosition;
                     lastCorrectionMs = readyNow;
                     value.disableAttenuation(); value.setRelative(true); value.setVolume(0);
-                    value.attachBufferStream(new PcmAudioStream(startingDecoder)); value.play();
+                    pcmStream = startingStream;
+                    value.attachBufferStream(startingStream); value.play();
                     // Publish only after the backend initialization command has run,
                     // while the start guard is still held. Until this point the handle
                     // can legitimately report stopped and must not be polled by tick().
@@ -311,7 +352,10 @@ public final class JammarrAudioPlayer {
                     channel = handle;
                     started = true;
                 });
-                if (!published) value.stop();
+                if (!published) {
+                    startingStream.close();
+                    value.stop();
+                }
             });
         });
     }
@@ -334,6 +378,66 @@ public final class JammarrAudioPlayer {
             }
         }
         throw new IllegalStateException("Minecraft audio field is missing: " + type.getName());
+    }
+
+    private void scheduleBackendProbe(long now) {
+        if (now - backendProbeRequestedMs < BACKEND_PROBE_INTERVAL_MS) return;
+        if (backendProbePending && now - backendProbeRequestedMs < 3_000) return;
+        ChannelAccess.ChannelHandle activeChannel = channel;
+        PcmAudioStream activeStream = pcmStream;
+        if (activeChannel == null || activeStream == null) return;
+        backendProbePending = true;
+        backendProbeRequestedMs = now;
+        long probe = ++backendProbeGeneration;
+        try {
+            activeChannel.execute(value -> {
+                try {
+                    OpenAlPlaybackClock.Position measured = OpenAlPlaybackClock.sample(value, activeStream);
+                    if (measured != null && channel == activeChannel && pcmStream == activeStream) {
+                        backendPosition = new BackendPosition(activeStream, System.currentTimeMillis(), measured);
+                    }
+                } catch (RuntimeException unavailable) {
+                    if (ProtocolLimits.audioProbeEnabled()) {
+                        Jammarr.LOGGER.debug("Acceptance backend clock sample unavailable", unavailable);
+                    }
+                } finally {
+                    if (backendProbeGeneration == probe) backendProbePending = false;
+                }
+            });
+        } catch (RuntimeException unavailable) {
+            if (backendProbeGeneration == probe) backendProbePending = false;
+        }
+    }
+
+    private boolean evaluateBackendPosition(BackendPosition measured) {
+        if (measured.stream != pcmStream || manifest == null) return false;
+        backendLeadCompensationMs = Math.min(MAX_BACKEND_LEAD_MS,
+                measured.position.deviceLatencyMillis());
+        long estimatedPosition = channelStartedPositionMs + measured.position.playedMillis();
+        long authoritativePosition = Math.max(0,
+                clock.toServerTime(measured.observedAtMs) - manifest.startedAtEpochMs());
+        long drift = estimatedPosition - authoritativePosition;
+        if (ProtocolLimits.audioProbeEnabled()
+                && (lastBackendLogMs == 0 || measured.observedAtMs - lastBackendLogMs >= 5_000
+                || Math.abs(drift) > BACKEND_DRIFT_REBUFFER_MS)) {
+            lastBackendLogMs = measured.observedAtMs;
+            Jammarr.LOGGER.info("Acceptance backend clock: playedMs={} latencyMs={} estimatedMs={} authoritativeMs={} driftMs={}",
+                    measured.position.playedMillis(), measured.position.deviceLatencyMillis(),
+                    estimatedPosition, authoritativePosition, drift);
+        }
+        if (backendCalibrating) {
+            backendCalibrating = false;
+            if (measured.position.deviceLatencyMillis() > 0) {
+                requestRebuffer("backend latency calibration");
+                return true;
+            }
+            appliedVolume = Float.NaN;
+        }
+        if (!backendDrift.observe(drift)) return false;
+        Jammarr.LOGGER.warn("Jammarr detected sustained backend playback drift: driftMs={} latencyMs={}",
+                drift, measured.position.deviceLatencyMillis());
+        requestRebuffer("backend playback drift");
+        return true;
     }
 
     private void requestRebuffer(String reason) {
@@ -367,8 +471,12 @@ public final class JammarrAudioPlayer {
 
     public void acceptanceClockDrift() {
         if (!ProtocolLimits.audioProbeEnabled() || manifest == null || !started) return;
-        channelStartedLocalMs -= DRIFT_REBUFFER_MS + 2_000;
-        lastCorrectionMs = 0;
+        // Shift the common channel position so a capable OpenAL backend proves
+        // the device-clock path first; the wall-clock policy remains the
+        // bounded fallback when AL_SOFT_source_latency is unavailable.
+        channelStartedPositionMs += DRIFT_REBUFFER_MS + 2_000;
+        lastCorrectionMs = System.currentTimeMillis();
+        backendDrift.reset();
         Jammarr.LOGGER.info("Acceptance clock drift injected beyond {} ms", DRIFT_REBUFFER_MS);
     }
 
@@ -404,10 +512,33 @@ public final class JammarrAudioPlayer {
         }
         if (decoder != null) { decoder.close(); decoder = null; }
         window = null;
+        pcmStream = null;
+        backendPosition = null;
+        lastEvaluatedBackendPosition = null;
+        backendProbePending = false;
+        backendProbeRequestedMs = 0;
+        backendProbeGeneration++;
+        backendCalibrating = false;
+        backendCalibrationDeadlineMs = 0;
+        backendDrift.reset();
+        lastBackendLogMs = 0;
         started = false;
         appliedVolume = Float.NaN;
         firstChunkStartMs = -1;
         channelStartedLocalMs = 0;
         channelStartedPositionMs = 0;
+    }
+
+    private static final class BackendPosition {
+        private final PcmAudioStream stream;
+        private final long observedAtMs;
+        private final OpenAlPlaybackClock.Position position;
+
+        private BackendPosition(PcmAudioStream stream, long observedAtMs,
+                                OpenAlPlaybackClock.Position position) {
+            this.stream = stream;
+            this.observedAtMs = observedAtMs;
+            this.position = position;
+        }
     }
 }
