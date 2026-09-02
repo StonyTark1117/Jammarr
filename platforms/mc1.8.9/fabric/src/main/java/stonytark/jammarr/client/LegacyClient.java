@@ -41,7 +41,7 @@ public final class LegacyClient implements ClientModInitializer {
                     });
                 });
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) ->
-                LegacyNetwork.clientConnected(ClientPlayNetworking.canSend(LegacyNetwork.CHANNEL)));
+                LegacyNetwork.clientConnected(false));
         C2SPlayChannelEvents.REGISTER.register((handler, sender, client, channels) -> {
             if (channels.contains(LegacyNetwork.CHANNEL)) LegacyNetwork.clientConnected(true);
         });
