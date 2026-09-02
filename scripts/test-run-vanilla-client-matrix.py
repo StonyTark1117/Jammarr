@@ -43,7 +43,12 @@ class VanillaClientMatrixTest(unittest.TestCase):
     def test_resume_requires_complete_attested_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary)
-            runtime = {"name": "1.20.1-fabric", "minecraft": "1.20.1", "port": 26000}
+            runtime = {
+                "name": "1.20.1-fabric",
+                "minecraft": "1.20.1",
+                "port": 26000,
+                "runtimeJava": 17,
+            }
             instance = output / (
                 "1.20.1-fabric.vanilla-client.prism/instances/"
                 "jammarr-vanilla-1.20.1"
@@ -63,6 +68,7 @@ class VanillaClientMatrixTest(unittest.TestCase):
                         "instanceDirectory": str(instance.resolve()),
                         "gameDirectory": str((instance / "minecraft").resolve()),
                         "runtime": {
+                            "javaMajor": 17,
                             "clientJarSha1": "1" * 40,
                             "allArtifactSha1Verified": True,
                             "allArtifactSha1AndSizeVerified": True,
@@ -90,6 +96,16 @@ class VanillaClientMatrixTest(unittest.TestCase):
             ):
                 self.assertTrue(MATRIX.accepted_evidence(output, runtime))
                 self.assertFalse(MATRIX.accepted_evidence(output, runtime, 30))
+                value = json.loads((instance / "vanilla-attestation.json").read_text("utf-8"))
+                value["runtime"]["javaMajor"] = 21
+                (instance / "vanilla-attestation.json").write_text(json.dumps(value), "utf-8")
+                self.assertFalse(MATRIX.accepted_evidence(output, runtime))
+                value["runtime"]["javaMajor"] = 17
+                value["componentUids"] = ["org.lwjgl", "net.minecraft"]
+                (instance / "vanilla-attestation.json").write_text(json.dumps(value), "utf-8")
+                self.assertFalse(MATRIX.accepted_evidence(output, runtime))
+                value["componentUids"] = ["org.lwjgl3", "net.minecraft"]
+                (instance / "vanilla-attestation.json").write_text(json.dumps(value), "utf-8")
             with mock.patch.object(MATRIX, "process_mentions", return_value=True), mock.patch.object(
                 MATRIX, "port_listening", return_value=False
             ):
@@ -128,7 +144,12 @@ class VanillaClientMatrixTest(unittest.TestCase):
     def test_resume_rejects_malformed_attestation_shapes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary)
-            runtime = {"name": "1.20.1-fabric", "minecraft": "1.20.1", "port": 26000}
+            runtime = {
+                "name": "1.20.1-fabric",
+                "minecraft": "1.20.1",
+                "port": 26000,
+                "runtimeJava": 17,
+            }
             instance = output / (
                 "1.20.1-fabric.vanilla-client.prism/instances/"
                 "jammarr-vanilla-1.20.1"

@@ -111,6 +111,11 @@ def accepted_evidence(
         / f"{label}.vanilla-client.prism/instances"
         / f"jammarr-vanilla-{minecraft}"
     ).resolve()
+    expected_component_uids = (
+        ["org.lwjgl", "net.minecraft"]
+        if version < (1, 13, 0)
+        else ["org.lwjgl3", "net.minecraft"]
+    )
     component_uids = value.get("componentUids")
     client_sha1 = details.get("clientJarSha1")
     instance_directory = value.get("instanceDirectory")
@@ -119,7 +124,7 @@ def accepted_evidence(
         value.get("schemaVersion") == 1
         and value.get("launcher") == "Direct Mojang client from verified Prism caches"
         and value.get("minecraftVersion") == minecraft
-        and component_uids in (["org.lwjgl", "net.minecraft"], ["org.lwjgl3", "net.minecraft"])
+        and component_uids == expected_component_uids
         and value.get("jammarrComponentPresent") is False
         and value.get("mods") == []
         and value.get("accountMode") == "direct-offline"
@@ -131,6 +136,7 @@ def accepted_evidence(
         and details.get("allArtifactSha1Verified") is True
         and details.get("allArtifactSha1AndSizeVerified") is True
         and details.get("sharedCacheMutated") is False
+        and details.get("javaMajor") == runtime["runtimeJava"]
         and details.get("connectionTarget") == f"127.0.0.1:{runtime['port']}"
         and details.get("connectionMode") == expected_mode
         and details.get("offlinePrivilegesStub") is expected_stub
