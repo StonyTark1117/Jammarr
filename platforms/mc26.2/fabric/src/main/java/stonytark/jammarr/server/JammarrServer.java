@@ -25,10 +25,7 @@ public final class JammarrServer {
 
     public static JammarrServer instance() { return INSTANCE; }
     public static void register() {
-        ServerLifecycleEvents.SERVER_STARTED.register(server -> {
-            JammarrNetwork.activeServer(server);
-            INSTANCE.ticks = 0;
-            INSTANCE.capabilities.clear();
+        ServerLifecycleEvents.SERVER_STARTING.register(server -> {
             try {
                 Path configDirectory = FabricLoader.getInstance().getConfigDir();
                 Path canonical = server.getWorldPath(LevelResource.ROOT).resolve("serverconfig")
@@ -39,8 +36,14 @@ public final class JammarrServer {
                 if (config.importedFrom() != null) {
                     Jammarr.LOGGER.info("Imported legacy Jammarr server settings from {}", config.importedFrom());
                 }
-                INSTANCE.player = new GlobalPlayer(server, INSTANCE::accepted);
             }
+            catch (Exception error) { throw new IllegalStateException("Unable to initialize Jammarr", error); }
+        });
+        ServerLifecycleEvents.SERVER_STARTED.register(server -> {
+            JammarrNetwork.activeServer(server);
+            INSTANCE.ticks = 0;
+            INSTANCE.capabilities.clear();
+            try { INSTANCE.player = new GlobalPlayer(server, INSTANCE::accepted); }
             catch (Exception error) { throw new IllegalStateException("Unable to initialize Jammarr", error); }
         });
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
