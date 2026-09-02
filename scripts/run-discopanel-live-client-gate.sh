@@ -584,8 +584,11 @@ start_client() {
   local game_dir="$session_dir/client-$role"
   local console="$session_dir/client-$role.console.log"
   local control="$session_dir/client-$role.control"
-  local alsoft_drivers=pulse pulse_sink=$sink
+  local alsoft_drivers=alsa pulse_sink=$sink
   local gradle_jvmargs="-Xmx${client_heap_mb}m -XX:MaxMetaspaceSize=512m"
+  if [[ "$audio_profile" == legacy-openal ]]; then
+    alsoft_drivers=pulse
+  fi
   mkdir -p "$game_dir/config" "$game_dir/pcm-trace"
   : > "$control"
   printf '%s\n' \
@@ -614,11 +617,11 @@ start_client() {
     'enabled = true' 'volume = 1.0' > "$game_dir/config/jammarr-client.toml"
   printf '%s\n' '[general]' 'frequency = 48000' 'period_size = 1024' 'periods = 8' \
     > "$game_dir/alsoft.conf"
-  # OpenAL Soft talks directly to the private Pulse server. Routing it through
-  # ALSA's Pulse plugin adds another independently clocked bridge that can
-  # insert or discard rendered frames even while Jammarr's PCM feed is intact.
-  # Keep an ALSA definition for older libraries that inspect the default
-  # device during startup, but the selected OpenAL backend is Pulse.
+  # Modern OpenAL stays on its ALSA backend, but ALSA reaches the private
+  # Pulse null sink through the pulse plugin. Addressing a Pulse-created sink
+  # as a native PipeWire playback_node can initialize successfully and then
+  # lose the stream with `available update failed: Broken pipe` before music
+  # starts. Legacy OpenAL continues to use its proven native Pulse backend.
   printf '%s\n' \
     'pcm.!default {' \
     '  type pulse' \

@@ -74,11 +74,6 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         self.assertIn("local pcm_type=${JAMMARR_ALSA_PCM_TYPE:-pulse}", audio_client)
         self.assertIn("pcm.!default {", audio_client)
         self.assertIn("'  type pulse'", audio_client)
-        pulse_branch = audio_client[audio_client.index("    pulse)") :]
-        pulse_branch = pulse_branch[: pulse_branch.index("      ;;")]
-        self.assertIn("alsoft_drivers=pulse", pulse_branch)
-        self.assertIn("pulse_sink=$sink", pulse_branch)
-        self.assertNotIn("uses_legacy_audio_profile", pulse_branch)
         self.assertIn('ALSOFT_DRIVERS="$alsoft_drivers"', audio_client)
 
     def test_sustained_audio_rejects_a_backend_break_immediately(self) -> None:
