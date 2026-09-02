@@ -285,7 +285,7 @@ def parse_args() -> argparse.Namespace:
         type=output_suffix,
         help=(
             "append a safe candidate identifier to both canonical output roots; "
-            "use this for fresh commit-specific release evidence"
+            "use this to isolate one qualification generation"
         ),
     )
     parser.add_argument("--dry-run", action="store_true")

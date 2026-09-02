@@ -54,6 +54,28 @@ class VanillaClientMatrixTest(unittest.TestCase):
         )
         self.assertEqual(MATRIX.resource_lock_environment(fabric, False), {})
 
+    def test_release_attestation_reuses_only_unaffected_prior_rows(self) -> None:
+        prior_immediate = {
+            "connectionDelaySeconds": 0,
+        }
+        prior_fixed_delay = {
+            "connectionDelaySeconds": 12,
+        }
+        current_ready = {
+            "connectionReleaseCondition": "initial-resource-atlas-ready",
+            "connectionReadinessTimeoutSeconds": 120,
+            "connectionReleasedOnReadiness": True,
+        }
+        self.assertTrue(
+            MATRIX.valid_connection_release_attestation(prior_immediate, False)
+        )
+        self.assertFalse(
+            MATRIX.valid_connection_release_attestation(prior_fixed_delay, True)
+        )
+        self.assertTrue(
+            MATRIX.valid_connection_release_attestation(current_ready, True)
+        )
+
     def test_resume_requires_complete_attested_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary)
@@ -90,7 +112,9 @@ class VanillaClientMatrixTest(unittest.TestCase):
                             "connectionTarget": "127.0.0.1:26000",
                             "connectionMode": "quick-play-multiplayer",
                             "deferredInitialConnection": False,
-                            "connectionDelaySeconds": 0,
+                            "connectionReleaseCondition": "immediate",
+                            "connectionReadinessTimeoutSeconds": 0,
+                            "connectionReleasedOnReadiness": False,
                             "offlinePrivilegesStub": False,
                             "artifactSourceCounts": {"shared-cache": 4},
                         },

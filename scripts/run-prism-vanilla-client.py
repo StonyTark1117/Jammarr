@@ -34,7 +34,8 @@ import zipfile
 
 SAFE_VALUE = re.compile(r"^[A-Za-z0-9._-]+$")
 SAFE_CHAT_MESSAGE = re.compile(r"^[A-Za-z0-9 ._-]+$")
-DEFERRED_CONNECTION_SECONDS = 12
+INITIAL_RESOURCE_READY_MARKER = "minecraft:textures/atlas/mob_effects.png-atlas"
+INITIAL_RESOURCE_READY_TIMEOUT_SECONDS = 120
 
 
 class OfflinePrivilegesHandler(BaseHTTPRequestHandler):
@@ -73,7 +74,8 @@ class DelayedConnectionRelay:
     chunks before ModelManager has applied its baked registry, crashing an
     otherwise unmodified client while tessellating an ordinary block. The
     official client still owns the complete protocol connection; this relay
-    only delays opening the upstream loopback socket for a bounded interval.
+    only delays opening the upstream loopback socket until the client records
+    completion of its initial resource-atlas load.
     """
 
     def __init__(self, target: str) -> None:
@@ -88,7 +90,6 @@ class DelayedConnectionRelay:
         self.listener.settimeout(0.2)
         self.stop_event = threading.Event()
         self.release_event = threading.Event()
-        self.release_at = 0.0
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.sockets: list[socket.socket] = []
         self.error: BaseException | None = None
@@ -101,8 +102,7 @@ class DelayedConnectionRelay:
         self.thread.start()
         return self
 
-    def release_after(self, seconds: int) -> None:
-        self.release_at = time.monotonic() + seconds
+    def release(self) -> None:
         self.release_event.set()
 
     def _run(self) -> None:
@@ -118,11 +118,6 @@ class DelayedConnectionRelay:
             self.sockets.append(client)
             while not self.stop_event.is_set() and not self.release_event.wait(0.1):
                 pass
-            while not self.stop_event.is_set():
-                remaining = self.release_at - time.monotonic()
-                if remaining <= 0:
-                    break
-                self.stop_event.wait(min(remaining, 0.1))
             if self.stop_event.is_set():
                 return
             upstream = socket.create_connection(self.target, timeout=10)
@@ -150,6 +145,32 @@ class DelayedConnectionRelay:
             connection.close()
         self.listener.close()
         self.thread.join(timeout=5)
+
+
+def wait_for_initial_resources(
+    log_path: Path,
+    process: subprocess.Popen[bytes],
+    timeout_seconds: int = INITIAL_RESOURCE_READY_TIMEOUT_SECONDS,
+) -> bool:
+    """Wait for the final initial atlas marker before allowing login.
+
+    The disposable game directory's prior latest.log is removed before launch,
+    so this marker can only belong to the current exact-client process. A
+    timeout or early JVM exit fails closed and leaves the relay disconnected.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        try:
+            if INITIAL_RESOURCE_READY_MARKER in log_path.read_text(
+                encoding="utf-8", errors="replace"
+            ):
+                return True
+        except FileNotFoundError:
+            pass
+        if process.poll() is not None:
+            return False
+        time.sleep(0.1)
+    return False
 
 
 @contextmanager
@@ -681,9 +702,13 @@ def main() -> int:
         )
         runtime_details["offlinePrivilegesStub"] = needs_privileges_stub
         runtime_details["deferredInitialConnection"] = needs_deferred_connection
-        runtime_details["connectionDelaySeconds"] = (
-            DEFERRED_CONNECTION_SECONDS if needs_deferred_connection else 0
+        runtime_details["connectionReleaseCondition"] = (
+            "initial-resource-atlas-ready" if needs_deferred_connection else "immediate"
         )
+        runtime_details["connectionReadinessTimeoutSeconds"] = (
+            INITIAL_RESOURCE_READY_TIMEOUT_SECONDS if needs_deferred_connection else 0
+        )
+        runtime_details["connectionReleasedOnReadiness"] = False
         with offline_privileges_service() if needs_privileges_stub else nullcontext(None) as services_host:
             if services_host is not None:
                 command[1:1] = [
@@ -695,9 +720,32 @@ def main() -> int:
             write_attestation(
                 instance_dir, game_dir, args.minecraft, components, args.username, runtime_details
             )
+            latest_log = game_dir / "logs/latest.log"
+            latest_log.unlink(missing_ok=True)
             process = subprocess.Popen(command, cwd=game_dir)
             if relay is not None:
-                relay.release_after(DEFERRED_CONNECTION_SECONDS)
+                if not wait_for_initial_resources(latest_log, process):
+                    print(
+                        "VANILLA_CONNECTION_RELEASE_FAILED "
+                        "reason=initial-resource-atlas-timeout-or-client-exit",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    if process.poll() is None:
+                        process.terminate()
+                        try:
+                            process.wait(timeout=10)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                            process.wait(timeout=10)
+                    return 1
+                relay.release()
+                runtime_details["connectionReleasedOnReadiness"] = True
+                print(
+                    "VANILLA_CONNECTION_RELEASED "
+                    "reason=initial-resource-atlas-ready",
+                    flush=True,
+                )
             chat_thread: threading.Thread | None = None
             shutdown_thread: threading.Thread | None = None
             if args.chat_trigger_file is not None and args.chat_message is not None:

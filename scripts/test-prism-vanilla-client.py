@@ -88,12 +88,37 @@ class PrismVanillaClientTest(unittest.TestCase):
                     with self.assertRaises(socket.timeout):
                         client.recv(5)
                     self.assertFalse(accepted.is_set())
-                    relay.release_after(0)
+                    relay.release()
                     self.assertEqual(client.recv(5), b"ready")
                     self.assertTrue(accepted.wait(1))
         finally:
             upstream.close()
             thread.join(timeout=2)
+
+    def test_initial_resource_wait_uses_current_atlas_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            latest_log = Path(temporary) / "latest.log"
+            latest_log.write_text(
+                "Created: 256x128x0 minecraft:textures/atlas/mob_effects.png-atlas\n",
+                encoding="utf-8",
+            )
+            process = mock.Mock()
+            process.poll.return_value = None
+            self.assertTrue(
+                CLIENT_HELPER.wait_for_initial_resources(
+                    latest_log, process, timeout_seconds=1
+                )
+            )
+
+    def test_initial_resource_wait_fails_closed_after_client_exit(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            process = mock.Mock()
+            process.poll.return_value = 1
+            self.assertFalse(
+                CLIENT_HELPER.wait_for_initial_resources(
+                    Path(temporary) / "latest.log", process, timeout_seconds=1
+                )
+            )
 
     def test_chat_trigger_targets_the_private_minecraft_window(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

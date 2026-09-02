@@ -87,6 +87,32 @@ def process_mentions(path: Path) -> bool:
     return False
 
 
+def valid_connection_release_attestation(
+    details: dict[str, Any], expected_deferred_connection: bool
+) -> bool:
+    if expected_deferred_connection:
+        return (
+            details.get("connectionReleaseCondition") == "initial-resource-atlas-ready"
+            and details.get("connectionReadinessTimeoutSeconds") == 120
+            and details.get("connectionReleasedOnReadiness") is True
+        )
+    current = (
+        details.get("connectionReleaseCondition") == "immediate"
+        and details.get("connectionReadinessTimeoutSeconds") == 0
+        and details.get("connectionReleasedOnReadiness") is False
+    )
+    # The readiness correction changes only the 1.16-through-1.19 relay path.
+    # Preserve already-qualified non-relay rows from the immediately preceding
+    # schema, while refusing its fixed-delay evidence for affected versions.
+    prior_non_relay = (
+        details.get("connectionDelaySeconds") == 0
+        and "connectionReleaseCondition" not in details
+        and "connectionReadinessTimeoutSeconds" not in details
+        and "connectionReleasedOnReadiness" not in details
+    )
+    return current or prior_non_relay
+
+
 def accepted_evidence(
     output: Path,
     runtime: dict[str, Any],
@@ -152,8 +178,7 @@ def accepted_evidence(
         and details.get("connectionMode") == expected_mode
         and details.get("offlinePrivilegesStub") is expected_stub
         and details.get("deferredInitialConnection") is expected_deferred_connection
-        and details.get("connectionDelaySeconds")
-        == (12 if expected_deferred_connection else 0)
+        and valid_connection_release_attestation(details, expected_deferred_connection)
         and isinstance(client_sha1, str)
         and re.fullmatch(r"[0-9a-f]{40}", client_sha1) is not None
         and isinstance(counts, dict)
