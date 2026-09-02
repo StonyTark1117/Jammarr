@@ -60,6 +60,13 @@ class UnmoddedServerClientMatrixTest(unittest.TestCase):
                         "minecraftVersion": "1.20.1",
                         "jammarrPresent": False,
                         "unmoddedVanillaServer": True,
+                        "officialMojangDownload": True,
+                        "source": "Official Mojang version manifest",
+                        "manifestUrl": "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json",
+                        "metadataUrl": "https://piston-meta.mojang.com/v1/packages/example/1.20.1.json",
+                        "serverUrl": "https://piston-data.mojang.com/v1/objects/"
+                        + hashlib.sha1(server.read_bytes()).hexdigest()
+                        + "/server.jar",
                         "serverJar": str(server),
                         "serverSize": server.stat().st_size,
                         "serverSha1": hashlib.sha1(server.read_bytes()).hexdigest(),
@@ -86,6 +93,31 @@ class UnmoddedServerClientMatrixTest(unittest.TestCase):
                 self.assertTrue(MATRIX.accepted_evidence(attempt, runtime))
                 server.write_bytes(b"corrupt")
                 self.assertFalse(MATRIX.accepted_evidence(attempt, runtime))
+
+    def test_beta_join_and_archival_provenance_are_accepted(self) -> None:
+        self.assertTrue(
+            MATRIX.server_joined(
+                "JammarrNoServer [/127.0.0.1:43100] logged in with entity id 7"
+            )
+        )
+        value = {
+            "officialMojangDownload": False,
+            **MATRIX.BETA_SERVER_PROVENANCE,
+        }
+        self.assertTrue(MATRIX.accepted_provenance(value, "b1.7.3"))
+        value["serverSha1"] = "0" * 40
+        self.assertFalse(MATRIX.accepted_provenance(value, "b1.7.3"))
+
+    def test_release_provenance_rejects_non_mojang_server_url(self) -> None:
+        value = {
+            "officialMojangDownload": True,
+            "source": "Official Mojang version manifest",
+            "manifestUrl": "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json",
+            "metadataUrl": "https://piston-meta.mojang.com/v1/packages/hash/1.20.1.json",
+            "serverUrl": "https://example.invalid/server.jar",
+            "serverSha1": "1" * 40,
+        }
+        self.assertFalse(MATRIX.accepted_provenance(value, "1.20.1"))
 
     def test_run_gate_is_isolated_and_waits_for_interrupt_cleanup(self) -> None:
         process = mock.Mock()

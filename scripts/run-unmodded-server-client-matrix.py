@@ -10,6 +10,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import socket
 import subprocess
@@ -22,6 +23,14 @@ SPEC = importlib.util.spec_from_file_location("jammarr_target_matrix", TARGET_MA
 assert SPEC and SPEC.loader
 target_matrix = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(target_matrix)
+
+BETA_SERVER_PROVENANCE = {
+    "source": "Pinned Babric/Betacraft archive of the vanilla Beta server",
+    "serverUrl": "https://files.betacraft.uk/server-archive/beta/b1.7.3.jar",
+    "serverSha1": "2f90dc1cb5ca7e9d71786801b307390a67fcf954",
+    "serverSize": 503100,
+    "provenanceUrl": "https://babric.github.io/manifest-polyfill/b1.7.3.json",
+}
 
 
 def select_runtimes(
@@ -65,6 +74,32 @@ def process_mentions(path: Path) -> bool:
     return False
 
 
+def server_joined(server_text: str, username: str = "JammarrNoServer") -> bool:
+    return f"{username} joined the game" in server_text or re.search(
+        rf"{re.escape(username)} \[/[^]]+\] logged in with entity id", server_text
+    ) is not None
+
+
+def accepted_provenance(value: dict[str, Any], minecraft: str) -> bool:
+    if minecraft == "b1.7.3":
+        return value.get("officialMojangDownload") is False and all(
+            value.get(key) == expected
+            for key, expected in BETA_SERVER_PROVENANCE.items()
+        )
+    server_sha1 = value.get("serverSha1")
+    return (
+        value.get("officialMojangDownload") is True
+        and value.get("source") == "Official Mojang version manifest"
+        and value.get("manifestUrl")
+        == "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
+        and isinstance(value.get("metadataUrl"), str)
+        and value["metadataUrl"].startswith("https://piston-meta.mojang.com/")
+        and isinstance(value.get("serverUrl"), str)
+        and value["serverUrl"]
+        == f"https://piston-data.mojang.com/v1/objects/{server_sha1}/server.jar"
+    )
+
+
 def accepted_evidence(attempt: Path, runtime: dict[str, Any]) -> bool:
     evidence = attempt / "gate.evidence.txt"
     attestation = attempt / "server-attestation.json"
@@ -87,7 +122,8 @@ def accepted_evidence(attempt: Path, runtime: dict[str, Any]) -> bool:
         and value.get("unmoddedVanillaServer") is True
         and server_size == value.get("serverSize")
         and server_sha1 == value.get("serverSha1")
-        and "JammarrNoServer joined the game" in server_text
+        and accepted_provenance(value, minecraft)
+        and server_joined(server_text)
         and "Acceptance Jammarr unsupported-server screen remained open" in client_text
         and "Modded client remained connected to the attested unmodded server" in text
         and "Attested unmodded server, modded client, private X server, and port cleaned up."
