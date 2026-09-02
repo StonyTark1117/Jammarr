@@ -825,6 +825,12 @@ run_vanilla_client() {
   local reconnect_evidence="$output_root/$label.${scenario}-reconnect.evidence.txt"
   local -a vanilla_audio_env=(ALSOFT_DRIVERS=null) interaction_args=()
 
+  # A failed or interrupted retry must not leave a prior success looking
+  # current. Matrix runs additionally isolate every execution in an immutable
+  # attempt directory, while direct gate reuse clears its scenario outputs.
+  rm -f -- "$attestation" "$evidence" "$diagnostics" "$post_diagnostics" \
+    "$chat_evidence" "$chat_trigger" "$shutdown_trigger" "$reconnect_evidence"
+
   # Artifact-free clients are not audio subjects. Route their otherwise normal
   # Minecraft sound engine through OpenAL Soft's null output so they cannot
   # touch the active desktop or the private graph measuring Jammarr clients.
@@ -839,7 +845,6 @@ run_vanilla_client() {
       echo "$label: exact vanilla chat acceptance requires xclip" >&2
       return 1
     fi
-    rm -f -- "$chat_trigger" "$chat_evidence"
     interaction_args+=(--chat-trigger-file "$chat_trigger" --chat-message "$chat_message")
   fi
 

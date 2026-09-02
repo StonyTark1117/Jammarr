@@ -76,6 +76,44 @@ class VanillaClientMatrixTest(unittest.TestCase):
             MATRIX.valid_connection_release_attestation(current_ready, True)
         )
 
+    def test_accepted_attempt_pointer_is_scoped_and_atomic(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "runtime"
+            attempt = output / "attempts/current"
+            attempt.mkdir(parents=True)
+            runtime = {"name": "1.20.1-fabric", "minecraft": "1.20.1"}
+            with mock.patch.object(MATRIX, "accepted_evidence", return_value=True):
+                MATRIX.write_accepted_attempt(output, attempt, runtime, 10)
+                self.assertEqual(
+                    MATRIX.resumable_evidence_root(output, runtime, 10),
+                    attempt.resolve(),
+                )
+            pointer = output / "accepted-attempt.json"
+            value = json.loads(pointer.read_text("utf-8"))
+            value["evidenceRoot"] = "../../outside"
+            pointer.write_text(json.dumps(value), encoding="utf-8")
+            with mock.patch.object(MATRIX, "accepted_evidence", return_value=True):
+                self.assertIsNone(
+                    MATRIX.resumable_evidence_root(output, runtime, 10)
+                )
+
+    def test_failed_attempt_cannot_replace_prior_accepted_pointer(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "runtime"
+            accepted = output / "attempts/accepted"
+            failed = output / "attempts/failed"
+            accepted.mkdir(parents=True)
+            failed.mkdir(parents=True)
+            runtime = {"name": "1.18.2-fabric", "minecraft": "1.18.2"}
+            MATRIX.write_accepted_attempt(output, accepted, runtime, 10)
+            pointer_before = (output / "accepted-attempt.json").read_bytes()
+            # A failed gate remains diagnostic output only; promotion is never
+            # called for it and therefore cannot alter the resume pointer.
+            (failed / "partial.log").write_text("failed\n", encoding="utf-8")
+            self.assertEqual(
+                (output / "accepted-attempt.json").read_bytes(), pointer_before
+            )
+
     def test_resume_requires_complete_attested_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary)
@@ -124,6 +162,8 @@ class VanillaClientMatrixTest(unittest.TestCase):
             )
             evidence = output / "1.20.1-fabric.vanilla-client.evidence.txt"
             evidence.write_text(
+                '"connectionReleaseCondition": "immediate"\n'
+                '"connectionReadinessTimeoutSeconds": 0\n'
                 "capableListeners=0, vanillaListeners=1, listenerStats=0\n"
                 "Artifact-free vanilla client remained connected for 10 seconds.\n"
                 "Artifact-free vanilla client sent player-originated chat.\n"
@@ -166,6 +206,8 @@ class VanillaClientMatrixTest(unittest.TestCase):
             ):
                 self.assertFalse(MATRIX.accepted_evidence(output, runtime))
             evidence.write_text(
+                '"connectionReleaseCondition": "immediate"\n'
+                '"connectionReadinessTimeoutSeconds": 0\n'
                 "capableListeners=0, vanillaListeners=1, listenerStats=0\n"
                 "Artifact-free vanilla client remained connected for 10 seconds.\n"
                 "Artifact-free vanilla client sent player-originated chat.\n"

@@ -15,6 +15,7 @@ import signal
 import socket
 import subprocess
 import sys
+import time
 from typing import Any
 
 
@@ -113,6 +114,22 @@ def valid_connection_release_attestation(
     return current or prior_non_relay
 
 
+def evidence_matches_connection_release(
+    text: str, details: dict[str, Any], expected_deferred_connection: bool
+) -> bool:
+    if expected_deferred_connection:
+        return (
+            '"connectionReleaseCondition": "initial-resource-atlas-ready"' in text
+            and '"connectionReadinessTimeoutSeconds": 120' in text
+        )
+    if details.get("connectionReleaseCondition") == "immediate":
+        return (
+            '"connectionReleaseCondition": "immediate"' in text
+            and '"connectionReadinessTimeoutSeconds": 0' in text
+        )
+    return '"connectionDelaySeconds": 0' in text
+
+
 def accepted_evidence(
     output: Path,
     runtime: dict[str, Any],
@@ -179,6 +196,9 @@ def accepted_evidence(
         and details.get("offlinePrivilegesStub") is expected_stub
         and details.get("deferredInitialConnection") is expected_deferred_connection
         and valid_connection_release_attestation(details, expected_deferred_connection)
+        and evidence_matches_connection_release(
+            text, details, expected_deferred_connection
+        )
         and isinstance(client_sha1, str)
         and re.fullmatch(r"[0-9a-f]{40}", client_sha1) is not None
         and isinstance(counts, dict)
@@ -198,6 +218,73 @@ def accepted_evidence(
 def write_summary(path: Path, value: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def new_attempt_output(output: Path) -> Path:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    attempt = output / "attempts" / f"{stamp}-{time.time_ns()}-{os.getpid()}"
+    attempt.mkdir(parents=True, exist_ok=False)
+    return attempt
+
+
+def write_accepted_attempt(
+    output: Path,
+    attempt: Path,
+    runtime: dict[str, Any],
+    connected_seconds: int,
+) -> None:
+    output.mkdir(parents=True, exist_ok=True)
+    relative = attempt.resolve().relative_to(output.resolve())
+    value = {
+        "schemaVersion": 1,
+        "runtime": runtime["name"],
+        "minecraftVersion": runtime["minecraft"],
+        "connectedSeconds": connected_seconds,
+        "evidenceRoot": str(relative),
+    }
+    pointer = output / "accepted-attempt.json"
+    temporary = pointer.with_suffix(f".tmp-{os.getpid()}")
+    temporary.write_text(
+        json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    os.replace(temporary, pointer)
+
+
+def resumable_evidence_root(
+    output: Path,
+    runtime: dict[str, Any],
+    connected_seconds: int,
+) -> Path | None:
+    pointer = output / "accepted-attempt.json"
+    if pointer.is_file():
+        try:
+            value = json.loads(pointer.read_text("utf-8"))
+            relative_text = value.get("evidenceRoot")
+            if not isinstance(relative_text, str):
+                return None
+            relative = Path(relative_text)
+            if relative.is_absolute() or ".." in relative.parts:
+                return None
+            attempt = (output / relative).resolve()
+            if (
+                value.get("schemaVersion") != 1
+                or value.get("runtime") != runtime["name"]
+                or value.get("minecraftVersion") != runtime["minecraft"]
+                or value.get("connectedSeconds") != connected_seconds
+                or output.resolve() not in attempt.parents
+            ):
+                return None
+        except (OSError, json.JSONDecodeError, ValueError):
+            return None
+        return (
+            attempt
+            if accepted_evidence(attempt, runtime, connected_seconds)
+            else None
+        )
+    # Compatibility with the immediately preceding flat evidence layout. New
+    # executions never mutate this directory; their isolated attempt becomes
+    # resumable only through the atomic pointer above.
+    return output if accepted_evidence(output, runtime, connected_seconds) else None
 
 
 def run_gate(
@@ -253,6 +340,7 @@ def run(args: argparse.Namespace) -> int:
         "accepted": [],
         "resumed": [],
         "failures": [],
+        "evidenceRoots": {},
         "privateXRequiredByGate": True,
         "artifactFree": True,
     }
@@ -261,8 +349,14 @@ def run(args: argparse.Namespace) -> int:
         for index, runtime in enumerate(runtimes, start=1):
             label = runtime["name"]
             output = args.output_root / label
-            if args.resume and accepted_evidence(output, runtime, args.connected_seconds):
+            prior = (
+                resumable_evidence_root(output, runtime, args.connected_seconds)
+                if args.resume
+                else None
+            )
+            if prior is not None:
                 summary["resumed"].append(label)
+                summary["evidenceRoots"][label] = str(prior)
                 print(f"VANILLA_MATRIX_RESUME {index}/{len(runtimes)} {label}", flush=True)
                 continue
             if args.verify_only:
@@ -278,10 +372,11 @@ def run(args: argparse.Namespace) -> int:
                     break
                 continue
             print(f"VANILLA_MATRIX_RUNTIME {index}/{len(runtimes)} {label}", flush=True)
+            attempt = new_attempt_output(output)
             environment = dict(os.environ)
             environment.update(
                 {
-                    "JAMMARR_GATE_OUTPUT_ROOT": str(output.resolve()),
+                    "JAMMARR_GATE_OUTPUT_ROOT": str(attempt.resolve()),
                     "JAMMARR_PROTOCOL_CLIENT_GATE": "false",
                     "JAMMARR_COMMAND_CLIENT_GATE": "false",
                     "JAMMARR_AUDIO_CLIENT_GATE": "false",
@@ -296,14 +391,19 @@ def run(args: argparse.Namespace) -> int:
                 cwd=args.gate_script.resolve().parent.parent,
                 env=environment,
             )
-            accepted = accepted_evidence(output, runtime, args.connected_seconds)
+            accepted = accepted_evidence(attempt, runtime, args.connected_seconds)
             if exit_code == 0 and accepted:
+                write_accepted_attempt(
+                    output, attempt, runtime, args.connected_seconds
+                )
                 summary["accepted"].append(label)
+                summary["evidenceRoots"][label] = str(attempt)
                 continue
             failure = {
                 "runtime": label,
                 "exitCode": exit_code,
                 "acceptedEvidence": accepted,
+                "evidenceRoot": str(attempt),
             }
             summary["failures"].append(failure)
             if not args.continue_on_error:
