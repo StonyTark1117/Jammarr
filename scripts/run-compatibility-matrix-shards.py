@@ -103,6 +103,7 @@ def matrix_command(
     connected_seconds: int,
     runtimes: list[dict[str, Any]] | None,
     verify_only: bool = False,
+    continue_on_error: bool = False,
 ) -> list[str]:
     command = [
         sys.executable,
@@ -117,6 +118,8 @@ def matrix_command(
         str(connected_seconds),
         "--resume",
     ]
+    if continue_on_error:
+        command.append("--continue-on-error")
     if verify_only:
         command.append("--verify-only")
     else:
@@ -184,6 +187,7 @@ def run_kind(
                 summary=summary,
                 connected_seconds=connected_seconds,
                 runtimes=lane,
+                continue_on_error=True,
             )
             process = subprocess.Popen(
                 command,
@@ -214,9 +218,6 @@ def run_kind(
                 )
                 if status != 0:
                     failure = True
-            if failure:
-                stop_processes([processes[index] for index in remaining])
-                return 1
             if remaining:
                 time.sleep(1)
     except BaseException:
@@ -235,6 +236,7 @@ def run_kind(
         connected_seconds=connected_seconds,
         runtimes=None,
         verify_only=True,
+        continue_on_error=True,
     )
     result = subprocess.run(verifier, cwd=REPO_ROOT, check=False)
     if result.returncode != 0:
@@ -244,6 +246,13 @@ def run_kind(
             flush=True,
         )
         return result.returncode
+    if failure:
+        print(
+            f"COMPATIBILITY_MATRIX_SHARD_FAILED kind={kind} summary={final_summary}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return 1
     print(
         f"COMPATIBILITY_MATRIX_COMPLETE kind={kind} runtimes={len(runtimes)} "
         f"summary={final_summary}",

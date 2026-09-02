@@ -80,13 +80,17 @@ class CompatibilityMatrixShardsTest(unittest.TestCase):
             "summary": Path("summary.json"),
             "connected_seconds": 10,
         }
-        shard = SHARDS.matrix_command(**common, runtimes=[runtime])
+        shard = SHARDS.matrix_command(
+            **common, runtimes=[runtime], continue_on_error=True
+        )
         verifier = SHARDS.matrix_command(**common, runtimes=None, verify_only=True)
         self.assertIn("--resource-locks", shard)
+        self.assertIn("--continue-on-error", shard)
         self.assertIn("--runtime", shard)
         self.assertNotIn("--verify-only", shard)
         self.assertIn("--verify-only", verifier)
         self.assertNotIn("--resource-locks", verifier)
+        self.assertNotIn("--continue-on-error", verifier)
         self.assertNotIn("--runtime", verifier)
 
 
