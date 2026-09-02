@@ -15,7 +15,7 @@ import stonytark.jammarr.network.LegacyNetwork;
 abstract class ClientPlayNetworkHandlerMixin {
     @Inject(method = "onGameJoin", at = @At("TAIL"))
     private void jammarr$joined(GameJoinS2CPacket packet, CallbackInfo callback) {
-        LegacyNetwork.clientConnected();
+        LegacyClient.loginSucceeded();
     }
 
     @Inject(method = "onDisconnected", at = @At("HEAD"))
@@ -23,9 +23,9 @@ abstract class ClientPlayNetworkHandlerMixin {
         LegacyClient.disconnected(reason, details);
     }
 
-    @Inject(method = "onChatMessage", at = @At("HEAD"))
+    @Inject(method = "onChatMessage", at = @At("HEAD"), cancellable = true)
     private void jammarr$acceptanceChat(ChatMessageS2CPacket packet, CallbackInfo callback) {
-        LegacyClient.acceptanceChat(packet.message);
+        if (LegacyClient.receiveChat(packet.message)) callback.cancel();
     }
 
     @Inject(method = "onCustomPayload", at = @At("HEAD"), cancellable = true)

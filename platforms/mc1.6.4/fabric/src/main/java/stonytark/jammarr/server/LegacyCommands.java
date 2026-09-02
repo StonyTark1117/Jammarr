@@ -11,6 +11,7 @@ import stonytark.jammarr.Jammarr;
 import stonytark.jammarr.core.model.StationModels;
 import stonytark.jammarr.core.platform.JammarrSettings;
 import stonytark.jammarr.core.protocol.ControlPackets;
+import stonytark.jammarr.core.protocol.LegacyServerProbe;
 import stonytark.jammarr.network.LegacyNetwork;
 import stonytark.jammarr.network.LegacyPacketTypes;
 
@@ -34,6 +35,11 @@ public final class LegacyCommands extends AbstractCommand {
     @Override public boolean isAccessible(CommandSource source) { return true; }
 
     @Override public void execute(CommandSource source, String[] arguments) throws CommandException {
+        if (arguments.length == 3 && "handshake".equalsIgnoreCase(arguments[0])
+                && LegacyServerProbe.validNonce(arguments[2])) {
+            reply(source, LegacyServerProbe.response(Jammarr.PROTOCOL, arguments[2]));
+            return;
+        }
         requireCapable(source);
         LegacyGlobalPlayer coordinator = coordinator();
         if (arguments.length == 0) {
