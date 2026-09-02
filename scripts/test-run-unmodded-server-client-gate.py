@@ -33,6 +33,13 @@ class UnmoddedServerClientGateSourceTest(unittest.TestCase):
         self.assertIn("ALSOFT_DRIVERS=null", self.source)
         self.assertIn("jammarr.acceptance.unmoddedServerProbe=true", self.source)
 
+    def test_legacy_resource_reload_is_completed_before_local_login(self) -> None:
+        self.assertIn("deferred-connection-relay.py", self.source)
+        self.assertIn("1.16.*|1.17.*|1.18.*|1.19.*", self.source)
+        self.assertIn("minecraft:textures/atlas/mob_effects.png-atlas", self.source)
+        self.assertIn("Deferred connection released after", self.source)
+        self.assertLess(self.source.index(': > "$relay_release"'), self.source.index("deadline=$((SECONDS + 600))"))
+
     def test_requires_authoritative_join_ui_duration_and_cleanup(self) -> None:
         self.assertIn('$username joined the game', self.source)
         self.assertIn("Acceptance Jammarr unsupported-server screen remained open", self.source)

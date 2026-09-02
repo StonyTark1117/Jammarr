@@ -159,6 +159,10 @@ def accepted_evidence(
     cleanup_marker = (
         "Attested unmodded server, modded client, private X server, and port cleaned up."
     )
+    deferred_marker = (
+        "Deferred connection released after the current client completed initial resource atlases."
+    )
+    deferred_required = re.fullmatch(r"1\.(?:16|17|18|19)(?:\..*)?", minecraft) is not None
     return (
         value.get("schemaVersion") == 1
         and value.get("minecraftVersion") == minecraft
@@ -173,6 +177,7 @@ def accepted_evidence(
         and functional_marker in functional_text
         and functional_marker in text
         and functional_text in text
+        and (not deferred_required or deferred_marker in functional_text)
         and cleanup_marker in cleanup_text
         and cleanup_text in text
         and re.search(

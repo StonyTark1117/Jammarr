@@ -128,6 +128,7 @@ server_fifo="$output_root/server.stdin"
 username=JammarrNoServer
 server_pid=""
 client_pid=""
+relay_pid=""
 server_fd=""
 
 group_alive() {
@@ -154,6 +155,7 @@ cleanup() {
   local status=$?
   trap - EXIT INT TERM
   terminate_group "$client_pid" 20 || true
+  terminate_group "$relay_pid" 10 || true
   if [[ -n "$server_pid" ]] && group_alive "$server_pid"; then
     if [[ -n "$server_fd" ]]; then printf 'stop\n' >&"$server_fd" 2>/dev/null || true; fi
     local deadline=$((SECONDS + graceful_stop_seconds))
@@ -214,6 +216,35 @@ printf '%s\n' 'onboardAccessibility:false' 'skipMultiplayerWarning:true' \
   'joinedFirstServer:true' 'narrator:0' > "$client_dir/options.txt"
 runtime_args=()
 cache_args=()
+client_server="127.0.0.1:$port"
+deferred_connection=false
+relay_endpoint="$output_root/deferred-relay.endpoint"
+relay_release="$output_root/deferred-relay.release"
+relay_console="$output_root/deferred-relay.log"
+case "$minecraft_version" in
+  1.16.*|1.17.*|1.18.*|1.19.*) deferred_connection=true ;;
+esac
+if [[ "$deferred_connection" == true ]]; then
+  (
+    exec setsid python3 "$repo_root/scripts/deferred-connection-relay.py" \
+      --target "$client_server" --endpoint-file "$relay_endpoint" \
+      --release-file "$relay_release" > "$relay_console" 2>&1
+  ) &
+  relay_pid=$!
+  deadline=$((SECONDS + 10))
+  while [[ ! -s "$relay_endpoint" ]]; do
+    if ! group_alive "$relay_pid" || (( SECONDS >= deadline )); then
+      echo "$label: deferred connection relay did not become ready; see $relay_console" >&2
+      exit 1
+    fi
+    sleep .1
+  done
+  client_server=$(<"$relay_endpoint")
+  if [[ ! "$client_server" =~ ^127\.0\.0\.1:[0-9]+$ ]]; then
+    echo "$label: deferred connection relay produced an invalid endpoint" >&2
+    exit 1
+  fi
+fi
 [[ "$runtime_loader" == quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
 [[ "$disable_configuration_cache" == true ]] && cache_args+=(--no-configuration-cache)
 serialize_forgegradle=false
@@ -251,11 +282,24 @@ fi
     ./gradlew "$client_task" --no-daemon --max-workers=2 --console=plain \
       "${cache_args[@]}" "${runtime_args[@]}" \
       -PjammarrAcceptanceUsername="$username" \
-      -PjammarrAcceptanceServer="127.0.0.1:$port" \
+      -PjammarrAcceptanceServer="$client_server" \
       -PjammarrAcceptanceGameDir="$client_dir" \
       > "$client_console" 2>&1
 ) &
 client_pid=$!
+
+if [[ "$deferred_connection" == true ]]; then
+  resource_marker='minecraft:textures/atlas/mob_effects.png-atlas'
+  deadline=$((SECONDS + 120))
+  while ! grep -Fq "$resource_marker" "$client_console" 2>/dev/null; do
+    if ! group_alive "$client_pid" || ! group_alive "$relay_pid" || (( SECONDS >= deadline )); then
+      echo "$label: client did not complete its initial resource atlases before deferred login; see $client_console" >&2
+      exit 1
+    fi
+    sleep .2
+  done
+  : > "$relay_release"
+fi
 
 deadline=$((SECONDS + 600))
 while ! grep -Fq "$username joined the game" "$server_console" 2>/dev/null \
@@ -291,11 +335,16 @@ fi
   printf 'Modded client remained connected to the attested unmodded server for %s seconds after UI verification.\n' \
     "$connected_seconds"
   printf 'Client and server ran on a private X display and verified null audio output.\n'
+  if [[ "$deferred_connection" == true ]]; then
+    printf 'Deferred connection released after the current client completed initial resource atlases.\n'
+  fi
 } > "$functional_evidence"
 cp -- "$functional_evidence" "$evidence"
 
 terminate_group "$client_pid" 20
 client_pid=""
+terminate_group "$relay_pid" 10
+relay_pid=""
 if [[ "$serialize_forge_bootstrap" == true ]]; then
   flock -u 7
   exec 7>&-
