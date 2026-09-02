@@ -32,6 +32,7 @@ public final class JammarrAudioPlayer {
     private static final long BACKEND_DRIFT_REBUFFER_MS = 40;
     private static final long BACKEND_PROBE_INTERVAL_MS = 500;
     private static final int BACKEND_DRIFT_REQUIRED_SAMPLES = 2;
+    private static final long BACKEND_DRIFT_MINIMUM_PERSISTENCE_MS = 1_500;
     private static final long MAX_BACKEND_LEAD_MS = 1_000;
     private static final long UNDERRUN_GRACE_MS = 5_000;
     private static final long MISSING_MANIFEST_RETRY_MS = 2_000;
@@ -52,7 +53,8 @@ public final class JammarrAudioPlayer {
     private long backendProbeRequestedMs;
     private BackendPosition lastEvaluatedBackendPosition;
     private final BackendDriftGuard backendDrift = new BackendDriftGuard(
-            BACKEND_DRIFT_REBUFFER_MS, BACKEND_DRIFT_REQUIRED_SAMPLES);
+            BACKEND_DRIFT_REBUFFER_MS, BACKEND_DRIFT_REQUIRED_SAMPLES,
+            BACKEND_DRIFT_MINIMUM_PERSISTENCE_MS);
     private volatile long backendLeadCompensationMs;
     private long lastBackendLogMs;
     private long firstChunkStartMs = -1;
@@ -394,7 +396,8 @@ public final class JammarrAudioPlayer {
                 try {
                     OpenAlPlaybackClock.Position measured = OpenAlPlaybackClock.sample(value, activeStream);
                     if (measured != null && channel == activeChannel && pcmStream == activeStream) {
-                        backendPosition = new BackendPosition(activeStream, System.currentTimeMillis(), measured);
+                        backendPosition = new BackendPosition(activeStream, System.currentTimeMillis(),
+                                System.nanoTime() / 1_000_000L, measured);
                     }
                 } catch (RuntimeException unavailable) {
                     if (ProtocolLimits.audioProbeEnabled()) {
@@ -433,7 +436,7 @@ public final class JammarrAudioPlayer {
             }
             appliedVolume = Float.NaN;
         }
-        if (!backendDrift.observe(drift)) return false;
+        if (!backendDrift.observe(drift, measured.observedAtMonotonicMs)) return false;
         Jammarr.LOGGER.warn("Jammarr detected sustained backend playback drift: driftMs={} latencyMs={}",
                 drift, measured.position.deviceLatencyMillis());
         requestRebuffer("backend playback drift");
@@ -532,12 +535,14 @@ public final class JammarrAudioPlayer {
     private static final class BackendPosition {
         private final PcmAudioStream stream;
         private final long observedAtMs;
+        private final long observedAtMonotonicMs;
         private final OpenAlPlaybackClock.Position position;
 
-        private BackendPosition(PcmAudioStream stream, long observedAtMs,
+        private BackendPosition(PcmAudioStream stream, long observedAtMs, long observedAtMonotonicMs,
                                 OpenAlPlaybackClock.Position position) {
             this.stream = stream;
             this.observedAtMs = observedAtMs;
+            this.observedAtMonotonicMs = observedAtMonotonicMs;
             this.position = position;
         }
     }
