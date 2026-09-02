@@ -180,6 +180,8 @@ class TargetMatrixTests(unittest.TestCase):
                          ["1.20.1-fabric", "1.20.1-quilt", "1.20.1-forge"])
         self.assertEqual([entry["port"] for entry in runtimes], [26000, 26001, 26002])
         self.assertEqual([entry["runtimeJava"] for entry in runtimes], [17, 17, 17])
+        self.assertEqual([entry["minecraft"] for entry in runtimes], ["1.20.1"] * 3)
+        self.assertEqual([entry["loader"] for entry in runtimes], ["fabric", "quilt", "forge"])
         self.assertEqual(runtimes[-1]["control"], "console")
         self.assertEqual(runtimes[-1]["commandMarkers"], "legacy-response")
         self.assertTrue(runtimes[-1]["disableConfigurationCache"])
@@ -201,9 +203,9 @@ class TargetMatrixTests(unittest.TestCase):
         self.assertEqual(
             result.stdout.splitlines(),
             [
-                "1.20.1-fabric|platforms/fabric|21|17|26000|runClient|false|fabric",
-                "1.20.1-quilt|platforms/fabric|21|17|26001|runClient|false|quilt",
-                "1.20.1-forge|platforms/forge|21|17|26002|runClient|true|forge",
+                "1.20.1-fabric|1.20.1|platforms/fabric|21|17|26000|runClient|false|fabric",
+                "1.20.1-quilt|1.20.1|platforms/fabric|21|17|26001|runClient|false|quilt",
+                "1.20.1-forge|1.20.1|platforms/forge|21|17|26002|runClient|true|forge",
             ],
         )
 

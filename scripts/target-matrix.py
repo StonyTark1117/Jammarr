@@ -139,6 +139,8 @@ def runtimes(manifest: dict[str, Any]) -> list[dict[str, Any]]:
                 {
                     "name": label,
                     "runtime": label,
+                    "minecraft": artifact["minecraft"],
+                    "loader": runtime_loader,
                     "path": artifact["path"],
                     "buildJava": artifact["buildJava"],
                     "runtimeJava": artifact["runtimeJava"],
@@ -270,13 +272,14 @@ def main() -> None:
         for entry in runtime_entries:
             values = (
                 entry["name"],
+                entry["minecraft"],
                 entry["path"],
                 entry["buildJava"],
                 entry["runtimeJava"],
                 entry["port"],
                 entry["clientTask"],
                 str(entry["disableConfigurationCache"]).lower(),
-                entry["runtime"].rsplit("-", 1)[1],
+                entry["loader"],
             )
             print("|".join(map(str, values)))
     elif args.mode == "companion-lines":

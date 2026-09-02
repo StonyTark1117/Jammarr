@@ -18,6 +18,8 @@ class UnmoddedServerClientGateSourceTest(unittest.TestCase):
         self.assertIn("server-attestation.json", (ROOT / "scripts/prepare-mojang-server.py").read_text("utf-8"))
         self.assertIn(".dedicated-server-gate.lock", self.source)
         self.assertIn('"jammarrPresent": False', (ROOT / "scripts/prepare-mojang-server.py").read_text("utf-8"))
+        self.assertIn("read -r label minecraft_version relative_dir", self.source)
+        self.assertNotIn('minecraft_version=${label%-*}', self.source)
 
     def test_client_gui_is_private_and_audio_isolated(self) -> None:
         self.assertIn("env -u WAYLAND_DISPLAY", self.source)

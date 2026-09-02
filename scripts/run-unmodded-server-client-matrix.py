@@ -129,7 +129,7 @@ def accepted_evidence(attempt: Path, runtime: dict[str, Any]) -> bool:
         server_sha1 = sha1_file(server_jar)
     except (OSError, KeyError, TypeError, json.JSONDecodeError):
         return False
-    minecraft = runtime["name"].rsplit("-", 1)[0]
+    minecraft = runtime["minecraft"]
     return (
         value.get("minecraftVersion") == minecraft
         and value.get("jammarrPresent") is False

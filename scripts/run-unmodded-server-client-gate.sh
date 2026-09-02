@@ -39,9 +39,8 @@ if [[ -z "$target_line" ]]; then
   echo "Unknown full runtime '$requested'" >&2
   exit 2
 fi
-IFS='|' read -r label relative_dir build_java runtime_java port client_task \
+IFS='|' read -r label minecraft_version relative_dir build_java runtime_java port client_task \
   disable_configuration_cache runtime_loader <<< "$target_line"
-minecraft_version=${label%-*}
 target_dir="$repo_root/$relative_dir"
 
 java_home() {

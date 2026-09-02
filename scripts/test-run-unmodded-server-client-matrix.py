@@ -93,7 +93,7 @@ class UnmoddedServerClientMatrixTest(unittest.TestCase):
                 "Attested unmodded server, modded client, private X server, and port cleaned up.\n",
                 encoding="utf-8",
             )
-            runtime = {"name": "1.20.1-fabric", "port": 26000}
+            runtime = {"name": "1.20.1-fabric", "minecraft": "1.20.1", "port": 26000}
             with mock.patch.object(MATRIX, "process_mentions", return_value=False), mock.patch.object(
                 MATRIX, "port_listening", return_value=False
             ):
