@@ -10,6 +10,7 @@ import signal
 import tempfile
 import unittest
 from unittest import mock
+import zipfile
 
 
 SCRIPT = Path(__file__).with_name("run-unmodded-server-client-matrix.py")
@@ -53,7 +54,10 @@ class UnmoddedServerClientMatrixTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             attempt = Path(temporary)
             server = attempt / "official-server.jar"
-            server.write_bytes(b"official-server")
+            with zipfile.ZipFile(server, "w") as archive:
+                archive.writestr("net/minecraft/server/Main.class", b"official-server")
+            server_sha1 = hashlib.sha1(server.read_bytes()).hexdigest()
+            metadata_sha1 = "2" * 40
             (attempt / "server-attestation.json").write_text(
                 json.dumps(
                     {
@@ -63,13 +67,16 @@ class UnmoddedServerClientMatrixTest(unittest.TestCase):
                         "officialMojangDownload": True,
                         "source": "Official Mojang version manifest",
                         "manifestUrl": "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json",
-                        "metadataUrl": "https://piston-meta.mojang.com/v1/packages/example/1.20.1.json",
+                        "metadataSha1": metadata_sha1,
+                        "metadataUrl": "https://piston-meta.mojang.com/v1/packages/"
+                        + metadata_sha1
+                        + "/1.20.1.json",
                         "serverUrl": "https://piston-data.mojang.com/v1/objects/"
-                        + hashlib.sha1(server.read_bytes()).hexdigest()
+                        + server_sha1
                         + "/server.jar",
                         "serverJar": str(server),
                         "serverSize": server.stat().st_size,
-                        "serverSha1": hashlib.sha1(server.read_bytes()).hexdigest(),
+                        "serverSha1": server_sha1,
                     }
                 ),
                 encoding="utf-8",
@@ -113,11 +120,24 @@ class UnmoddedServerClientMatrixTest(unittest.TestCase):
             "officialMojangDownload": True,
             "source": "Official Mojang version manifest",
             "manifestUrl": "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json",
-            "metadataUrl": "https://piston-meta.mojang.com/v1/packages/hash/1.20.1.json",
+            "metadataSha1": "2" * 40,
+            "metadataUrl": "https://piston-meta.mojang.com/v1/packages/"
+            + "2" * 40
+            + "/1.20.1.json",
             "serverUrl": "https://example.invalid/server.jar",
             "serverSha1": "1" * 40,
         }
         self.assertFalse(MATRIX.accepted_provenance(value, "1.20.1"))
+
+    def test_resume_rejects_a_jar_containing_jammarr(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            server = Path(temporary) / "server.jar"
+            with zipfile.ZipFile(server, "w") as archive:
+                archive.writestr("net/minecraft/server/Main.class", b"server")
+            self.assertTrue(MATRIX.server_jar_is_unmodded(server))
+            with zipfile.ZipFile(server, "a") as archive:
+                archive.writestr("META-INF/jammarr-marker", b"unexpected")
+            self.assertFalse(MATRIX.server_jar_is_unmodded(server))
 
     def test_run_gate_is_isolated_and_waits_for_interrupt_cleanup(self) -> None:
         process = mock.Mock()

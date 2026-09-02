@@ -15,6 +15,7 @@ import signal
 import socket
 import subprocess
 from typing import Any
+import zipfile
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -74,6 +75,16 @@ def process_mentions(path: Path) -> bool:
     return False
 
 
+def server_jar_is_unmodded(path: Path) -> bool:
+    if not zipfile.is_zipfile(path):
+        return False
+    try:
+        with zipfile.ZipFile(path) as archive:
+            return not any("jammarr" in name.lower() for name in archive.namelist())
+    except (OSError, zipfile.BadZipFile):
+        return False
+
+
 def server_joined(server_text: str, username: str = "JammarrNoServer") -> bool:
     return f"{username} joined the game" in server_text or re.search(
         rf"{re.escape(username)} \[/[^]]+\] logged in with entity id", server_text
@@ -87,13 +98,16 @@ def accepted_provenance(value: dict[str, Any], minecraft: str) -> bool:
             for key, expected in BETA_SERVER_PROVENANCE.items()
         )
     server_sha1 = value.get("serverSha1")
+    metadata_sha1 = value.get("metadataSha1")
     return (
         value.get("officialMojangDownload") is True
         and value.get("source") == "Official Mojang version manifest"
         and value.get("manifestUrl")
         == "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
-        and isinstance(value.get("metadataUrl"), str)
-        and value["metadataUrl"].startswith("https://piston-meta.mojang.com/")
+        and isinstance(metadata_sha1, str)
+        and re.fullmatch(r"[0-9a-f]{40}", metadata_sha1) is not None
+        and value.get("metadataUrl")
+        == f"https://piston-meta.mojang.com/v1/packages/{metadata_sha1}/{minecraft}.json"
         and isinstance(value.get("serverUrl"), str)
         and value["serverUrl"]
         == f"https://piston-data.mojang.com/v1/objects/{server_sha1}/server.jar"
@@ -122,6 +136,7 @@ def accepted_evidence(attempt: Path, runtime: dict[str, Any]) -> bool:
         and value.get("unmoddedVanillaServer") is True
         and server_size == value.get("serverSize")
         and server_sha1 == value.get("serverSha1")
+        and server_jar_is_unmodded(server_jar)
         and accepted_provenance(value, minecraft)
         and server_joined(server_text)
         and "Acceptance Jammarr unsupported-server screen remained open" in client_text
