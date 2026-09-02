@@ -109,6 +109,10 @@ def accepted_provenance(value: dict[str, Any], minecraft: str) -> bool:
         )
     server_sha1 = value.get("serverSha1")
     metadata_sha1 = value.get("metadataSha1")
+    server_urls = {
+        f"https://piston-data.mojang.com/v1/objects/{server_sha1}/server.jar",
+        f"https://launcher.mojang.com/v1/objects/{server_sha1}/server.jar",
+    }
     return (
         value.get("officialMojangDownload") is True
         and value.get("source") == "Official Mojang version manifest"
@@ -120,9 +124,7 @@ def accepted_provenance(value: dict[str, Any], minecraft: str) -> bool:
         and re.fullmatch(r"[0-9a-f]{40}", server_sha1) is not None
         and value.get("metadataUrl")
         == f"https://piston-meta.mojang.com/v1/packages/{metadata_sha1}/{minecraft}.json"
-        and isinstance(value.get("serverUrl"), str)
-        and value["serverUrl"]
-        == f"https://piston-data.mojang.com/v1/objects/{server_sha1}/server.jar"
+        and value.get("serverUrl") in server_urls
     )
 
 

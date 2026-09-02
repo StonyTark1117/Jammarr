@@ -153,6 +153,22 @@ class UnmoddedServerClientMatrixTest(unittest.TestCase):
         }
         self.assertFalse(MATRIX.accepted_provenance(value, "1.20.1"))
 
+    def test_release_provenance_accepts_legacy_mojang_server_host(self) -> None:
+        value = {
+            "officialMojangDownload": True,
+            "source": "Official Mojang version manifest",
+            "manifestUrl": "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json",
+            "metadataSha1": "2" * 40,
+            "metadataUrl": "https://piston-meta.mojang.com/v1/packages/"
+            + "2" * 40
+            + "/1.6.4.json",
+            "serverUrl": "https://launcher.mojang.com/v1/objects/"
+            + "1" * 40
+            + "/server.jar",
+            "serverSha1": "1" * 40,
+        }
+        self.assertTrue(MATRIX.accepted_provenance(value, "1.6.4"))
+
     def test_resume_rejects_a_jar_containing_jammarr(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             server = Path(temporary) / "server.jar"
