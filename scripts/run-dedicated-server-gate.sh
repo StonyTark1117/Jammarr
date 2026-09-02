@@ -8,10 +8,35 @@ output_root=$(cd "$output_root" && pwd)
 mkdir -p "$repo_root/build"
 gate_lock="$repo_root/build/.dedicated-server-gate.lock"
 exec 9>"$gate_lock"
-if ! flock -n 9; then
-  echo "Another Jammarr dedicated-server gate is already using the shared Minecraft runtime" >&2
-  exit 2
-fi
+gate_lock_scope=${JAMMARR_GATE_LOCK_SCOPE:-exclusive}
+case "$gate_lock_scope" in
+  exclusive)
+    if ! flock -n 9; then
+      echo "Another Jammarr runtime gate is already using the shared Minecraft workspace" >&2
+      exit 2
+    fi
+    ;;
+  resource)
+    gate_lock_key=${JAMMARR_GATE_LOCK_KEY:-}
+    if [[ ! "$gate_lock_key" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+      echo "JAMMARR_GATE_LOCK_KEY must be a non-empty filesystem-safe resource key" >&2
+      exit 2
+    fi
+    if ! flock -n -s 9; then
+      echo "An exclusive Jammarr runtime gate is already active" >&2
+      exit 2
+    fi
+    exec 8>"$repo_root/build/.dedicated-server-gate.$gate_lock_key.lock"
+    if ! flock -n 8; then
+      echo "Another Jammarr runtime gate is already using resource $gate_lock_key" >&2
+      exit 2
+    fi
+    ;;
+  *)
+    echo "JAMMARR_GATE_LOCK_SCOPE must be exclusive or resource" >&2
+    exit 2
+    ;;
+esac
 fake_plex_token="jammarr-dedicated-gate-token"
 fake_plex_port_file="$output_root/fake-plex.port"
 fake_plex_request_log="$output_root/fake-plex.requests.tsv"

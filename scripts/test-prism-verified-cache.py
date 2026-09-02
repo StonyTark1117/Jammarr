@@ -64,6 +64,7 @@ class PrismVerifiedCacheTest(unittest.TestCase):
             self.assertEqual(isolated.read_bytes(), b"verified")
             self.assertEqual(shared_path.read_bytes(), b"bad")
             self.assertEqual(cache.attestation()["artifactSourceCounts"], {"downloaded": 1})
+            self.assertEqual(len(list((root / "isolated/.locks").glob("*.lock"))), 1)
 
     def test_download_rejects_digest_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

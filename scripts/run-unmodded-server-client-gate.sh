@@ -22,13 +22,39 @@ if find "$output_root" -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then
   exit 2
 fi
 
-# Share the production runtime lock with the dedicated-server gate. Both use
-# Gradle client workspaces, game ports, and heavyweight private-X clients.
+# An exclusive gate blocks every runtime. Matrix shards take a shared global
+# lock plus one exclusive Minecraft/cache-family lock, so every loader for a
+# version remains serialized while independent versions can run concurrently.
 exec 9>"$repo_root/build/.dedicated-server-gate.lock"
-if ! flock -n 9; then
-  echo "Another Jammarr runtime gate is using the shared Minecraft workspace" >&2
-  exit 2
-fi
+gate_lock_scope=${JAMMARR_GATE_LOCK_SCOPE:-exclusive}
+case "$gate_lock_scope" in
+  exclusive)
+    if ! flock -n 9; then
+      echo "Another Jammarr runtime gate is using the shared Minecraft workspace" >&2
+      exit 2
+    fi
+    ;;
+  resource)
+    gate_lock_key=${JAMMARR_GATE_LOCK_KEY:-}
+    if [[ ! "$gate_lock_key" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+      echo "JAMMARR_GATE_LOCK_KEY must be a non-empty filesystem-safe resource key" >&2
+      exit 2
+    fi
+    if ! flock -n -s 9; then
+      echo "An exclusive Jammarr runtime gate is already active" >&2
+      exit 2
+    fi
+    exec 8>"$repo_root/build/.dedicated-server-gate.$gate_lock_key.lock"
+    if ! flock -n 8; then
+      echo "Another Jammarr runtime gate is already using resource $gate_lock_key" >&2
+      exit 2
+    fi
+    ;;
+  *)
+    echo "JAMMARR_GATE_LOCK_SCOPE must be exclusive or resource" >&2
+    exit 2
+    ;;
+esac
 
 target_line=""
 while IFS= read -r line; do
@@ -89,7 +115,9 @@ server_pid=""
 client_pid=""
 server_fd=""
 
-group_alive() { kill -0 -- "-${1}" 2>/dev/null; }
+group_alive() {
+  ps -o stat= -g "$1" 2>/dev/null | grep -Eqv '^[[:space:]]*Z'
+}
 
 terminate_group() {
   local pid=$1 timeout=${2:-20} deadline
@@ -101,7 +129,10 @@ terminate_group() {
     kill -KILL -- "-$pid" 2>/dev/null || true
     sleep 1
   fi
-  ! group_alive "$pid"
+  local alive=0
+  group_alive "$pid" && alive=1
+  wait "$pid" 2>/dev/null || true
+  (( alive == 0 ))
 }
 
 cleanup() {
@@ -223,6 +254,10 @@ deadline=$((SECONDS + 60))
 while group_alive "$server_pid" && (( SECONDS < deadline )); do sleep .5; done
 if group_alive "$server_pid"; then
   echo "$label: attested unmodded server did not stop cleanly" >&2
+  exit 1
+fi
+if ! wait "$server_pid"; then
+  echo "$label: attested unmodded server exited with a failure status" >&2
   exit 1
 fi
 server_pid=""

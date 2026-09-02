@@ -40,6 +40,20 @@ class VanillaClientMatrixTest(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "not artifact-free-client targets"):
             MATRIX.select_runtimes(runtimes, ["1.7.10-forge"])
 
+    def test_resource_lock_key_groups_one_minecraft_cache_family(self) -> None:
+        fabric = {"minecraft": "1.20.1"}
+        quilt = {"minecraft": "1.20.1"}
+        newer = {"minecraft": "1.20.2"}
+        self.assertEqual(
+            MATRIX.resource_lock_environment(fabric, True),
+            MATRIX.resource_lock_environment(quilt, True),
+        )
+        self.assertNotEqual(
+            MATRIX.resource_lock_environment(fabric, True),
+            MATRIX.resource_lock_environment(newer, True),
+        )
+        self.assertEqual(MATRIX.resource_lock_environment(fabric, False), {})
+
     def test_resume_requires_complete_attested_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary)

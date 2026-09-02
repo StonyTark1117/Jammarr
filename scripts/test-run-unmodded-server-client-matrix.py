@@ -43,6 +43,20 @@ class UnmoddedServerClientMatrixTest(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "must be unique"):
             MATRIX.select_runtimes(runtimes, ["1.20.1-fabric", "1.20.1-fabric"])
 
+    def test_resource_lock_key_groups_one_minecraft_cache_family(self) -> None:
+        fabric = {"minecraft": "1.20.1"}
+        quilt = {"minecraft": "1.20.1"}
+        newer = {"minecraft": "1.20.2"}
+        self.assertEqual(
+            MATRIX.resource_lock_environment(fabric, True),
+            MATRIX.resource_lock_environment(quilt, True),
+        )
+        self.assertNotEqual(
+            MATRIX.resource_lock_environment(fabric, True),
+            MATRIX.resource_lock_environment(newer, True),
+        )
+        self.assertEqual(MATRIX.resource_lock_environment(fabric, False), {})
+
     def test_attempt_numbers_preserve_failed_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

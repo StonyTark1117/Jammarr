@@ -48,6 +48,16 @@ def select_runtimes(
     return [by_name[name] for name in requested]
 
 
+def resource_lock_environment(runtime: dict[str, Any], enabled: bool) -> dict[str, str]:
+    if not enabled:
+        return {}
+    key = hashlib.sha256(runtime["minecraft"].encode("utf-8")).hexdigest()[:20]
+    return {
+        "JAMMARR_GATE_LOCK_SCOPE": "resource",
+        "JAMMARR_GATE_LOCK_KEY": key,
+    }
+
+
 def sha1_file(path: Path) -> str:
     digest = hashlib.sha1()
     with path.open("rb") as stream:
@@ -236,6 +246,18 @@ def run(args: argparse.Namespace) -> int:
                 summary["resumed"].append({"runtime": label, "evidenceRoot": str(prior)})
                 print(f"UNMODDED_MATRIX_RESUME {index}/{len(runtimes)} {label}", flush=True)
                 continue
+            if args.verify_only:
+                summary["failures"].append(
+                    {
+                        "runtime": label,
+                        "exitCode": None,
+                        "acceptedEvidence": False,
+                        "reason": "current resumable evidence is missing",
+                    }
+                )
+                if not args.continue_on_error:
+                    break
+                continue
             attempt = next_attempt(runtime_root)
             attempt.mkdir(parents=True, exist_ok=False)
             environment = dict(os.environ)
@@ -243,6 +265,7 @@ def run(args: argparse.Namespace) -> int:
             environment["JAMMARR_UNMODDED_CONNECTED_SECONDS"] = str(
                 args.connected_seconds
             )
+            environment.update(resource_lock_environment(runtime, args.resource_locks))
             print(f"UNMODDED_MATRIX_RUNTIME {index}/{len(runtimes)} {label}", flush=True)
             exit_code = run_gate(
                 [str(args.gate_script.resolve()), label],
@@ -296,11 +319,15 @@ def parse_args() -> argparse.Namespace:
         default=Path("build/unmodded-server-client-matrix/matrix-summary.json"),
     )
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--verify-only", action="store_true")
+    parser.add_argument("--resource-locks", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true")
     parser.add_argument("--connected-seconds", type=int, default=10)
     args = parser.parse_args()
     if not 10 <= args.connected_seconds <= 300:
         parser.error("--connected-seconds must be from 10 through 300")
+    if args.verify_only and not args.resume:
+        parser.error("--verify-only requires --resume")
     return args
 
 

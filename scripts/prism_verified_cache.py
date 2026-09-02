@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 from collections import Counter
+from contextlib import contextmanager
+import fcntl
 import hashlib
 import json
 import os
@@ -97,7 +99,20 @@ class VerifiedCache:
         self.sources: Counter[str] = Counter()
         self.resolved: dict[tuple[Path, Path, str, int], Path] = {}
 
-    def _download(self, url: str, destination: Path, sha1: str, size: int, label: str) -> Path:
+    @contextmanager
+    def _destination_lock(self, destination: Path):
+        lock_root = self.cache_root / ".locks"
+        lock_root.mkdir(parents=True, exist_ok=True)
+        # Keep the key stable after a cached asset becomes a symlink into the
+        # read-only shared cache; resolve() would change the lock identity.
+        key = hashlib.sha256(str(destination.absolute()).encode("utf-8")).hexdigest()
+        with (lock_root / f"{key}.lock").open("a+b") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            yield
+
+    def _download_locked(
+        self, url: str, destination: Path, sha1: str, size: int, label: str
+    ) -> Path:
         if verified(destination, sha1, size):
             self.sources["isolated-cache"] += 1
             return destination
@@ -121,6 +136,10 @@ class VerifiedCache:
             temporary.unlink(missing_ok=True)
         self.sources["downloaded"] += 1
         return destination
+
+    def _download(self, url: str, destination: Path, sha1: str, size: int, label: str) -> Path:
+        with self._destination_lock(destination):
+            return self._download_locked(url, destination, sha1, size, label)
 
     def artifact(
         self,
@@ -193,21 +212,34 @@ class VerifiedCache:
             if value.get("uid") == uid and value.get("version") == version:
                 self.sources[source] += 1
                 return value
-        url = (
-            f"{self.metadata_root_url}/"
-            f"{quote(uid, safe='')}/{quote(version, safe='')}.json"
-        )
-        try:
-            with urlopen(url, timeout=30) as response:
-                value = json.loads(response.read().decode("utf-8"))
-        except (HTTPError, URLError, TimeoutError, OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise SystemExit(f"Cannot obtain Prism metadata {uid} {version} from {url}: {exc}") from exc
-        if value.get("uid") != uid or value.get("version") != version:
-            raise SystemExit(f"Prism metadata identity mismatch for {uid} {version} from {url}")
-        isolated.parent.mkdir(parents=True, exist_ok=True)
-        isolated.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
-        self.sources["downloaded-metadata"] += 1
-        return value
+        with self._destination_lock(isolated):
+            try:
+                value = json.loads(isolated.read_text("utf-8"))
+            except (OSError, json.JSONDecodeError):
+                value = None
+            if isinstance(value, dict) and value.get("uid") == uid and value.get("version") == version:
+                self.sources["isolated-metadata"] += 1
+                return value
+            url = (
+                f"{self.metadata_root_url}/"
+                f"{quote(uid, safe='')}/{quote(version, safe='')}.json"
+            )
+            try:
+                with urlopen(url, timeout=30) as response:
+                    value = json.loads(response.read().decode("utf-8"))
+            except (HTTPError, URLError, TimeoutError, OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise SystemExit(f"Cannot obtain Prism metadata {uid} {version} from {url}: {exc}") from exc
+            if value.get("uid") != uid or value.get("version") != version:
+                raise SystemExit(f"Prism metadata identity mismatch for {uid} {version} from {url}")
+            isolated.parent.mkdir(parents=True, exist_ok=True)
+            temporary = isolated.with_name(f".{isolated.name}.part-{os.getpid()}")
+            try:
+                temporary.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
+                os.replace(temporary, isolated)
+            finally:
+                temporary.unlink(missing_ok=True)
+            self.sources["downloaded-metadata"] += 1
+            return value
 
     def assets(self, minecraft_metadata: dict[str, Any]) -> tuple[Path, str, int]:
         descriptor = minecraft_metadata.get("assetIndex")
@@ -233,7 +265,15 @@ class VerifiedCache:
             raise SystemExit(f"Asset index {index_id} has no object map")
         isolated_index.parent.mkdir(parents=True, exist_ok=True)
         if index_path != isolated_index:
-            shutil.copyfile(index_path, isolated_index)
+            with self._destination_lock(isolated_index):
+                temporary = isolated_index.with_name(
+                    f".{isolated_index.name}.part-{os.getpid()}"
+                )
+                try:
+                    shutil.copyfile(index_path, temporary)
+                    os.replace(temporary, isolated_index)
+                finally:
+                    temporary.unlink(missing_ok=True)
         for logical_name, value in objects.items():
             if not isinstance(value, dict):
                 raise SystemExit(f"Asset {logical_name!r} has an invalid descriptor")
@@ -245,23 +285,24 @@ class VerifiedCache:
                 raise SystemExit(f"Asset {logical_name!r} has an invalid size")
             relative = Path("assets") / "objects" / digest[:2] / digest
             destination = self.cache_root / relative
-            if verified(destination, digest, size):
-                self.sources["isolated-cache"] += 1
-                continue
-            shared_object = self.shared_root / relative
-            if verified(shared_object, digest, size):
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                destination.unlink(missing_ok=True)
-                destination.symlink_to(shared_object)
-                self.sources["shared-cache"] += 1
-                continue
-            self._download(
-                f"{self.asset_objects_base_url}/{digest[:2]}/{digest}",
-                destination,
-                digest,
-                size,
-                f"asset object {logical_name}",
-            )
+            with self._destination_lock(destination):
+                if verified(destination, digest, size):
+                    self.sources["isolated-cache"] += 1
+                    continue
+                shared_object = self.shared_root / relative
+                if verified(shared_object, digest, size):
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    destination.unlink(missing_ok=True)
+                    destination.symlink_to(shared_object)
+                    self.sources["shared-cache"] += 1
+                    continue
+                self._download_locked(
+                    f"{self.asset_objects_base_url}/{digest[:2]}/{digest}",
+                    destination,
+                    digest,
+                    size,
+                    f"asset object {logical_name}",
+                )
         return self.cache_root / "assets", index_id, len(objects)
 
     def attestation(self) -> dict[str, Any]:

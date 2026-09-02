@@ -21,6 +21,12 @@ class UnmoddedServerClientGateSourceTest(unittest.TestCase):
         self.assertIn("read -r label minecraft_version relative_dir", self.source)
         self.assertNotIn('minecraft_version=${label%-*}', self.source)
 
+    def test_matrix_resource_lock_preserves_global_exclusion(self) -> None:
+        self.assertIn("JAMMARR_GATE_LOCK_SCOPE", self.source)
+        self.assertIn("JAMMARR_GATE_LOCK_KEY", self.source)
+        self.assertIn("flock -n -s 9", self.source)
+        self.assertIn('.dedicated-server-gate.$gate_lock_key.lock', self.source)
+
     def test_client_gui_is_private_and_audio_isolated(self) -> None:
         self.assertIn("env -u WAYLAND_DISPLAY", self.source)
         self.assertIn("xvfb-run -a", self.source)
@@ -33,6 +39,12 @@ class UnmoddedServerClientGateSourceTest(unittest.TestCase):
         self.assertIn('sleep "$connected_seconds"', self.source)
         self.assertIn("modded-client-to-unmodded-server gate passed", self.source)
         self.assertIn('ss -ltnH "sport = :$port"', self.source)
+
+    def test_shutdown_ignores_and_reaps_an_exited_group_leader(self) -> None:
+        self.assertIn("ps -o stat= -g", self.source)
+        self.assertIn("grep -Eqv '^[[:space:]]*Z'", self.source)
+        self.assertIn('wait "$pid" 2>/dev/null || true', self.source)
+        self.assertIn('if ! wait "$server_pid"; then', self.source)
 
 
 if __name__ == "__main__":

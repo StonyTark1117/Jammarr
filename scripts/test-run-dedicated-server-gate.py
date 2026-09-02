@@ -24,6 +24,13 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
             'export PULSE_SERVER="unix:$active_audio_runtime_dir/pulse/native"', source
         )
 
+    def test_runtime_lock_supports_exclusive_and_workspace_scopes(self) -> None:
+        source = self.source
+        self.assertIn("JAMMARR_GATE_LOCK_SCOPE", source)
+        self.assertIn("JAMMARR_GATE_LOCK_KEY", source)
+        self.assertIn("flock -n -s 9", source)
+        self.assertIn('.dedicated-server-gate.$gate_lock_key.lock', source)
+
     def test_modern_openal_defaults_to_the_qualified_pulse_route(self) -> None:
         source = self.source
         audio_client = source[source.index("start_audio_client()") :]
