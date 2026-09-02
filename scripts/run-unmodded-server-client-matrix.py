@@ -106,6 +106,8 @@ def accepted_provenance(value: dict[str, Any], minecraft: str) -> bool:
         == "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
         and isinstance(metadata_sha1, str)
         and re.fullmatch(r"[0-9a-f]{40}", metadata_sha1) is not None
+        and isinstance(server_sha1, str)
+        and re.fullmatch(r"[0-9a-f]{40}", server_sha1) is not None
         and value.get("metadataUrl")
         == f"https://piston-meta.mojang.com/v1/packages/{metadata_sha1}/{minecraft}.json"
         and isinstance(value.get("serverUrl"), str)
@@ -114,7 +116,11 @@ def accepted_provenance(value: dict[str, Any], minecraft: str) -> bool:
     )
 
 
-def accepted_evidence(attempt: Path, runtime: dict[str, Any]) -> bool:
+def accepted_evidence(
+    attempt: Path,
+    runtime: dict[str, Any],
+    connected_seconds: int = 10,
+) -> bool:
     evidence = attempt / "gate.evidence.txt"
     attestation = attempt / "server-attestation.json"
     server_log = attempt / "server.console.log"
@@ -131,7 +137,8 @@ def accepted_evidence(attempt: Path, runtime: dict[str, Any]) -> bool:
         return False
     minecraft = runtime["minecraft"]
     return (
-        value.get("minecraftVersion") == minecraft
+        value.get("schemaVersion") == 1
+        and value.get("minecraftVersion") == minecraft
         and value.get("jammarrPresent") is False
         and value.get("unmoddedVanillaServer") is True
         and server_size == value.get("serverSize")
@@ -140,7 +147,10 @@ def accepted_evidence(attempt: Path, runtime: dict[str, Any]) -> bool:
         and accepted_provenance(value, minecraft)
         and server_joined(server_text)
         and "Acceptance Jammarr unsupported-server screen remained open" in client_text
-        and "Modded client remained connected to the attested unmodded server" in text
+        and (
+            "Modded client remained connected to the attested unmodded server "
+            f"for {connected_seconds} seconds after UI verification."
+        ) in text
         and "Attested unmodded server, modded client, private X server, and port cleaned up."
         in text
         and not process_mentions(attempt)
@@ -148,9 +158,13 @@ def accepted_evidence(attempt: Path, runtime: dict[str, Any]) -> bool:
     )
 
 
-def accepted_attempt(runtime_root: Path, runtime: dict[str, Any]) -> Path | None:
+def accepted_attempt(
+    runtime_root: Path,
+    runtime: dict[str, Any],
+    connected_seconds: int = 10,
+) -> Path | None:
     for attempt in sorted(runtime_root.glob("attempt-*"), reverse=True):
-        if attempt.is_dir() and accepted_evidence(attempt, runtime):
+        if attempt.is_dir() and accepted_evidence(attempt, runtime, connected_seconds):
             return attempt
     return None
 
@@ -197,6 +211,8 @@ def run(args: argparse.Namespace) -> int:
         "schemaVersion": 1,
         "startedAt": datetime.now(timezone.utc).isoformat(),
         "manifest": str(args.manifest),
+        "manifestSha256": hashlib.sha256(args.manifest.read_bytes()).hexdigest(),
+        "connectedSeconds": args.connected_seconds,
         "selected": [runtime["name"] for runtime in runtimes],
         "accepted": [],
         "resumed": [],
@@ -211,7 +227,11 @@ def run(args: argparse.Namespace) -> int:
         for index, runtime in enumerate(runtimes, start=1):
             label = runtime["name"]
             runtime_root = args.output_root / label
-            prior = accepted_attempt(runtime_root, runtime) if args.resume else None
+            prior = (
+                accepted_attempt(runtime_root, runtime, args.connected_seconds)
+                if args.resume
+                else None
+            )
             if prior is not None:
                 summary["resumed"].append({"runtime": label, "evidenceRoot": str(prior)})
                 print(f"UNMODDED_MATRIX_RESUME {index}/{len(runtimes)} {label}", flush=True)
@@ -220,13 +240,17 @@ def run(args: argparse.Namespace) -> int:
             attempt.mkdir(parents=True, exist_ok=False)
             environment = dict(os.environ)
             environment["JAMMARR_UNMODDED_GATE_OUTPUT_ROOT"] = str(attempt.resolve())
+            environment["JAMMARR_UNMODDED_CONNECTED_SECONDS"] = str(
+                args.connected_seconds
+            )
             print(f"UNMODDED_MATRIX_RUNTIME {index}/{len(runtimes)} {label}", flush=True)
             exit_code = run_gate(
                 [str(args.gate_script.resolve()), label],
                 cwd=args.gate_script.resolve().parent.parent,
                 env=environment,
             )
-            if exit_code == 0 and accepted_evidence(attempt, runtime):
+            accepted = accepted_evidence(attempt, runtime, args.connected_seconds)
+            if exit_code == 0 and accepted:
                 summary["accepted"].append(
                     {"runtime": label, "evidenceRoot": str(attempt)}
                 )
@@ -235,7 +259,7 @@ def run(args: argparse.Namespace) -> int:
                 {
                     "runtime": label,
                     "exitCode": exit_code,
-                    "acceptedEvidence": accepted_evidence(attempt, runtime),
+                    "acceptedEvidence": accepted,
                     "evidenceRoot": str(attempt),
                 }
             )
@@ -273,7 +297,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true")
-    return parser.parse_args()
+    parser.add_argument("--connected-seconds", type=int, default=10)
+    args = parser.parse_args()
+    if not 10 <= args.connected_seconds <= 300:
+        parser.error("--connected-seconds must be from 10 through 300")
+    return args
 
 
 if __name__ == "__main__":

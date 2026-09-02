@@ -61,6 +61,7 @@ class UnmoddedServerClientMatrixTest(unittest.TestCase):
             (attempt / "server-attestation.json").write_text(
                 json.dumps(
                     {
+                        "schemaVersion": 1,
                         "minecraftVersion": "1.20.1",
                         "jammarrPresent": False,
                         "unmoddedVanillaServer": True,
@@ -89,7 +90,7 @@ class UnmoddedServerClientMatrixTest(unittest.TestCase):
                 encoding="utf-8",
             )
             (attempt / "gate.evidence.txt").write_text(
-                "Modded client remained connected to the attested unmodded server for 10 seconds.\n"
+                "Modded client remained connected to the attested unmodded server for 10 seconds after UI verification.\n"
                 "Attested unmodded server, modded client, private X server, and port cleaned up.\n",
                 encoding="utf-8",
             )
@@ -98,6 +99,7 @@ class UnmoddedServerClientMatrixTest(unittest.TestCase):
                 MATRIX, "port_listening", return_value=False
             ):
                 self.assertTrue(MATRIX.accepted_evidence(attempt, runtime))
+                self.assertFalse(MATRIX.accepted_evidence(attempt, runtime, 30))
                 server.write_bytes(b"corrupt")
                 self.assertFalse(MATRIX.accepted_evidence(attempt, runtime))
 
