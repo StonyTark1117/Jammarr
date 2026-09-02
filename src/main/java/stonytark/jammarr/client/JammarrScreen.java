@@ -289,7 +289,11 @@ public final class JammarrScreen extends Screen {
     @Override public boolean keyPressed(int key, int scanCode, int modifiers) { if (key == 257 && search != null && search.isFocused()) { request(0); return true; } return super.keyPressed(key, scanCode, modifiers); }
     @Override public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) { if (scrollY != 0 && view.browseKind != null && state.browse().kind() == view.browseKind) { rowOffset = Math.max(0, rowOffset + (scrollY < 0 ? 1 : -1)); rebuildWidgets(); return true; } return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY); }
     @Override public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics, mouseX, mouseY, partialTick); super.render(graphics, mouseX, mouseY, partialTick); graphics.drawCenteredString(font, title, width / 2, 12, 0xFFFFFF);
+        // This render era allows another overlay/screen pass to claim the
+        // GuiRenderState's single blur slot. Keep the vanilla menu layer but do
+        // not request that global blur a second time.
+        renderMenuBackground(graphics);
+        super.render(graphics, mouseX, mouseY, partialTick); graphics.drawCenteredString(font, title, width / 2, 12, 0xFFFFFF);
         JammarrPayloads.PlaybackState playing = state.playback(); String now = statusLabel(playing) + (playing.title().isBlank() ? "" : ": " + playing.title() + (playing.artist().isBlank() ? "" : " — " + playing.artist())) + "  " + time(playing.positionMs()) + "/" + time(playing.durationMs());
         graphics.drawCenteredString(font, trim(now, width - 20), width / 2, 25, statusColor(playing.status()));
         String notice = screenNotice.isBlank() ? (state.notice().isBlank() ? playing.statusMessage() : state.notice()) : screenNotice;
