@@ -7,6 +7,7 @@ mkdir -p "$output_root"
 output_root=$(cd "$output_root" && pwd)
 mkdir -p "$repo_root/build"
 gate_lock="$repo_root/build/.dedicated-server-gate.lock"
+forge_client_bootstrap_lock="$repo_root/build/.dedicated-server-gate.forge-client-bootstrap.lock"
 exec 9>"$gate_lock"
 gate_lock_scope=${JAMMARR_GATE_LOCK_SCOPE:-exclusive}
 case "$gate_lock_scope" in
@@ -698,12 +699,31 @@ run_optional_client() {
   local client_dir="$output_root/$label.$scenario"
   local client_console="$output_root/$label.$scenario.console.log"
   local evidence="$output_root/$label.$scenario.evidence.txt"
-  local pid deadline result=0 received_mod_list=""
+  local pid deadline result=0 received_mod_list="" serialize_forge_bootstrap=false
   local -a runtime_args=() cache_args=()
   [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
   [[ "$label" == *-quilt && "$quilt_modmenu_gate" == true ]] && runtime_args+=(-PjammarrIncludeModMenu=true)
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
   disables_configuration_cache "$label" && cache_args+=(--no-configuration-cache)
+
+  # Forge-family development clients load their client config and bake models
+  # on separate worker pools. Forge 49.0.2 can let model baking observe its own
+  # config before it is attached when several development clients saturate the
+  # host together; production clients use defaults in that window, but the
+  # development-only strict check turns every failed bake into a missing model
+  # and eventually crashes chunk compilation. Keep independent servers and
+  # exact vanilla clients parallel, while serializing only this loader-specific
+  # development bootstrap and bounding the worker pool it exposes to the host.
+  if [[ ${target_optional_client_profile[$label]} == "mod-suppressed" ]] \
+      && [[ "$label" == *-forge || "$label" == *-neoforge ]]; then
+    serialize_forge_bootstrap=true
+    exec 7>"$forge_client_bootstrap_lock"
+    if ! flock 7; then
+      echo "$label: interrupted while waiting for the Forge client bootstrap lock" >&2
+      exec 7>&-
+      return 1
+    fi
+  fi
 
   mkdir -p "$client_dir"
   : > "$client_console"
@@ -715,7 +735,7 @@ run_optional_client() {
     exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 \
       xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' env \
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
-      JAVA_TOOL_OPTIONS='-Djammarr.acceptance.enabled=true -Djammarr.acceptance.suppressClientHello=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
+      JAVA_TOOL_OPTIONS='-XX:ActiveProcessorCount=4 -Djammarr.acceptance.enabled=true -Djammarr.acceptance.suppressClientHello=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
       LIBGL_ALWAYS_SOFTWARE=1 \
       ./gradlew "${target_client_task[$label]}" --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
       "${runtime_args[@]}" \
@@ -786,6 +806,10 @@ run_optional_client() {
   fi
   terminate_client_launch "$pid" 20 || result=1
   active_client_pid=""
+  if [[ "$serialize_forge_bootstrap" == true ]]; then
+    flock -u 7
+    exec 7>&-
+  fi
   return "$result"
 }
 

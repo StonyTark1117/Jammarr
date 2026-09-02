@@ -31,6 +31,25 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         self.assertIn("flock -n -s 9", source)
         self.assertIn('.dedicated-server-gate.$gate_lock_key.lock', source)
 
+    def test_forge_development_client_bootstrap_is_bounded_and_serialized(self) -> None:
+        source = self.source
+        optional = source[source.index("run_optional_client()") :]
+        optional = optional[: optional.index("run_vanilla_client()")]
+        self.assertIn("forge_client_bootstrap_lock=", source)
+        self.assertIn('[[ "$label" == *-forge || "$label" == *-neoforge ]]', optional)
+        self.assertIn('exec 7>"$forge_client_bootstrap_lock"', optional)
+        self.assertIn("flock 7", optional)
+        self.assertIn("-XX:ActiveProcessorCount=4", optional)
+        self.assertIn("flock -u 7", optional)
+        self.assertLess(
+            optional.index("flock 7"),
+            optional.index('./gradlew "${target_client_task[$label]}"'),
+        )
+        self.assertLess(
+            optional.index("terminate_client_launch"),
+            optional.index("flock -u 7"),
+        )
+
     def test_modern_openal_defaults_to_the_qualified_pulse_route(self) -> None:
         source = self.source
         audio_client = source[source.index("start_audio_client()") :]
