@@ -8,6 +8,7 @@ output_root=$(cd "$output_root" && pwd)
 mkdir -p "$repo_root/build"
 gate_lock="$repo_root/build/.dedicated-server-gate.lock"
 forge_client_bootstrap_lock="$repo_root/build/.dedicated-server-gate.forge-client-bootstrap.lock"
+forgegradle_gate_lock="$repo_root/build/.dedicated-server-gate.forgegradle.lock"
 exec 9>"$gate_lock"
 gate_lock_scope=${JAMMARR_GATE_LOCK_SCOPE:-exclusive}
 case "$gate_lock_scope" in
@@ -3967,7 +3968,26 @@ for target in "${targets[@]}"; do
     continue
   fi
   matched=1
-  run_target "$label" "$relative_dir" "$java_home" "$port" || failed=1
+  # Modern ForgeGradle Mavenizer projects share a cache outside every
+  # project/runtime lock. Concurrent versions can otherwise overwrite the same
+  # launcher_manifest.json while another process parses it. Keep complete
+  # Forge gates serialized so both server launches and their development
+  # client use one cache writer; Fabric, Quilt, NeoForge, and exact Mojang
+  # client work in other lanes remain parallel.
+  if [[ "$label" == *-forge ]]; then
+    exec 6>"$forgegradle_gate_lock"
+    if ! flock 6; then
+      echo "$label: interrupted while waiting for the ForgeGradle cache lock" >&2
+      failed=1
+      exec 6>&-
+      continue
+    fi
+    run_target "$label" "$relative_dir" "$java_home" "$port" || failed=1
+    flock -u 6
+    exec 6>&-
+  else
+    run_target "$label" "$relative_dir" "$java_home" "$port" || failed=1
+  fi
 done
 
 if (( matched == 0 )); then

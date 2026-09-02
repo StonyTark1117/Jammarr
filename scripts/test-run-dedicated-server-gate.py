@@ -50,6 +50,23 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
             optional.index("flock -u 7"),
         )
 
+    def test_complete_forge_gates_serialize_the_shared_mavenizer_cache(self) -> None:
+        source = self.source
+        dispatch = source[source.index('for target in "${targets[@]}"') :]
+        self.assertIn("forgegradle_gate_lock=", source)
+        self.assertIn('if [[ "$label" == *-forge ]]', dispatch)
+        self.assertIn('exec 6>"$forgegradle_gate_lock"', dispatch)
+        self.assertIn("flock 6", dispatch)
+        self.assertIn("flock -u 6", dispatch)
+        self.assertLess(
+            dispatch.index("flock 6"),
+            dispatch.index('run_target "$label" "$relative_dir" "$java_home" "$port"'),
+        )
+        self.assertLess(
+            dispatch.index('run_target "$label" "$relative_dir" "$java_home" "$port"'),
+            dispatch.index("flock -u 6"),
+        )
+
     def test_modern_openal_defaults_to_the_qualified_pulse_route(self) -> None:
         source = self.source
         audio_client = source[source.index("start_audio_client()") :]
