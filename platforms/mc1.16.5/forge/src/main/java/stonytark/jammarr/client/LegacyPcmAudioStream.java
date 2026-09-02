@@ -12,6 +12,7 @@ final class LegacyPcmAudioStream implements IAudioStream {
     private byte[] remainder;
     private int remainderOffset;
     private int acceptanceReads;
+    private final PcmSubmissionTracker submissions = new PcmSubmissionTracker();
 
     LegacyPcmAudioStream(LegacyStreamingMp3Decoder decoder) { this.decoder = decoder; }
     @Override public AudioFormat getFormat() { return decoder.format(); }
@@ -31,6 +32,7 @@ final class LegacyPcmAudioStream implements IAudioStream {
             return null;
         }
         output.flip();
+        submissions.submitted(output.remaining(), getFormat().getFrameSize());
         if (acceptanceReads == 0) AudioTimingTrace.record("pcm_drained", "bytes", output.remaining(),
                 "bufferedMs", decoder.bufferedMillis());
         if (ProtocolLimits.audioProbeEnabled() && acceptanceReads++ < 12) {
@@ -38,6 +40,9 @@ final class LegacyPcmAudioStream implements IAudioStream {
                     requested, output.remaining(), decoder.finished(), decoder.bufferedMillis());
         }
         return output;
+    }
+    PcmSubmissionTracker.Snapshot submissionSnapshot(int queuedBuffers) {
+        return submissions.snapshot(queuedBuffers);
     }
     @Override public void close() { decoder.close(); }
 }

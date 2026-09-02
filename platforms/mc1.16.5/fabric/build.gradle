@@ -99,7 +99,7 @@ if (quiltRuntime.get()) {
 sourceSets {
     main {
         java {
-            setSrcDirs([file('src/main/java')])
+            setSrcDirs([file('src/main/java'), file('../common/src/main/java')])
         }
         resources {
             setSrcDirs([file('src/main/resources'), file('../../../src/main/resources')])
@@ -112,6 +112,7 @@ tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
 }
 sourceSets.test.resources { srcDir file('../../../test-fixtures'); exclude 'java/**' }
+sourceSets.test.java.srcDir file('../common/src/test/java')
 tasks.withType(Test).configureEach { useJUnitPlatform() }
 
 tasks.named('processResources') {

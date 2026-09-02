@@ -51,7 +51,8 @@ dependencyLocking { lockAllConfigurations() }
 
 sourceSets {
     main {
-        java.setSrcDirs([file('src/main/java'), file('../../../core/src/main/java')])
+        java.setSrcDirs([file('src/main/java'), file('../common/src/main/java'),
+                         file('../../../core/src/main/java')])
         resources {
             setSrcDirs([file('src/main/resources'), file('../../../src/main/resources')])
             exclude 'jammarr.mixins.json'
@@ -59,6 +60,7 @@ sourceSets {
     }
 }
 sourceSets.test.java.srcDir file('../../../core/src/test/java')
+sourceSets.test.java.srcDir file('../common/src/test/java')
 tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
 sourceSets.test.resources { srcDir file('../../../test-fixtures'); exclude 'java/**' }
 tasks.withType(Test).configureEach { useJUnitPlatform() }
