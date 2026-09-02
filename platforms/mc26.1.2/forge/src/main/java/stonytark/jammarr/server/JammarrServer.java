@@ -4,6 +4,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.server.ServerAboutToStartEvent;
 import net.minecraftforge.event.server.ServerStartedEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.fml.loading.FMLPaths;
@@ -24,6 +25,7 @@ public final class JammarrServer {
 
     public static JammarrServer instance() { return INSTANCE; }
     public static void register() {
+        ServerAboutToStartEvent.BUS.addListener(INSTANCE::aboutToStart);
         ServerStartedEvent.BUS.addListener(INSTANCE::started);
         ServerStoppingEvent.BUS.addListener(INSTANCE::stopping);
         TickEvent.ServerTickEvent.Post.BUS.addListener(INSTANCE::tick);
@@ -31,9 +33,7 @@ public final class JammarrServer {
         PlayerEvent.PlayerLoggedOutEvent.BUS.addListener(INSTANCE::left);
     }
 
-    public void started(ServerStartedEvent event) {
-        ticks = 0L;
-        capabilities.clear();
+    public void aboutToStart(ServerAboutToStartEvent event) {
         try {
             java.nio.file.Path configDirectory = FMLPaths.CONFIGDIR.get();
             java.nio.file.Path canonical = event.getServer().getWorldPath(LevelResource.ROOT)
@@ -44,8 +44,13 @@ public final class JammarrServer {
             if (config.importedFrom() != null) {
                 Jammarr.LOGGER.info("Imported legacy Jammarr server settings from {}", config.importedFrom());
             }
-            player = new GlobalPlayer(event.getServer(), this::accepted);
         }
+        catch (Exception error) { throw new IllegalStateException("Unable to initialize Jammarr", error); }
+    }
+    public void started(ServerStartedEvent event) {
+        ticks = 0L;
+        capabilities.clear();
+        try { player = new GlobalPlayer(event.getServer(), this::accepted); }
         catch (Exception error) { throw new IllegalStateException("Unable to initialize Jammarr", error); }
     }
     public void stopping(ServerStoppingEvent event) { if (player != null) { player.close(); player = null; } capabilities.clear(); }
