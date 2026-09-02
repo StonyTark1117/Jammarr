@@ -20,6 +20,8 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         self.assertIn('PIPEWIRE_RUNTIME_DIR="$active_audio_runtime_dir" pipewire', source)
         self.assertIn("wireplumber --profile=policy", source)
         self.assertIn("pipewire-pulse", source)
+        self.assertIn('sink_properties=device.description="$sink_leader"', source)
+        self.assertIn('sink_properties=device.description="$sink_follower"', source)
         self.assertIn(
             'export PULSE_SERVER="unix:$active_audio_runtime_dir/pulse/native"', source
         )
@@ -67,14 +69,24 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
             dispatch.index("flock -u 6"),
         )
 
-    def test_modern_openal_defaults_to_the_qualified_pulse_route(self) -> None:
+    def test_openal_backend_is_selectable_for_short_diagnostics(self) -> None:
         source = self.source
         audio_client = source[source.index("start_audio_client()") :]
         audio_client = audio_client[: audio_client.index("wait_for_audio_playing()")]
         self.assertIn("local pcm_type=${JAMMARR_ALSA_PCM_TYPE:-pulse}", audio_client)
+        self.assertIn("openal_driver=${JAMMARR_OPENAL_DRIVER:-auto}", source)
+        self.assertIn('case "$openal_driver" in', audio_client)
+        self.assertIn("alsoft_drivers=pipewire", audio_client)
+        self.assertIn("sound_device=$sink", audio_client)
+        self.assertIn("'soundDevice:", audio_client)
         self.assertIn("pcm.!default {", audio_client)
         self.assertIn("'  type pulse'", audio_client)
         self.assertIn('ALSOFT_DRIVERS="$alsoft_drivers"', audio_client)
+        self.assertIn('ALSOFT_LOGLEVEL="$openal_loglevel"', audio_client)
+        launch = source[source.index("launch_audio_client()") :]
+        launch = launch[: launch.index("audio_capture_is_audible()")]
+        self.assertIn('[[ "$openal_driver" == pipewire ]]', launch)
+        self.assertIn('"OpenAL initialized on device $sink"', launch)
 
     def test_sustained_audio_rejects_a_backend_break_immediately(self) -> None:
         source = self.source

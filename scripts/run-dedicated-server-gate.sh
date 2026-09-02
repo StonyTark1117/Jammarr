@@ -225,6 +225,8 @@ legacy_browse_stress_gate=${JAMMARR_LEGACY_BROWSE_STRESS_GATE:-false}
 network_profile=${JAMMARR_NETWORK_PROFILE:-direct}
 fabric_loader_version=${JAMMARR_FABRIC_LOADER_VERSION:-}
 quilt_modmenu_gate=${JAMMARR_QUILT_MODMENU_GATE:-false}
+openal_driver=${JAMMARR_OPENAL_DRIVER:-auto}
+openal_loglevel=${JAMMARR_OPENAL_LOGLEVEL:-0}
 prism_shared_root=${JAMMARR_PRISM_SHARED_ROOT:-${XDG_DATA_HOME:-$HOME/.local/share}/PrismLauncher}
 vanilla_cache_root=${JAMMARR_VANILLA_CACHE_ROOT:-$repo_root/build/vanilla-client-cache}
 
@@ -263,6 +265,14 @@ if [[ ! "$legacy_cold_start_count" =~ ^[0-9]+$ ]] || (( legacy_cold_start_count 
 fi
 if (( legacy_cold_start_count > 0 )) && [[ "$audio_client_gate" != "true" ]]; then
   echo "JAMMARR_LEGACY_COLD_STARTS requires JAMMARR_AUDIO_CLIENT_GATE=true" >&2
+  exit 2
+fi
+case "$openal_driver" in
+  auto|alsa|pulse|pipewire) ;;
+  *) echo "JAMMARR_OPENAL_DRIVER must be auto, alsa, pulse, or pipewire" >&2; exit 2 ;;
+esac
+if [[ ! "$openal_loglevel" =~ ^[0-3]$ ]]; then
+  echo "JAMMARR_OPENAL_LOGLEVEL must be an integer from 0 through 3" >&2
   exit 2
 fi
 if [[ "$legacy_browse_stress_gate" == "true" && "$audio_client_gate" != "true" ]]; then
@@ -499,14 +509,17 @@ start_private_audio_graph() {
 activate_shared_audio_sinks() {
   local label=$1 sink_master=$2 sink_leader=$3 sink_follower=$4
   local module sink pid deadline running_sinks keepalives_alive
-  module=$(pactl load-module module-null-sink sink_name="$sink_master" rate=48000 channels=4 \
+  module=$(pactl load-module module-null-sink sink_name="$sink_master" \
+    sink_properties=device.description="$sink_master" rate=48000 channels=4 \
     channel_map=front-left,front-right,rear-left,rear-right) || return 1
   active_audio_modules+=("$module")
   module=$(pactl load-module module-remap-sink sink_name="$sink_leader" master="$sink_master" \
+    sink_properties=device.description="$sink_leader" \
     channels=2 channel_map=front-left,front-right \
     master_channel_map=front-left,front-right remix=no) || return 1
   active_audio_modules=("$module" "${active_audio_modules[@]}")
   module=$(pactl load-module module-remap-sink sink_name="$sink_follower" master="$sink_master" \
+    sink_properties=device.description="$sink_follower" \
     channels=2 channel_map=front-left,front-right \
     master_channel_map=rear-left,rear-right remix=no) || return 1
   active_audio_modules=("$module" "${active_audio_modules[@]}")
@@ -1714,12 +1727,13 @@ start_audio_client() {
   local username=$6
   local sink=$7
   # The direct ALSA PipeWire plugin can initialize against a Pulse-created
-  # remap sink and then lose that stream after prolonged churn. Route modern
-  # OpenAL through ALSA's Pulse plugin by default, matching the already
-  # qualified DiscPanel live-client topology. Keep the explicit pipewire
-  # option for targeted host-backend diagnostics only.
+  # remap sink and then lose that stream after prolonged churn. Keep ALSA's
+  # Pulse plugin as the default modern route while allowing diagnostic runs to
+  # select OpenAL Soft's native PipeWire backend. Native PipeWire needs the
+  # exact enumerated sink name so both clients stay on separate branches of
+  # the shared recorder clock.
   local pcm_type=${JAMMARR_ALSA_PCM_TYPE:-pulse}
-  local alsoft_drivers=alsa pulse_sink=
+  local alsoft_drivers=alsa pulse_sink= sound_device=
   local client_dir="$output_root/$label.audio-$role"
   local client_console="$output_root/$label.audio-$role.console.log"
   local control_file="$output_root/$label.audio-$role.control"
@@ -1772,13 +1786,6 @@ start_audio_client() {
         '}' > "$client_dir/alsa.conf"
       ;;
     pulse)
-      # Prefer OpenAL Soft's native Pulse backend. The ALSA Pulse plugin can
-      # silently drop/resample frames while correcting its bridge clock,
-      # which makes a healthy client look like it skipped an audio chunk.
-      if uses_legacy_audio_profile "$label"; then
-        alsoft_drivers=pulse
-        pulse_sink=$sink
-      fi
       printf '%s\n' \
         'pcm.!default {' \
         '  type pulse' \
@@ -1793,6 +1800,30 @@ start_audio_client() {
       return 1
       ;;
   esac
+  case "$openal_driver" in
+    auto)
+      if uses_legacy_audio_profile "$label" && [[ "$pcm_type" == pulse ]]; then
+        alsoft_drivers=pulse
+        pulse_sink=$sink
+      fi
+      ;;
+    alsa)
+      alsoft_drivers=alsa
+      ;;
+    pulse)
+      alsoft_drivers=pulse
+      pulse_sink=$sink
+      ;;
+    pipewire)
+      if uses_legacy_audio_profile "$label"; then
+        echo "$label: native PipeWire OpenAL diagnostics are not available for legacy audio" >&2
+        return 1
+      fi
+      alsoft_drivers=pipewire
+      sound_device=$sink
+      printf 'soundDevice:"%s"\n' "$sound_device" >> "$client_dir/options.txt"
+      ;;
+  esac
   (
     cd "$target_dir" || exit 1
     ulimit -f "$client_log_limit_blocks"
@@ -1801,7 +1832,8 @@ start_audio_client() {
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS="-Djammarr.acceptance.enabled=true -Djammarr.acceptance.audioProbe=true -Djammarr.acceptance.audioLeader=$leader -Djammarr.acceptance.audioControlFile=$control_file -Djammarr.acceptance.pcmTraceDir=$client_dir/pcm-trace -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true" \
       ALSA_CONFIG_PATH="$client_dir/alsa.conf" ALSOFT_CONF="$client_dir/alsoft.conf" \
-      ALSOFT_DRIVERS="$alsoft_drivers" PULSE_SINK="$pulse_sink" LIBGL_ALWAYS_SOFTWARE=1 \
+      ALSOFT_DRIVERS="$alsoft_drivers" ALSOFT_LOGLEVEL="$openal_loglevel" \
+      PULSE_SINK="$pulse_sink" LIBGL_ALWAYS_SOFTWARE=1 \
       ./gradlew "${target_client_task[$label]}" --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
       "${runtime_args[@]}" \
       -PjammarrAcceptanceUsername="$username" \
@@ -1937,6 +1969,12 @@ launch_audio_client() {
     pid=$started_audio_client_pid
     wait_for_audio_playing "$label" "$role" "$pid"
     status=$?
+    if (( status == 0 )) && [[ "$openal_driver" == pipewire ]] \
+        && ! grep -Fq "OpenAL initialized on device $sink" \
+          "$output_root/$label.audio-$role.console.log"; then
+      echo "$label: $role client fell back from its selected PipeWire sink $sink" >&2
+      status=2
+    fi
     if (( status == 0 )); then
       ready_audio_client_pid=$pid
       return 0
