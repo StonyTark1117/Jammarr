@@ -7,7 +7,6 @@ import argparse
 import os
 from pathlib import Path
 import select
-import signal
 import socket
 import threading
 import time
@@ -93,11 +92,6 @@ def main() -> int:
     except ValueError as error:
         raise SystemExit(str(error)) from error
 
-    def stop(_signal: int, _frame: object) -> None:
-        relay.stop()
-
-    signal.signal(signal.SIGINT, stop)
-    signal.signal(signal.SIGTERM, stop)
     write_endpoint(args.endpoint_file, relay.endpoint)
     print(f"DEFERRED_RELAY_READY endpoint={relay.endpoint}", flush=True)
     try:

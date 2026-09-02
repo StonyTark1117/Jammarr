@@ -15,6 +15,8 @@ forgegradle_gate_lock="$repo_root/build/.dedicated-server-gate.forgegradle.lock"
 connected_seconds=${JAMMARR_UNMODDED_CONNECTED_SECONDS:-10}
 active_processors=${JAMMARR_UNMODDED_ACTIVE_PROCESSORS:-4}
 graceful_stop_seconds=${JAMMARR_UNMODDED_GRACEFUL_STOP_SECONDS:-20}
+relay_start_seconds=${JAMMARR_UNMODDED_RELAY_START_SECONDS:-60}
+client_ready_seconds=${JAMMARR_UNMODDED_CLIENT_READY_SECONDS:-600}
 if [[ ! "$connected_seconds" =~ ^[0-9]+$ ]] || (( connected_seconds < 10 || connected_seconds > 300 )); then
   echo "JAMMARR_UNMODDED_CONNECTED_SECONDS must be an integer from 10 through 300" >&2
   exit 2
@@ -26,6 +28,16 @@ fi
 if [[ ! "$graceful_stop_seconds" =~ ^[0-9]+$ ]] \
     || (( graceful_stop_seconds < 5 || graceful_stop_seconds > 120 )); then
   echo "JAMMARR_UNMODDED_GRACEFUL_STOP_SECONDS must be an integer from 5 through 120" >&2
+  exit 2
+fi
+if [[ ! "$relay_start_seconds" =~ ^[0-9]+$ ]] \
+    || (( relay_start_seconds < 10 || relay_start_seconds > 120 )); then
+  echo "JAMMARR_UNMODDED_RELAY_START_SECONDS must be an integer from 10 through 120" >&2
+  exit 2
+fi
+if [[ ! "$client_ready_seconds" =~ ^[0-9]+$ ]] \
+    || (( client_ready_seconds < 120 || client_ready_seconds > 900 )); then
+  echo "JAMMARR_UNMODDED_CLIENT_READY_SECONDS must be an integer from 120 through 900" >&2
   exit 2
 fi
 mkdir -p "$output_root" "$repo_root/build"
@@ -231,7 +243,7 @@ if [[ "$deferred_connection" == true ]]; then
       --release-file "$relay_release" > "$relay_console" 2>&1
   ) &
   relay_pid=$!
-  deadline=$((SECONDS + 10))
+  deadline=$((SECONDS + relay_start_seconds))
   while [[ ! -s "$relay_endpoint" ]]; do
     if ! group_alive "$relay_pid" || (( SECONDS >= deadline )); then
       echo "$label: deferred connection relay did not become ready; see $relay_console" >&2
@@ -290,7 +302,7 @@ client_pid=$!
 
 if [[ "$deferred_connection" == true ]]; then
   resource_marker='minecraft:textures/atlas/mob_effects.png-atlas'
-  deadline=$((SECONDS + 120))
+  deadline=$((SECONDS + client_ready_seconds))
   while ! grep -Fq "$resource_marker" "$client_console" 2>/dev/null; do
     if ! group_alive "$client_pid" || ! group_alive "$relay_pid" || (( SECONDS >= deadline )); then
       echo "$label: client did not complete its initial resource atlases before deferred login; see $client_console" >&2

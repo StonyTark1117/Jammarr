@@ -36,6 +36,10 @@ class UnmoddedServerClientGateSourceTest(unittest.TestCase):
     def test_legacy_resource_reload_is_completed_before_local_login(self) -> None:
         self.assertIn("deferred-connection-relay.py", self.source)
         self.assertIn("1.16.*|1.17.*|1.18.*|1.19.*", self.source)
+        self.assertIn("JAMMARR_UNMODDED_RELAY_START_SECONDS", self.source)
+        self.assertIn("SECONDS + relay_start_seconds", self.source)
+        self.assertIn("JAMMARR_UNMODDED_CLIENT_READY_SECONDS", self.source)
+        self.assertIn("SECONDS + client_ready_seconds", self.source)
         self.assertIn("minecraft:textures/atlas/mob_effects.png-atlas", self.source)
         self.assertIn("Deferred connection released after", self.source)
         self.assertLess(self.source.index(': > "$relay_release"'), self.source.index("deadline=$((SECONDS + 600))"))
