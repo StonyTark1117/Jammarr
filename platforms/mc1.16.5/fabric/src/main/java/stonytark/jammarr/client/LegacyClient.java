@@ -41,6 +41,8 @@ public final class LegacyClient implements ClientModInitializer {
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) ->
                 LegacyNetwork.clientConnected(ClientPlayNetworking.canSend(LegacyNetwork.CHANNEL)));
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+            net.minecraft.network.chat.Component reason = handler.getConnection().getDisconnectedReason();
+            if (reason != null) Jammarr.LOGGER.info("Client disconnected with reason: {}", reason.getString());
             LegacyNetwork.clientDisconnected();
             LegacyClientState.INSTANCE.stop();
         });

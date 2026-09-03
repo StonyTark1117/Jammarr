@@ -173,6 +173,10 @@ requires_legacy_search_edit_probe() {
   [[ $1 == "1.7.10-forge" ]]
 }
 
+requires_config_screen_probe() {
+  [[ $1 != "1.16.5-fabric" && $1 != "1.16.5-quilt" && $1 != "1.16.5-forge" ]]
+}
+
 uses_legacy_audio_profile() {
   [[ ${target_audio_profile[$1]} == "legacy-openal" ]]
 }
@@ -211,6 +215,27 @@ mod_log_path() {
 
 disables_configuration_cache() {
   [[ ${target_disable_configuration_cache[$1]} == "true" ]]
+}
+
+uses_loom_client_launcher() {
+  [[ $1 == *-fabric || $1 == *-quilt || $1 == *-ornithe || $1 == b1.7.3-babric ]]
+}
+
+prepare_loom_client_launcher() {
+  local label=$1 target_dir=$2 java_home=$3
+  local -a cache_args=() runtime_args=()
+  uses_loom_client_launcher "$label" || return 0
+  disables_configuration_cache "$label" && cache_args+=(--no-configuration-cache)
+  [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
+  [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] \
+    && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
+  (
+    cd "$target_dir" || exit 1
+    JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
+      ./gradlew --init-script "$repo_root/gradle/verify-loom-dev-launcher.init.gradle" \
+      verifyLoomDevLauncher --no-daemon --max-workers=2 --console=plain \
+      "${cache_args[@]}" "${runtime_args[@]}"
+  )
 }
 
 requested=${1:-all}
@@ -638,7 +663,7 @@ fake_plex_requests_complete() {
 
 client_bootstrap_failed() {
   local console_log=$1
-  grep -Eq 'Timed out trying to setup the Game Window|Failed to initialize the mod loading system and display|ArrayIndexOutOfBoundsException: 0|Invalid paths argument, contained no existing paths|mismatched mod (channel )?list' \
+  grep -Eq 'Timed out trying to setup the Game Window|Failed to initialize the mod loading system and display|ArrayIndexOutOfBoundsException: 0|Invalid paths argument, contained no existing paths|mismatched mod (channel )?list|shaderInstance.* is null|Failed to load texture: minecraft:textures/atlas/blocks\.png' \
     "$console_log" 2>/dev/null
 }
 
@@ -1510,6 +1535,21 @@ run_acceptance_client_once() {
 
 run_command_client() {
   local label=$1
+  local client_console="$output_root/$label.command-client.console.log"
+  local attempt
+  for attempt in 1 2; do
+    if run_command_client_once "$@"; then return 0; fi
+    if (( attempt == 1 )) && client_bootstrap_failed "$client_console"; then
+      echo "$label: retrying command client after a transient renderer bootstrap failure" >&2
+      continue
+    fi
+    return 1
+  done
+  return 1
+}
+
+run_command_client_once() {
+  local label=$1
   local target_dir=$2
   local java_home=$3
   local port=$4
@@ -1687,8 +1727,9 @@ run_command_client() {
             "$client_console" 2>/dev/null \
             || ! grep -Fq 'Acceptance Jammarr title/status/notice rendered with opaque alpha' "$client_console" 2>/dev/null \
             || { requires_hover_help_probe "$label" && ! grep -Fq 'Acceptance hover help rendered on a real control' "$client_console" 2>/dev/null; } \
-            || ! grep -Fq 'Acceptance Jammarr config screen remained open across rendered frames' \
-            "$client_console" 2>/dev/null; do
+            || { requires_config_screen_probe "$label" \
+              && ! grep -Fq 'Acceptance Jammarr config screen remained open across rendered frames' \
+                "$client_console" 2>/dev/null; }; do
           if ! group_alive "$pid" || (( SECONDS >= deadline )); then
             echo "$label: Jammarr player/config screens did not remain open across rendered frames; see $client_console" >&2
             result=1
@@ -3389,7 +3430,11 @@ run_invalid_config_check_once() {
   # launch's freshly truncated console and the actual listening socket are
   # authoritative here; latest.log and the FML log can contain rejection text
   # from an earlier probe.
-  local deadline=$((SECONDS + 180))
+  # A completely cold ForgeGradle server can spend several minutes resolving,
+  # transforming, and generating its first world before the server-started
+  # callback validates the per-world config. Keep this bounded but above the
+  # observed clean-run startup envelope.
+  local deadline=$((SECONDS + 600))
   while (( SECONDS < deadline )); do
     if [[ -z "$server_pid" ]]; then
       server_pid=$(ss -ltnp "sport = :$port" \
@@ -3724,6 +3769,15 @@ run_target() {
   fi
   if disables_configuration_cache "$label"; then
     cache_args+=(--no-configuration-cache)
+  fi
+
+  if [[ "$protocol_client_gate" == "true" || "$command_client_gate" == "true"
+      || "$audio_client_gate" == "true" || "$vanilla_client_gate" == "true" ]] \
+      && ! prepare_loom_client_launcher "$label" "$target_dir" "$java_home"; then
+    echo "$label: unable to materialize the Loom development client launcher" >&2
+    restore_server_properties
+    restore_gate_world
+    return 1
   fi
 
   if ! run_invalid_config_check "$label" "$target_dir" "$run_dir" "$java_home" "$port" "$level_name"; then

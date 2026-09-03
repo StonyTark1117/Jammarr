@@ -41,6 +41,9 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
     private boolean acceptanceScreenOpened;
     private boolean acceptanceScreenLogged;
     private int acceptanceScreenTicks;
+    private boolean acceptanceConfigScreenOpened;
+    private boolean acceptanceConfigScreenLogged;
+    private int acceptanceConfigScreenTicks;
     private String lastAcceptanceAudioState = "";
     private long lastTimeSync;
     private String notice = "";
@@ -117,7 +120,7 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
             runAcceptanceScreenProbe();
             return;
         }
-        if (ProtocolLimits.commandProbeEnabled() && !commandProbeSent
+        if (ProtocolLimits.commandProbeEnabled() && audioNegotiated && !commandProbeSent
                 && Minecraft.getMinecraft().player != null) {
             commandProbeSent = true;
             Minecraft.getMinecraft().player.sendChatMessage("/jammarr status");
@@ -157,6 +160,8 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
         operatorProbeSent = false; lastTimeSync = 0L;
         acceptanceAudioQueued = false; lastAcceptanceAudioState = "";
         acceptanceScreenOpened = false; acceptanceScreenLogged = false; acceptanceScreenTicks = 0;
+        acceptanceConfigScreenOpened = false; acceptanceConfigScreenLogged = false;
+        acceptanceConfigScreenTicks = 0;
         acceptanceControl.reset();
         playback = emptyPlayback(); station = emptyStation();
         browse = new ControlPackets.BrowseResults(ControlPackets.BrowseKind.SEARCH, "", 0,
@@ -215,18 +220,30 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
             }
             return;
         }
-        if (!ProtocolLimits.commandProbeEnabled() || !"PLAYING".equals(audio.state())) return;
+        if (!ProtocolLimits.commandProbeEnabled() || !audioNegotiated) return;
         Minecraft minecraft = Minecraft.getMinecraft();
         if (!acceptanceScreenOpened) {
             minecraft.displayGuiScreen(new LegacyScreen(this));
             acceptanceScreenOpened = true;
             return;
         }
-        if (!(minecraft.currentScreen instanceof LegacyScreen) || acceptanceScreenLogged) return;
-        if (++acceptanceScreenTicks >= 2) {
+        if (!acceptanceScreenLogged) {
+            if (!(minecraft.currentScreen instanceof LegacyScreen)) return;
+            if (++acceptanceScreenTicks < 2) return;
             acceptanceScreenLogged = true;
             Jammarr.LOGGER.info("Acceptance legacy Jammarr screen remained open across client ticks");
             Jammarr.LOGGER.info("Acceptance Jammarr title/status/notice rendered with opaque alpha");
+            return;
+        }
+        if (!acceptanceConfigScreenOpened) {
+            minecraft.displayGuiScreen(new LegacyClientConfigScreen(minecraft.currentScreen));
+            acceptanceConfigScreenOpened = true;
+            return;
+        }
+        if (!acceptanceConfigScreenLogged && minecraft.currentScreen instanceof LegacyClientConfigScreen
+                && ++acceptanceConfigScreenTicks >= 2) {
+            acceptanceConfigScreenLogged = true;
+            Jammarr.LOGGER.info("Acceptance legacy Jammarr config screen remained open across client ticks");
         }
     }
 

@@ -229,6 +229,14 @@ public final class JammarrClientState {
             // Minecraft 1.19.2 and older only expose the chat-command path.
         }
         try {
+            Object player = Minecraft.getInstance().player;
+            if (player == null) throw new IllegalStateException("Acceptance client has no local player");
+            player.getClass().getMethod("commandUnsigned", String.class).invoke(player, command);
+            return;
+        } catch (ReflectiveOperationException | IllegalStateException ignored) {
+            // Minecraft 1.19.2 exposes unsigned commands on LocalPlayer.
+        }
+        try {
             connection.getClass().getMethod("sendChat", String.class).invoke(connection, "/" + command);
             return;
         } catch (ReflectiveOperationException error) {

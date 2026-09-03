@@ -318,6 +318,8 @@
           "artifactProfile": "legacy-java8",
           "runtimeCapabilities": {
             "control": "console",
+            "commandMarkers": "legacy-response",
+            "audioProfile": "legacy-openal",
             "disableConfigurationCache": false
           },
           "path": "platforms/mc1.12.2/forge",

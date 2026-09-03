@@ -119,12 +119,20 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
             runAcceptanceScreenProbe();
             return;
         }
-        if (ProtocolLimits.commandProbeEnabled() && !commandProbeSent
+        if (ProtocolLimits.commandProbeEnabled() && audioNegotiated
                 && Minecraft.getInstance().player != null) {
-            commandProbeSent = true;
-            Minecraft.getInstance().player.chat("/jammarr status");
-            Minecraft.getInstance().player.chat("/jammarr diagnostics");
-            Jammarr.LOGGER.info("Acceptance client issued non-operator command probes");
+            boolean operator = Minecraft.getInstance().player.hasPermissions(2);
+            if (!commandProbeSent && !operator) {
+                commandProbeSent = true;
+                Jammarr.LOGGER.info("Acceptance command permissions: non-operator public=true operator=false");
+                Minecraft.getInstance().player.chat("/jammarr");
+                Jammarr.LOGGER.info("Acceptance client issued: /jammarr");
+            } else if (commandProbeSent && !operatorProbeSent && operator) {
+                operatorProbeSent = true;
+                Jammarr.LOGGER.info("Acceptance command permissions: operator public=true operator=true");
+                Minecraft.getInstance().player.chat("/jammarr diagnostics");
+                Jammarr.LOGGER.info("Acceptance client issued: /jammarr diagnostics");
+            }
         }
         runAcceptanceControl();
         logAcceptanceAudioState();
@@ -217,7 +225,7 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
             }
             return;
         }
-        if (!ProtocolLimits.commandProbeEnabled() || !"PLAYING".equals(audio.state().name())) return;
+        if (!ProtocolLimits.commandProbeEnabled() || !audioNegotiated) return;
         Minecraft minecraft = Minecraft.getInstance();
         if (!acceptanceScreenOpened) {
             minecraft.setScreen(new LegacyScreen(this));
@@ -227,7 +235,7 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
         if (!(minecraft.screen instanceof LegacyScreen) || acceptanceScreenLogged) return;
         if (++acceptanceScreenTicks >= 2) {
             acceptanceScreenLogged = true;
-            Jammarr.LOGGER.info("Acceptance legacy Jammarr screen remained open across client ticks");
+            Jammarr.LOGGER.info("Acceptance Jammarr screen remained open across rendered frames");
             Jammarr.LOGGER.info("Acceptance Jammarr title/status/notice rendered with opaque alpha");
         }
     }

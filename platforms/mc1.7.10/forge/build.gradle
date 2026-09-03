@@ -143,6 +143,7 @@ def productionForge = productionRuntimeRoot.map {
     it.file('forge-1.7.10-10.13.4.1614-1.7.10-universal.jar')
 }
 def productionServer = productionRuntimeRoot.map { it.file('minecraft-server-1.7.10.jar') }
+def productionClient = productionRuntimeRoot.map { it.file('minecraft-client-1.7.10.jar') }
 
 def sha256 = { File file ->
     java.security.MessageDigest digest = java.security.MessageDigest.getInstance('SHA-256')
@@ -211,6 +212,29 @@ tasks.register('downloadProductionServer') {
     }
 }
 
+tasks.register('downloadProductionClient') {
+    outputs.file(productionClient)
+    doLast {
+        File output = productionClient.get().asFile
+        output.parentFile.mkdirs()
+        String expected = 'e80d9b3bf5085002218d4be59e668bac718abbc6'
+        if (!output.isFile() || sha1(output) != expected) {
+            File pending = new File(output.parentFile, output.name + '.part')
+            pending.delete()
+            new URL('https://launcher.mojang.com/v1/objects/'
+                    + 'e80d9b3bf5085002218d4be59e668bac718abbc6/client.jar')
+                    .withInputStream { input -> pending.withOutputStream { it << input } }
+            String actual = sha1(pending)
+            if (actual != expected) {
+                pending.delete()
+                throw new GradleException("Minecraft production client has SHA-1 ${actual}, expected ${expected}")
+            }
+            java.nio.file.Files.move(pending.toPath(), output.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
+}
+
 tasks.register('runProductionServer', JavaExec) {
     dependsOn(tasks.named('downloadProductionForge'), tasks.named('downloadProductionServer'),
             tasks.named('reobfJar'))
@@ -232,19 +256,21 @@ tasks.register('runProductionServer', JavaExec) {
 def productionClientIncludesMod = !(System.getenv('JAVA_TOOL_OPTIONS') ?: '')
         .contains('jammarr.acceptance.suppressClientHello=true')
 tasks.register('runProductionClient', JavaExec) {
-    dependsOn(tasks.named('downloadProductionForge'), tasks.named('reobfJar'), tasks.named('extractNatives2'))
+    dependsOn(tasks.named('downloadProductionForge'), tasks.named('downloadProductionClient'),
+            tasks.named('reobfJar'), tasks.named('extractNatives2'))
     notCompatibleWithConfigurationCache('Production classpath replaces the RFG development outputs at execution time')
     outputs.upToDateWhen { false }
     javaLauncher.set(javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(8) })
     mainClass.set('net.minecraft.launchwrapper.Launch')
     doFirst {
-        File productionMinecraft = new File(gradle.gradleUserHomeDir,
-                'caches/minecraft/net/minecraft/minecraft/1.7.10/minecraft-1.7.10.jar')
+        File productionMinecraft = productionClient.get().asFile
         File natives = new File(gradle.gradleUserHomeDir,
                 'caches/minecraft/net/minecraft/minecraft_natives/1.7.10')
-        if (!productionMinecraft.isFile() || sha1(productionMinecraft) != 'e80d9b3bf5085002218d4be59e668bac718abbc6'
-                || !natives.isDirectory()) {
-            throw new GradleException('Checksum-verified production Minecraft 1.7.10 client or natives are missing')
+        if (!productionMinecraft.isFile() || sha1(productionMinecraft) != 'e80d9b3bf5085002218d4be59e668bac718abbc6') {
+            throw new GradleException('Checksum-verified production Minecraft 1.7.10 client is missing')
+        }
+        if (!natives.isDirectory()) {
+            throw new GradleException('Production Minecraft 1.7.10 natives are missing')
         }
         Set<File> libraries = tasks.named('runClient', JavaExec).get().classpath.files.findAll { candidate ->
             !candidate.absolutePath.startsWith(layout.buildDirectory.get().asFile.absolutePath)

@@ -110,8 +110,7 @@ jobs:
       - name: Install headless audio acceptance dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg iproute2 libasound2-plugins libgl1-mesa-dri libopenal1 pulseaudio pulseaudio-utils x11-xserver-utils xvfb
-          pulseaudio --start --exit-idle-time=-1
+          sudo apt-get install -y ffmpeg iproute2 libasound2-plugins libgl1-mesa-dri libopenal1 pipewire pipewire-pulse pulseaudio-utils wireplumber x11-xserver-utils xvfb
           xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' xrandr --query
       - uses: actions/setup-java@v4
         with:

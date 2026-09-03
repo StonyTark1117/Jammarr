@@ -54,6 +54,9 @@ public final class LegacyClient {
     }
 
     private void loggedOut(ClientPlayerNetworkEvent.LoggedOutEvent event) {
+        net.minecraft.util.text.ITextComponent reason = event.getNetworkManager().getDisconnectedReason();
+        if (reason != null) stonytark.jammarr.Jammarr.LOGGER.info(
+                "Client disconnected with reason: {}", reason.getString());
         LegacyNetwork.clientDisconnected();
         LegacyClientState.INSTANCE.stop();
     }

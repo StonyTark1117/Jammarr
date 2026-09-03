@@ -1,0 +1,22 @@
+allprojects {
+    afterEvaluate {
+        def launcherConfiguration = configurations.findByName('loomDevelopmentDependencies')
+        if (launcherConfiguration != null && tasks.findByName('verifyLoomDevLauncher') == null) {
+            tasks.register('verifyLoomDevLauncher') {
+                doLast {
+                    File injector = launcherConfiguration.files.find {
+                        it.name.startsWith('dev-launch-injector-') && it.name.endsWith('.jar')
+                    }
+                    if (injector == null || !injector.isFile()) {
+                        throw new GradleException('Client dev-launch-injector was not resolved')
+                    }
+                    new java.util.zip.ZipFile(injector).withCloseable { zip ->
+                        if (zip.getEntry('net/fabricmc/devlaunchinjector/Main.class') == null) {
+                            throw new GradleException("Client launcher is invalid: ${injector.name}")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
