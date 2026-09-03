@@ -696,6 +696,23 @@ headless_client_openal_driver() {
   esac
 }
 
+# Protocol, delayed-hello, command-tree, and no-mod-client probes exercise
+# rendering, networking, and UI permission behavior—not audible playback.
+# Giving them a physical PipeWire/Pulse driver turns an unavailable runner
+# audio device into a false client-runtime failure. Audio acceptance clients
+# use launch_audio_client() instead, where their selected private sinks are
+# required and measured. Keep an override for targeted backend diagnosis.
+non_audio_client_openal_driver() {
+  local driver=${JAMMARR_NON_AUDIO_OPENAL_DRIVER:-null}
+  case "$driver" in
+    pulse|pipewire|alsa|null) printf '%s\n' "$driver" ;;
+    *)
+      echo "Unsupported JAMMARR_NON_AUDIO_OPENAL_DRIVER: $driver" >&2
+      return 1
+      ;;
+  esac
+}
+
 activate_shared_audio_sinks() {
   local label=$1 sink_master=$2 sink_leader=$3 sink_follower=$4
   local module sink pid deadline running_sinks keepalives_alive
@@ -950,7 +967,7 @@ run_optional_client() {
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS='-XX:ActiveProcessorCount=4 -Djammarr.acceptance.enabled=true -Djammarr.acceptance.suppressClientHello=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
       ALSA_CONFIG_PATH="$client_dir/alsa.conf" ALSOFT_CONF="$client_dir/alsoft.conf" \
-      ALSOFT_DRIVERS="$(headless_client_openal_driver "$label")" \
+      ALSOFT_DRIVERS="$(non_audio_client_openal_driver)" \
       PULSE_SERVER="unix:$active_audio_runtime_dir/pulse/native" \
       PIPEWIRE_RUNTIME_DIR="$active_audio_runtime_dir" XDG_RUNTIME_DIR="$active_audio_runtime_dir" \
       PULSE_SINK="$active_audio_default_sink" \
@@ -1553,7 +1570,7 @@ run_delayed_hello_client() {
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS="-Djammarr.acceptance.enabled=true -Djammarr.acceptance.clientHelloDelayMs=${delayed_hello_ms} -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true" \
       ALSA_CONFIG_PATH="$client_dir/alsa.conf" ALSOFT_CONF="$client_dir/alsoft.conf" \
-      ALSOFT_DRIVERS="$(headless_client_openal_driver "$label")" \
+      ALSOFT_DRIVERS="$(non_audio_client_openal_driver)" \
       PULSE_SERVER="unix:$active_audio_runtime_dir/pulse/native" \
       PIPEWIRE_RUNTIME_DIR="$active_audio_runtime_dir" XDG_RUNTIME_DIR="$active_audio_runtime_dir" \
       PULSE_SINK="$active_audio_default_sink" \
@@ -1659,7 +1676,7 @@ run_acceptance_client_once() {
 
   mkdir -p "$client_dir"
   write_private_client_audio_config "$client_dir" || return 1
-  openal_driver=$(headless_client_openal_driver "$label") || return 1
+  openal_driver=$(non_audio_client_openal_driver) || return 1
   : > "$client_console"
   printf '%s\n' \
     'onboardAccessibility:false' \
@@ -1774,7 +1791,7 @@ run_command_client_once() {
 
   mkdir -p "$client_dir"
   write_private_client_audio_config "$client_dir" || return 1
-  openal_driver=$(headless_client_openal_driver "$label") || return 1
+  openal_driver=$(non_audio_client_openal_driver) || return 1
   : > "$client_console"
   : > "$diagnostics"
   printf '%s\n' \

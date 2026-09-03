@@ -43,6 +43,8 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         self.assertIn('PULSE_SINK="$active_audio_default_sink"', source)
         self.assertIn("JAMMARR_HEADLESS_OPENAL_DRIVER", source)
         self.assertIn("headless_client_openal_driver", source)
+        self.assertIn("JAMMARR_NON_AUDIO_OPENAL_DRIVER", source)
+        self.assertIn("non_audio_client_openal_driver", source)
         self.assertIn("uses_legacy_audio_profile", source)
 
         # Minimum-loader coverage can start at the optional-client branch,
@@ -179,6 +181,30 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         launch = launch[: launch.index("audio_capture_is_audible()")]
         self.assertIn('[[ "$openal_driver" == pipewire ]]', launch)
         self.assertIn('"OpenAL initialized on device $sink"', launch)
+
+    def test_non_audio_clients_default_to_the_null_openal_backend(self) -> None:
+        source = self.source
+        helper = source[
+            source.index("non_audio_client_openal_driver()") : source.index("activate_shared_audio_sinks()")
+        ]
+        self.assertIn('JAMMARR_NON_AUDIO_OPENAL_DRIVER:-null', helper)
+        self.assertIn('pulse|pipewire|alsa|null', helper)
+
+        # These probes validate client startup, protocol, permissions, and UI;
+        # real playback remains exclusively in the measured audio launcher.
+        for start, end in (
+            ("run_optional_client()", "run_vanilla_client()"),
+            ("run_delayed_hello_client()", "run_acceptance_client()"),
+            ("run_acceptance_client_once()", "run_command_client()"),
+        ):
+            function = source[source.index(start) : source.index(end)]
+            self.assertIn("non_audio_client_openal_driver", function)
+
+        command_client = source[source.index("run_command_client_once()") :]
+        self.assertIn("non_audio_client_openal_driver", command_client)
+
+        audio_client = source[source.index("\nlaunch_audio_client()") :]
+        self.assertNotIn("non_audio_client_openal_driver", audio_client)
 
     def test_station_audio_capture_retries_without_lowering_audibility_threshold(self) -> None:
         source = self.source
