@@ -40,9 +40,10 @@ loom {
             if (providers.gradleProperty('jammarrAcceptanceServer').isPresent()) {
                 runDir providers.gradleProperty('jammarrAcceptanceGameDir').get()
                 property 'jammarr.acceptance.server', providers.gradleProperty('jammarrAcceptanceServer').get()
-                programArgs '--username', providers.gradleProperty('jammarrAcceptanceUsername').get(),
-                        '--server', providers.gradleProperty('jammarrAcceptanceServer').get().split(':')[0],
-                        '--port', providers.gradleProperty('jammarrAcceptanceServer').get().split(':')[1]
+                // LegacyClient connects through its initialized-client tick.
+                // Supplying --server here races world packets ahead of the
+                // headless renderer's model initialization on 1.16.5.
+                programArgs '--username', providers.gradleProperty('jammarrAcceptanceUsername').get()
             }
         }
     }

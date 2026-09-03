@@ -83,6 +83,14 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
             5,
         )
 
+    def test_legacy_fabric_acceptance_uses_the_ready_client_connector(self) -> None:
+        for loader in ("fabric", "forge"):
+            build = (ROOT / f"platforms/mc1.16.5/{loader}/build.gradle").read_text("utf-8")
+            self.assertIn("property 'jammarr.acceptance.server'", build)
+            self.assertIn("LegacyClient connects through its initialized-client tick.", build)
+            self.assertNotIn("'--server'", build)
+            self.assertNotIn("'--port'", build)
+
     def test_command_gate_rejects_post_marker_client_crashes(self) -> None:
         source = self.source
         command = source[source.index("run_command_client_once()") : source.index("start_audio_client()")]
