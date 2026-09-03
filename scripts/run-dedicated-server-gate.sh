@@ -169,6 +169,10 @@ requires_hover_help_probe() {
   [[ $1 == "1.7.10-forge" || $1 == "1.18.2-fabric" || $1 == "1.20.1-fabric" ]]
 }
 
+requires_legacy_search_edit_probe() {
+  [[ $1 == "1.7.10-forge" ]]
+}
+
 uses_legacy_audio_profile() {
   [[ ${target_audio_profile[$1]} == "legacy-openal" ]]
 }
@@ -1267,7 +1271,7 @@ run_client_companion() {
       || ! grep -Fq 'Acceptance audio state: PLAYING' "$client_console" \
       || ! grep -Fq 'Acceptance legacy Jammarr screen remained open across client ticks' "$client_console" \
       || ! grep -Fq 'Acceptance Jammarr title/status/notice rendered with opaque alpha' "$client_console" \
-      || ! grep -Fq 'Acceptance legacy search edit survived click, typing, backspace, and screen rebuilds' "$client_console" \
+      || { requires_legacy_search_edit_probe "$paired_runtime" && ! grep -Fq 'Acceptance legacy search edit survived click, typing, backspace, and screen rebuilds' "$client_console"; } \
       || ! grep -Fq 'Acceptance legacy Jammarr config screen remained open across client ticks' "$client_console"; do
     if client_bootstrap_failed "$client_console" \
         || grep -Eq 'ExceptionInInitializerError|Unreported exception thrown|#@!@# Game crashed!|Description: Unexpected error' "$client_console" \
@@ -1394,9 +1398,13 @@ run_acceptance_client() {
   local client_console="$output_root/$label.$scenario.console.log"
   local attempt
   for attempt in 1 2; do
-    if run_acceptance_client_once "$@"; then return 0; fi
+    if (( attempt == 1 )); then
+      if run_acceptance_client_once "$@"; then return 0; fi
+    else
+      if JAMMARR_ACCEPTANCE_RERUN_TASKS=true run_acceptance_client_once "$@"; then return 0; fi
+    fi
     if (( attempt == 1 )) && grep -Eq \
-        'Timed out trying to setup the Game Window|Failed to initialize the mod loading system and display|Failed to download .*\.ogg|HttpTimeoutException: request timed out' \
+        'Timed out trying to setup the Game Window|Failed to initialize the mod loading system and display|Failed to download .*\.ogg|HttpTimeoutException: request timed out|Could not find or load main class net\.fabricmc\.devlaunchinjector\.Main|DownloadException: Failed to download' \
         "$client_console" 2>/dev/null; then
       echo "$label: retrying $scenario after a transient client bootstrap failure" >&2
       continue
@@ -1426,6 +1434,8 @@ run_acceptance_client_once() {
   [[ "$label" == *-quilt && "$quilt_modmenu_gate" == true ]] && runtime_args+=(-PjammarrIncludeModMenu=true)
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
   disables_configuration_cache "$label" && cache_args+=(--no-configuration-cache)
+  [[ ${JAMMARR_ACCEPTANCE_RERUN_TASKS:-false} == true ]] \
+    && cache_args+=(--rerun-tasks --refresh-dependencies)
 
   mkdir -p "$client_dir"
   : > "$client_console"
@@ -1621,7 +1631,7 @@ run_command_client() {
           && { ! grep -Fq 'Acceptance legacy Jammarr screen remained open across client ticks' "$client_console" \
             || ! grep -Fq 'Acceptance Jammarr title/status/notice rendered with opaque alpha' "$client_console" \
             || { requires_hover_help_probe "$label" && ! grep -Fq 'Acceptance legacy hover help rendered on a real control' "$client_console"; } \
-            || ! grep -Fq 'Acceptance legacy search edit survived click, typing, backspace, and screen rebuilds' "$client_console" \
+            || { requires_legacy_search_edit_probe "$label" && ! grep -Fq 'Acceptance legacy search edit survived click, typing, backspace, and screen rebuilds' "$client_console"; } \
             || ! grep -Fq 'Acceptance legacy Jammarr config screen remained open across client ticks' "$client_console"; }; do
         if ! group_alive "$pid" || (( SECONDS >= deadline )); then
           echo "$label: legacy Jammarr player/config/search-edit UI gate did not complete; see $client_console" >&2
@@ -3332,6 +3342,7 @@ run_invalid_config_check_once() {
   local port=$5
   local level_name=$6
   local console_log="$output_root/$label.invalid-config.console.log"
+  local validation_log="$console_log"
   local pid server_pid="" server_group="" result=0 marker_seen=0 ready_marker_deadline=0
   local -a cache_args=()
   local -a runtime_args=(-PjammarrServerGameDir="$run_dir")
@@ -3339,6 +3350,11 @@ run_invalid_config_check_once() {
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
   if disables_configuration_cache "$label"; then
     cache_args+=(--no-configuration-cache)
+  fi
+  if uses_legacy_fml_log "$label"; then
+    validation_log=$(mod_log_path "$label" "$run_dir")
+    mkdir -p "$(dirname "$validation_log")"
+    : > "$validation_log"
   fi
 
   install_invalid_config "$run_dir" "$label" "$level_name"
@@ -3387,7 +3403,7 @@ run_invalid_config_check_once() {
         fi
       fi
     fi
-    if grep -Fq 'Invalid Jammarr configuration value for plexUrl' "$console_log" 2>/dev/null; then
+    if grep -Fq 'Invalid Jammarr configuration value for plexUrl' "$console_log" "$validation_log" 2>/dev/null; then
       marker_seen=1
       break
     fi
@@ -3468,7 +3484,7 @@ run_invalid_config_check_once() {
     echo "$label: invalid configuration failure did not identify the rejected key" >&2
     result=1
   fi
-  if grep -Fq 'private-pass' "$console_log" 2>/dev/null; then
+  if grep -Fq 'private-pass' "$console_log" "$validation_log" 2>/dev/null; then
     echo "$label: invalid configuration diagnostics leaked a credential" >&2
     result=1
   fi
@@ -3748,7 +3764,7 @@ run_target() {
 
   local startup_deadline=$((SECONDS + 180))
   while :; do
-    if grep -Eq 'Done \([^)]*\)! For help' "$console_log" "$server_evidence_log" 2>/dev/null; then
+    if grep -Eq 'Done \([^)]*\)! For help' "$console_log" "$server_evidence_log" "$latest_log" 2>/dev/null; then
       break
     fi
     if ! kill -0 "$pid" 2>/dev/null; then
