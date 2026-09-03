@@ -119,6 +119,8 @@ tasks.named('reobfJar') {
 def srgArchive = tasks.named('reobfJar').flatMap { it.archiveFile }
 def releaseArchive = layout.buildDirectory.file("libs/${canonicalBaseName}.litemod")
 def mappedArchive = layout.buildDirectory.file("tmp/obfuscateLiteMod/${canonicalBaseName}.jar")
+def notchToSrg = new File(gradle.gradleUserHomeDir,
+        'caches/minecraft/net/minecraftforge/forge/1.7.10-10.13.4.1614-1.7.10/unpacked/srgs/notch-srg.srg')
 def productionLoader = layout.buildDirectory.file('liteloader-runtime/liteloader-1.7.10.jar')
 def productionForge = layout.buildDirectory.file(
         'liteloader-runtime/forge-1.7.10-10.13.4.1614-1.7.10-universal.jar')
@@ -196,15 +198,14 @@ tasks.register('downloadProductionForge') {
 
 tasks.register('obfuscateLiteMod', JavaExec) {
     dependsOn(tasks.named('reobfJar'))
-    inputs.file(srgArchive)
+    inputs.files(srgArchive, notchToSrg)
     outputs.file(mappedArchive)
     classpath = configurations.remapper
     mainClass.set('net.md_5.specialsource.SpecialSource')
     doFirst { mappedArchive.get().asFile.delete() }
     args '--in-jar', srgArchive.get().asFile,
             '--out-jar', mappedArchive.get().asFile,
-            '--srg-in', new File(gradle.gradleUserHomeDir,
-                    'caches/minecraft/net/minecraftforge/forge/1.7.10-10.13.4.1614-1.7.10/srgs/notch-srg.srg'),
+            '--srg-in', notchToSrg,
             '--reverse', '--only', 'stonytark/jammarr'
 }
 
