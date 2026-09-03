@@ -166,7 +166,13 @@ public final class JammarrScreen extends Screen {
 
     private void addResults(int left, int contentTop, int panelWidth) {
         JammarrPayloads.BrowseResults results = state.browse(); if (view.browseKind == null || results.kind() != view.browseKind || requestPending) return;
-        List<JammarrPayloads.MediaItem> items = results.items(); int rows = Math.max(1, (height - contentTop - 54) / 22);
+        List<JammarrPayloads.MediaItem> items = results.items();
+        if (items.isEmpty()) {
+            String message = view == View.PLAYLISTS ? "No playlists returned by Plex" : "No results";
+            addRenderableWidget(disabled(message, left, contentTop, panelWidth));
+            return;
+        }
+        int rows = Math.max(1, (height - contentTop - 54) / 22);
         rowOffset = Math.max(0, Math.min(rowOffset, Math.max(0, items.size() - rows)));
         for (int row = 0; row < rows && row + rowOffset < items.size(); row++) {
             int localIndex = row + rowOffset, queueIndex = results.page() * PAGE_SIZE + localIndex, y = contentTop + row * 22;
@@ -175,7 +181,7 @@ public final class JammarrScreen extends Screen {
             String duration = item.durationMs() > 0 ? " (" + time(item.durationMs()) + ")" : "";
             String source = view == View.QUEUE && queueEntry != null && queueEntry.source() != JammarrPayloads.PlaybackOrigin.MANUAL ? " [" + queueEntry.source().name().toLowerCase() + "]" : "";
             String label = prefix + item.title() + (item.subtitle().isBlank() ? "" : " — " + item.subtitle()) + duration + source;
-            int controlsWidth = controlsWidth(item, queueEntry); Button itemButton = disabled(trim(label, panelWidth - controlsWidth - 20), left, y, panelWidth - controlsWidth - 4);
+        int controlsWidth = controlsWidth(item, queueEntry); Button itemButton = disabled(trim(label, panelWidth - controlsWidth - 20), left, y, panelWidth - controlsWidth - 4);
             if (font.width(label) > panelWidth - controlsWidth - 20) itemButton.setTooltip(Tooltip.create(Component.literal(label))); addRenderableWidget(itemButton);
             if (view == View.QUEUE && queueEntry != null && queueEntry.editable() && state.playback().operator()) addQueueControls(left, panelWidth, y, queueIndex, queueEntry);
             else if (view != View.QUEUE) addBrowseControls(left, panelWidth, y, item);
@@ -194,8 +200,10 @@ public final class JammarrScreen extends Screen {
         addRenderableWidget(up); addRenderableWidget(down); addRenderableWidget(described(Button.builder(Component.literal("×"), b -> control(JammarrPayloads.ControlAction.REMOVE, index, entry.key())).bounds(x + 60, y, 28, 20).build(), "Remove this manual request"));
     }
     private void addBrowseControls(int left, int panelWidth, int y, JammarrPayloads.MediaItem item) {
-        int button = 28, gap = 2, actions = state.playback().operator() && item.kind() != JammarrPayloads.ItemKind.PLAYLIST ? (item.kind() == JammarrPayloads.ItemKind.TRACK ? 4 : 3) : 1;
+        int button = 28, gap = 2, unavailablePlaylist = item.kind() == JammarrPayloads.ItemKind.PLAYLIST && item.subtitle().startsWith("[Unavailable:") ? 1 : 0;
+        int actions = unavailablePlaylist == 1 ? 0 : state.playback().operator() && item.kind() != JammarrPayloads.ItemKind.PLAYLIST ? (item.kind() == JammarrPayloads.ItemKind.TRACK ? 4 : 3) : 1;
         int x = left + panelWidth - actions * (button + gap);
+        if (actions == 0) return;
         addAction("+", "Add to manual queue", x, y, b -> activate(item)); x += button + gap;
         if (!state.playback().operator() || item.kind() == JammarrPayloads.ItemKind.PLAYLIST) return;
         addAction("R", "Start radio (Sonic, or metadata fallback when enabled)", x, y, b -> startRadio(item)); x += button + gap;

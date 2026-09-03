@@ -344,9 +344,14 @@ public final class PlexService implements PlexGateway {
         JsonArray metadata = array(container(getJson(path, params)), "Metadata");
         List<MediaItem> items = new ArrayList<>();
         for (JsonElement element : metadata) {
-            if (kind == BrowseKind.PLAYLISTS && (!element.isJsonObject()
-                    || !playlistBelongsToSelectedLibrary(text(element.getAsJsonObject(), "ratingKey")))) continue;
             MediaItem item = mediaItem(element);
+            if (kind == BrowseKind.PLAYLISTS && item != null) {
+                String reason = playlistUnavailableReason(item.key());
+                if (!reason.isEmpty()) {
+                    item = new MediaItem(item.kind(), item.key(), item.title(),
+                            "[Unavailable: " + reason + "]", item.durationMs());
+                }
+            }
             if (item != null) items.add(item);
         }
         boolean more = items.size() > pageSize;
@@ -515,17 +520,18 @@ public final class PlexService implements PlexGateway {
         }
     }
 
-    private boolean playlistBelongsToSelectedLibrary(String key) throws IOException, InterruptedException {
-        if (blank(key)) return false;
+    private String playlistUnavailableReason(String key) throws IOException, InterruptedException {
+        if (blank(key)) return "missing playlist key";
         JsonObject root = getJson("/playlists/" + encodePath(key) + "/items",
                 "X-Plex-Container-Start=0&X-Plex-Container-Size=" + MAX_EXPANDED_TRACKS);
         JsonObject resultContainer = container(root);
         JsonArray metadata = array(resultContainer, "Metadata");
-        if (metadata.size() == 0 || number(resultContainer, "totalSize") > MAX_EXPANDED_TRACKS) return false;
+        if (metadata.size() == 0) return "empty playlist";
+        if (number(resultContainer, "totalSize") > MAX_EXPANDED_TRACKS) return "over 500 tracks";
         for (JsonElement element : metadata) {
-            if (selectedQueueTrack(resultContainer, element) == null) return false;
+            if (selectedQueueTrack(resultContainer, element) == null) return "outside selected music library";
         }
-        return true;
+        return "";
     }
 
     private boolean belongsToSelectedLibrary(JsonObject resultContainer, JsonObject item) {

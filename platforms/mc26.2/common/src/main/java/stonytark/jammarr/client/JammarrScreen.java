@@ -292,15 +292,15 @@ public final class JammarrScreen extends Screen {
         // Screen#extractRenderState already extracts the background. Calling
         // extractBackground here a second time trips the render-state guard
         // and crashes when the menu opens.
-        super.extractRenderState(graphics, mouseX, mouseY, partialTick); graphics.centeredText(font, title, width / 2, 12, 0xFFFFFF);
+        super.extractRenderState(graphics, mouseX, mouseY, partialTick); graphics.centeredText(font, title, width / 2, 12, opaque(0xFFFFFF));
         JammarrPayloads.PlaybackState playing = state.playback(); String now = statusLabel(playing) + (playing.title().isBlank() ? "" : ": " + playing.title() + (playing.artist().isBlank() ? "" : " — " + playing.artist())) + "  " + time(playing.positionMs()) + "/" + time(playing.durationMs());
-        graphics.centeredText(font, trim(now, width - 20), width / 2, 25, statusColor(playing.status()));
+        graphics.centeredText(font, trim(now, width - 20), width / 2, 25, opaque(statusColor(playing.status())));
         String notice = screenNotice.isBlank() ? (state.notice().isBlank() ? playing.statusMessage() : state.notice()) : screenNotice;
-        if (!notice.isBlank()) graphics.centeredText(font, trim(notice, width - 24), width / 2, height - 40, 0xFFB36B);
-        if (view == View.NOW) graphics.centeredText(font, "Audio: " + state.audioStatus(), width / 2, 187, state.audioState() == AudioPlaybackState.ERROR ? 0xFF7777 : 0xA0D8FF);
-        if (requestPending) graphics.centeredText(font, Component.translatable("jammarr.screen.searching"), width / 2, height / 2, 0xA0D8FF);
-        else if (queuePending) graphics.centeredText(font, Component.translatable("jammarr.screen.queuing"), width / 2, height / 2, 0xA0D8FF);
-        else if (playing.status() == JammarrPayloads.PlaybackStatus.PLEX_OFFLINE && notice.isBlank()) graphics.centeredText(font, Component.translatable("jammarr.screen.plex_unavailable"), width / 2, height / 2, 0xFF7777);
+        if (!notice.isBlank()) graphics.centeredText(font, trim(notice, width - 24), width / 2, height - 40, opaque(0xFFB36B));
+        if (view == View.NOW) graphics.centeredText(font, "Audio: " + state.audioStatus(), width / 2, 187, opaque(state.audioState() == AudioPlaybackState.ERROR ? 0xFF7777 : 0xA0D8FF));
+        if (requestPending) graphics.centeredText(font, Component.translatable("jammarr.screen.searching"), width / 2, height / 2, opaque(0xA0D8FF));
+        else if (queuePending) graphics.centeredText(font, Component.translatable("jammarr.screen.queuing"), width / 2, height / 2, opaque(0xA0D8FF));
+        else if (playing.status() == JammarrPayloads.PlaybackStatus.PLEX_OFFLINE && notice.isBlank()) graphics.centeredText(font, Component.translatable("jammarr.screen.plex_unavailable"), width / 2, height / 2, opaque(0xFF7777));
     }
 
     private Button described(Button button, String description) { button.setTooltip(Tooltip.create(Component.literal(description))); return button; }
@@ -318,6 +318,7 @@ public final class JammarrScreen extends Screen {
     private static String capabilityLabel(JammarrPayloads.StationState station) { return "Sonic: " + station.capability().name().replace('_', ' ').toLowerCase() + " — " + station.capabilityMessage(); }
     private static String statusLabel(JammarrPayloads.PlaybackState state) { return Component.translatable(switch (state.status()) { case IDLE -> "jammarr.status.idle"; case PREPARING -> "jammarr.status.preparing"; case PLAYING -> "jammarr.status.playing"; case PAUSED -> "jammarr.status.paused"; case PLEX_OFFLINE -> "jammarr.status.plex_offline"; }).getString(); }
     private static int statusColor(JammarrPayloads.PlaybackStatus status) { return status == JammarrPayloads.PlaybackStatus.PLEX_OFFLINE ? 0xFF7777 : status == JammarrPayloads.PlaybackStatus.PREPARING ? 0xFFD37A : 0xCFCFCF; }
+    private static int opaque(int rgb) { return 0xFF000000 | (rgb & 0x00FFFFFF); }
     private String trim(String value, int pixels) { return font.width(value) <= pixels ? value : font.plainSubstrByWidth(value, Math.max(0, pixels - font.width("…"))) + "…"; }
     private static String time(long ms) { long seconds = Math.max(0, ms / 1000); return "%d:%02d".formatted(seconds / 60, seconds % 60); }
     @Override public boolean isPauseScreen() { return false; }

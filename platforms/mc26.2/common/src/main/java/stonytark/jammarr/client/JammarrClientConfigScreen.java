@@ -31,8 +31,8 @@ public final class JammarrClientConfigScreen extends Screen {
 
     @Override public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
         super.extractRenderState(graphics, mouseX, mouseY, partialTick);
-        graphics.centeredText(font, title, width / 2, height / 2 - 62, 0xFFFFFF);
-        graphics.centeredText(font, Component.translatable("jammarr.config.local_only"), width / 2, height / 2 - 46, 0xA0D8FF);
+        graphics.centeredText(font, title, width / 2, height / 2 - 62, opaque(0xFFFFFF));
+        graphics.centeredText(font, Component.translatable("jammarr.config.local_only"), width / 2, height / 2 - 46, opaque(0xA0D8FF));
     }
 
     @Override public void onClose() { minecraft.setScreenAndShow(parent); }
@@ -51,4 +51,6 @@ public final class JammarrClientConfigScreen extends Screen {
         @Override protected void updateMessage() { setMessage(Component.translatable("jammarr.screen.volume", Math.round(value * 100))); }
         @Override protected void applyValue() { JammarrSettings.volume(value); JammarrSettings.saveVolume(); }
     }
+
+    private static int opaque(int rgb) { return 0xFF000000 | (rgb & 0x00FFFFFF); }
 }

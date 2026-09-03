@@ -50,6 +50,14 @@ class UiTooltipCoverageTest(unittest.TestCase):
                 self.assertTrue(
                     "setTooltip(Tooltip.create" in source or "tooltips.put(" in source
                 )
+                if "platforms/mc26." in str(screen):
+                    self.assertIn("private static int opaque(int rgb)", source)
+                    self.assertNotRegex(source, r"centeredText\([^\n]*,\s*0x[0-9A-Fa-f]{6}\)")
+
+        for version in ("26.1.2", "26.2"):
+            config = ROOT / f"platforms/mc{version}/common/src/main/java/stonytark/jammarr/client/JammarrClientConfigScreen.java"
+            config_source = config.read_text("utf-8")
+            self.assertIn("private static int opaque(int rgb)", config_source)
 
     def test_runtime_gate_keeps_three_real_hover_rendering_canaries(self) -> None:
         gate = (ROOT / "scripts/run-dedicated-server-gate.sh").read_text("utf-8")

@@ -104,7 +104,8 @@ class PlexServiceTest {
         client.validate();
         PlexService.Page page = client.browse(ControlPackets.BrowseKind.PLAYLISTS, "", 0, 20);
         assertEquals(StationModels.ItemKind.PLAYLIST, page.items().get(0).kind());
-        assertEquals(1, page.items().size());
+        assertEquals(2, page.items().size());
+        assertTrue(page.items().get(1).subtitle().contains("outside selected music library"));
         assertEquals("audio", queriesByPath.get("/playlists").get("playlistType"));
         assertEquals("1", queriesByPath.get("/playlists").get("sectionID"));
         QueueTrack track = client.expand(StationModels.ItemKind.PLAYLIST, "88", 2).get(0);
@@ -153,8 +154,9 @@ class PlexServiceTest {
                 new StationModels.StationSeed(StationModels.ItemKind.ARTIST, "77", "Artist", ""), 10).stream()
                 .map(QueueTrack::key).collect(Collectors.toList()));
         PlexService.Page playlists = client.browse(ControlPackets.BrowseKind.PLAYLISTS, "", 0, 20);
-        assertEquals(Collections.singletonList("88"), playlists.items().stream()
+        assertEquals(Arrays.asList("88", "89"), playlists.items().stream()
                 .map(StationModels.MediaItem::key).collect(Collectors.toList()));
+        assertTrue(playlists.items().get(1).subtitle().contains("outside selected music library"));
     }
 
     @Test void boundsNativeStationBodyReadTimeoutsAfterHeadersArrive() throws Exception {
