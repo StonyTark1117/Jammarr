@@ -28,8 +28,8 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         self.assertIn('export DBUS_SESSION_BUS_ADDRESS="$private_dbus_address"', source)
         self.assertIn("pipewire-pulse", source)
         self.assertIn('sink_properties=device.description="$sink_leader"', source)
-        self.assertIn("start_shared_audio_monitor()", source)
-        self.assertIn("stop_shared_audio_monitor()", source)
+        self.assertNotIn("start_shared_audio_monitor()", source)
+        self.assertNotIn("stop_shared_audio_monitor()", source)
 
     def test_all_graphical_client_gates_prepare_private_audio_first(self) -> None:
         source = self.source
@@ -208,12 +208,13 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         audio_client = source[source.index("\nlaunch_audio_client()") :]
         self.assertNotIn("non_audio_client_openal_driver", audio_client)
 
-    def test_audio_capture_exchanges_the_private_monitor_for_the_recorder(self) -> None:
+    def test_audio_capture_uses_a_single_bounded_recorder(self) -> None:
         source = self.source
         audio = source[source.index("run_two_client_audio()") :]
         capture = audio[audio.index(": > \"$raw_combined\"") : audio.index("active_audio_recorder_pids=()")]
-        self.assertLess(capture.index("stop_shared_audio_monitor"), capture.index("parec --raw"))
-        self.assertIn('start_shared_audio_monitor "$sink_master"', audio)
+        self.assertIn("sole consumer of the master monitor", capture)
+        self.assertIn("parec --raw", capture)
+        self.assertNotIn("start_shared_audio_monitor", audio)
 
     def test_station_audio_capture_retries_without_lowering_audibility_threshold(self) -> None:
         source = self.source
@@ -235,6 +236,12 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         self.assertIn("out of buffers", source)
         self.assertIn("private_audio_graph_has_buffer_starvation", churn)
 
+    def test_protocol_rejection_requires_an_authoritative_server_reason(self) -> None:
+        source = self.source
+        rejection = source[source.index("rejection_observed()") : source.index("run_wrong_protocol_client()")]
+        self.assertIn('grep -Fq "$rejection" "$server_console"', rejection)
+        self.assertIn("Connection reset by peer", source)
+
     def test_audio_gate_records_both_clients_on_one_clock(self) -> None:
         source = self.source
         self.assertIn("activate_shared_audio_sinks()", source)
@@ -249,11 +256,11 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         self.assertIn("pan=stereo|c0=c0|c1=c1[leader]", initial)
         self.assertIn("pan=stereo|c0=c2|c1=c3[follower]", initial)
 
-    def test_shared_master_monitor_stays_drained_between_captures(self) -> None:
+    def test_shared_master_has_no_permanent_monitor_consumer(self) -> None:
         source = self.source
         activate = source[source.index("activate_shared_audio_sinks()") :]
         activate = activate[: activate.index("stop_listening_port()")]
-        self.assertIn('start_shared_audio_monitor "$sink_master"', activate)
+        self.assertNotIn("start_shared_audio_monitor", activate)
         self.assertIn('for sink in "$sink_leader" "$sink_follower"; do', activate)
         self.assertIn('active_audio_keepalive_pids+=("$!")', activate)
 

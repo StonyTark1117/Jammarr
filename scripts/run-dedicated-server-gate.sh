@@ -58,7 +58,6 @@ active_audio_recorder_pids=()
 active_audio_modules=()
 active_audio_base_modules=()
 active_audio_keepalive_pids=()
-active_audio_monitor_pid=""
 active_private_audio_pids=()
 active_audio_runtime_dir=""
 active_audio_default_sink=""
@@ -441,11 +440,6 @@ cleanup_audio_processes() {
     kill -TERM "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
   done
-  if [[ -n "$active_audio_monitor_pid" ]]; then
-    kill -TERM "$active_audio_monitor_pid" 2>/dev/null || true
-    wait "$active_audio_monitor_pid" 2>/dev/null || true
-    active_audio_monitor_pid=""
-  fi
   for module in "${active_audio_modules[@]}"; do
     pactl unload-module "$module" > /dev/null 2>&1 || true
   done
@@ -453,30 +447,6 @@ cleanup_audio_processes() {
   active_audio_recorder_pids=()
   active_audio_keepalive_pids=()
   active_audio_modules=()
-}
-
-stop_shared_audio_monitor() {
-  if [[ -n "$active_audio_monitor_pid" ]]; then
-    kill -TERM "$active_audio_monitor_pid" 2>/dev/null || true
-    wait "$active_audio_monitor_pid" 2>/dev/null || true
-    active_audio_monitor_pid=""
-  fi
-}
-
-start_shared_audio_monitor() {
-  local sink_master=$1
-  stop_shared_audio_monitor
-  parec --raw --latency-msec=200 --device="${sink_master}.monitor" \
-    --format=s16le --rate=48000 --channels=4 \
-    --channel-map=front-left,front-right,rear-left,rear-right \
-    > /dev/null 2>&1 &
-  active_audio_monitor_pid=$!
-  sleep .2
-  if ! kill -0 "$active_audio_monitor_pid" 2>/dev/null; then
-    echo "shared audio monitor exited during startup" >&2
-    active_audio_monitor_pid=""
-    return 1
-  fi
 }
 
 shutdown_private_client_environment() {
@@ -767,12 +737,11 @@ activate_shared_audio_sinks() {
       --stream-name="${sink}_keepalive" < /dev/zero > /dev/null 2>&1 &
     active_audio_keepalive_pids+=("$!")
   done
-  # Keep one monitor consumer alive between capture windows so the four-channel
-  # master branch never suspends, avoiding buffer renegotiation during the
-  # next client's CPU-heavy launch. Pulse
-  # monitor sources fan out independently, so this silent drain does not take
-  # samples away from the evidence recorder.
-  start_shared_audio_monitor "$sink_master" || return 1
+  # Do not attach a permanent monitor to the four-channel master.  On the
+  # GitHub runner PipeWire can retain its source-port buffers after a monitor
+  # handoff, then emit "out of buffers" and make the harness kill healthy
+  # clients.  The null/remap sinks and their writers keep this graph active;
+  # only the bounded evidence recorder consumes the monitor.
   deadline=$((SECONDS + 10))
   while true; do
     keepalives_alive=true
@@ -884,7 +853,7 @@ client_rejection_logged() {
     return 0
   fi
   [[ "$allow_generic" == true ]] \
-    && grep -Fq 'Client disconnected with reason: Disconnected' "$console_log" 2>/dev/null
+    && grep -Eq 'Client disconnected with reason: (Disconnected|Internal Exception: java\.io\.IOException: Error while read\(\.\.\.\): Connection reset by peer)' "$console_log" 2>/dev/null
 }
 
 exact_client_rejection_logged() {
@@ -903,10 +872,10 @@ rejection_observed() {
   exact_client_rejection_logged "$client_console" "$rejection" && return 0
   grep -Fq "$rejection" "$server_console" 2>/dev/null || return 1
   client_rejection_logged "$client_console" "$rejection" "$allow_generic" && return 0
-  # Transitional NeoForge 1.20.1 can omit its disconnected-screen log while
-  # the server still records both the exact rejection and the completed
-  # connection teardown. That pair is stronger evidence than waiting for a
-  # loader-specific client log line which will never be emitted.
+  # Some legacy and transitional loaders replace a server kick reason with a
+  # generic disconnect/reset.  The server's exact rejection remains required;
+  # the bounded generic client outcome proves that this is the same connection,
+  # rather than treating any transport loss as a successful protocol gate.
   grep -Fq "lost connection: $rejection" "$server_console" 2>/dev/null
 }
 
@@ -3350,11 +3319,7 @@ run_two_client_audio() {
     : > "$raw_leader"
     : > "$raw_follower"
     : > "$raw_combined"
-    # PipeWire-Pulse 0.3/0.4 can exhaust source-port buffers when a permanent
-    # monitor drain and the evidence recorder consume the same four-channel
-    # master simultaneously. The recorder itself keeps the graph active, so
-    # exchange—not overlap—the consumers for the strict capture window.
-    stop_shared_audio_monitor
+    # The bounded evidence recorder is the sole consumer of the master monitor.
     parec --raw --latency-msec=200 --device="${sink_master}.monitor" --format=s16le \
       --rate=48000 --channels=4 \
       --channel-map=front-left,front-right,rear-left,rear-right \
@@ -3378,9 +3343,6 @@ run_two_client_audio() {
     wait "$recorder_pid" 2>/dev/null || true
   done
   active_audio_recorder_pids=()
-  if ! start_shared_audio_monitor "$sink_master"; then
-    result=1
-  fi
   if (( result == 0 )) && ! ffmpeg -hide_banner -loglevel error -y \
       -f s16le -ar 48000 -ac 4 -i "$raw_combined" \
       -filter_complex \

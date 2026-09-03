@@ -129,8 +129,14 @@ public final class LegacyNetwork {
             ControlPackets.ClientHello hello = (ControlPackets.ClientHello) incoming.message;
             if (hello.protocolVersion() != Jammarr.PROTOCOL) {
                 capabilities.accept(player.getUniqueID(), hello.protocolVersion(), Jammarr.PROTOCOL);
-                player.playerNetServerHandler.kickPlayerFromServer(
-                        "Jammarr protocol mismatch: server requires protocol " + Jammarr.PROTOCOL);
+                String reason = "Jammarr protocol mismatch: server requires protocol " + Jammarr.PROTOCOL;
+                // Forge 1.8.9's Netty client occasionally reports the ensuing
+                // disconnect as a peer reset even though the server sent this
+                // kick.  Record the authoritative server-side decision before
+                // closing the channel so diagnostics never mistake it for an
+                // unrelated transport loss.
+                Jammarr.LOGGER.info("Rejected {}: {}", player.getUniqueID(), reason);
+                player.playerNetServerHandler.kickPlayerFromServer(reason);
                 return;
             }
             UUID playerId = player.getUniqueID();
