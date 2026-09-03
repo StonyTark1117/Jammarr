@@ -72,6 +72,7 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         self.assertIn("isLoomRunGameTask(task)", init_script)
         self.assertIn("type = type.superclass", init_script)
         self.assertIn("task.useXvfb.set(false)", init_script)
+        self.assertIn("task.hasProperty('useXvfb')", init_script)
         self.assertIn("RunGameTask must not start a nested CI Xvfb launcher", init_script)
         self.assertIn("getInternalClasspath", init_script)
         self.assertIn("internalClasspath.from(launcherConfiguration)", init_script)
