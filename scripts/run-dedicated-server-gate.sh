@@ -231,7 +231,9 @@ prepare_loom_client_launcher() {
   local label=$1 target_dir=$2 java_home=$3
   local -a cache_args=() runtime_args=()
   uses_loom_client_launcher "$label" || return 0
-  disables_configuration_cache "$label" && cache_args+=(--no-configuration-cache)
+  # The init script changes Loom's execution-only launcher classpath.  Do not
+  # reuse a graph cached by its preceding verifier invocation.
+  cache_args+=(--no-configuration-cache)
   [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] \
     && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
@@ -914,6 +916,7 @@ run_optional_client() {
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
   uses_loom_client_launcher "$label" \
     && runtime_args+=(--init-script "$repo_root/gradle/verify-loom-dev-launcher.init.gradle")
+  uses_loom_client_launcher "$label" && cache_args+=(--no-configuration-cache)
   disables_configuration_cache "$label" && cache_args+=(--no-configuration-cache)
 
   # Forge-family development clients load their client config and bake models
@@ -1532,6 +1535,7 @@ run_delayed_hello_client() {
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
   uses_loom_client_launcher "$label" \
     && runtime_args+=(--init-script "$repo_root/gradle/verify-loom-dev-launcher.init.gradle")
+  uses_loom_client_launcher "$label" && cache_args+=(--no-configuration-cache)
   disables_configuration_cache "$label" && cache_args+=(--no-configuration-cache)
 
   mkdir -p "$client_dir"
@@ -1648,6 +1652,7 @@ run_acceptance_client_once() {
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
   uses_loom_client_launcher "$label" \
     && runtime_args+=(--init-script "$repo_root/gradle/verify-loom-dev-launcher.init.gradle")
+  uses_loom_client_launcher "$label" && cache_args+=(--no-configuration-cache)
   disables_configuration_cache "$label" && cache_args+=(--no-configuration-cache)
   [[ ${JAMMARR_ACCEPTANCE_RERUN_TASKS:-false} == true ]] \
     && cache_args+=(--rerun-tasks --refresh-dependencies)
@@ -1764,6 +1769,7 @@ run_command_client_once() {
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
   uses_loom_client_launcher "$label" \
     && runtime_args+=(--init-script "$repo_root/gradle/verify-loom-dev-launcher.init.gradle")
+  uses_loom_client_launcher "$label" && cache_args+=(--no-configuration-cache)
   disables_configuration_cache "$label" && cache_args+=(--no-configuration-cache)
 
   mkdir -p "$client_dir"
@@ -2012,6 +2018,7 @@ start_audio_client() {
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
   uses_loom_client_launcher "$label" \
     && runtime_args+=(--init-script "$repo_root/gradle/verify-loom-dev-launcher.init.gradle")
+  uses_loom_client_launcher "$label" && cache_args+=(--no-configuration-cache)
   [[ "$role" == "leader" || "$role" == cold-* ]] && leader=true
   if disables_configuration_cache "$label"; then
     cache_args+=(--no-configuration-cache)

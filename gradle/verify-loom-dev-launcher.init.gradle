@@ -43,9 +43,11 @@ allprojects {
                 // older Loom tasks during afterEvaluate, so identify the
                 // concrete task instead of silently skipping the injection.
                 if (isLoomRunGameTask(task)) {
+                    logger.lifecycle("Configuring Loom launcher injection for ${task.path} (${task.class.name})")
                     def internalClasspath = internalClasspathFor(task)
                     internalClasspath.from(launcherConfiguration)
                     doFirst {
+                        logger.lifecycle("Verifying Loom launcher injection for ${task.path} (${task.class.name})")
                         if (!internalClasspath.files.any { it.name.startsWith('dev-launch-injector-') }) {
                             throw new GradleException('RunGameTask internalClasspath is missing dev-launch-injector at execution')
                         }

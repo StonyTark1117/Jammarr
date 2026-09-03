@@ -75,6 +75,12 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         self.assertIn("internalClasspath.from(launcherConfiguration)", init_script)
         self.assertIn("RunGameTask internalClasspath is missing dev-launch-injector at execution", init_script)
 
+    def test_loom_runtime_launches_do_not_reuse_execution_classpaths(self) -> None:
+        self.assertGreaterEqual(
+            self.source.count('uses_loom_client_launcher "$label" && cache_args+=(--no-configuration-cache)'),
+            5,
+        )
+
     def test_command_gate_rejects_post_marker_client_crashes(self) -> None:
         source = self.source
         command = source[source.index("run_command_client_once()") : source.index("start_audio_client()")]
