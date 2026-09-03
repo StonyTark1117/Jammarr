@@ -60,6 +60,8 @@ active_audio_keepalive_pids=()
 active_private_audio_pids=()
 active_audio_runtime_dir=""
 active_audio_default_sink=""
+active_client_display=""
+active_client_display_pid=""
 active_audio_environment_saved=0
 active_audio_original_xdg_runtime_dir=""
 active_audio_original_xdg_runtime_dir_set=0
@@ -474,7 +476,40 @@ cleanup_audio_processes() {
   active_private_audio_pids=()
   active_audio_runtime_dir=""
   active_audio_default_sink=""
+  if [[ "$active_client_display_pid" =~ ^[0-9]+$ ]]; then
+    kill "$active_client_display_pid" 2>/dev/null || true
+    wait "$active_client_display_pid" 2>/dev/null || true
+  fi
+  active_client_display=""
+  active_client_display_pid=""
   active_audio_environment_saved=0
+}
+
+start_private_client_display() {
+  local display_number pid deadline
+  [[ -n "$active_client_display" ]] && return 0
+  command -v Xvfb > /dev/null || { echo "private client display requires Xvfb" >&2; return 1; }
+  for display_number in $(seq $((90 + BASHPID % 100)) $((189 + BASHPID % 100))); do
+    [[ -S "/tmp/.X11-unix/X$display_number" ]] && continue
+    Xvfb ":$display_number" -screen 0 1280x720x24 +extension GLX +render -noreset \
+      > "$output_root/private-xvfb.log" 2>&1 &
+    pid=$!
+    deadline=$((SECONDS + 10))
+    while [[ ! -S "/tmp/.X11-unix/X$display_number" ]]; do
+      if ! kill -0 "$pid" 2>/dev/null || (( SECONDS >= deadline )); then
+        wait "$pid" 2>/dev/null || true
+        break
+      fi
+      sleep .1
+    done
+    if kill -0 "$pid" 2>/dev/null && [[ -S "/tmp/.X11-unix/X$display_number" ]]; then
+      active_client_display=":$display_number"
+      active_client_display_pid=$pid
+      return 0
+    fi
+  done
+  echo "private client Xvfb did not become ready" >&2
+  return 1
 }
 
 start_private_audio_graph() {
@@ -580,6 +615,7 @@ start_private_audio_graph() {
 prepare_private_client_audio() {
   local label=$1 module deadline
   if [[ -n "$active_audio_default_sink" ]]; then return 0; fi
+  start_private_client_display || return 1
   start_private_audio_graph "$label" || return 1
   active_audio_default_sink="jammarr_${BASHPID}_${label//[^a-zA-Z0-9_]/_}_control"
   module=$(pactl load-module module-null-sink sink_name="$active_audio_default_sink" \
@@ -864,8 +900,7 @@ run_optional_client() {
   (
     cd "$target_dir" || exit 1
     ulimit -f "$client_log_limit_blocks"
-    exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 \
-      xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' env \
+    exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DISPLAY="$active_client_display" \
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS='-XX:ActiveProcessorCount=4 -Djammarr.acceptance.enabled=true -Djammarr.acceptance.suppressClientHello=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
       LIBGL_ALWAYS_SOFTWARE=1 \
@@ -1012,8 +1047,7 @@ run_vanilla_client() {
   (
     cd "$repo_root" || exit 1
     ulimit -f "$client_log_limit_blocks"
-    exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 \
-      xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' env \
+    exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DISPLAY="$active_client_display" \
       "${vanilla_audio_env[@]}" \
       JAVA_TOOL_OPTIONS='-Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
       LIBGL_ALWAYS_SOFTWARE=1 \
@@ -1365,8 +1399,7 @@ run_client_companion() {
   (
     cd "$companion_dir" || exit 1
     ulimit -f "$client_log_limit_blocks"
-    exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 \
-      xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' env \
+    exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DISPLAY="$active_client_display" \
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS='-Djammarr.acceptance.enabled=true -Djammarr.acceptance.audioProbe=true -Djammarr.acceptance.audioLeader=true -Djammarr.acceptance.commandProbe=true -Djammarr.acceptance.clientHelloDelayMs=1 -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
       LIBGL_ALWAYS_SOFTWARE=1 \
@@ -1452,8 +1485,7 @@ run_delayed_hello_client() {
   (
     cd "$target_dir" || exit 1
     ulimit -f "$client_log_limit_blocks"
-    exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 \
-      xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' env \
+    exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DISPLAY="$active_client_display" \
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS="-Djammarr.acceptance.enabled=true -Djammarr.acceptance.clientHelloDelayMs=${delayed_hello_ms} -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true" \
       LIBGL_ALWAYS_SOFTWARE=1 \
@@ -1566,8 +1598,7 @@ run_acceptance_client_once() {
   (
     cd "$target_dir" || exit 1
     ulimit -f "$client_log_limit_blocks"
-    exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 \
-      xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' env \
+    exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DISPLAY="$active_client_display" \
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS="$java_tool_options" \
       ALSA_CONFIG_PATH="$client_dir/alsa.conf" ALSOFT_CONF="$client_dir/alsoft.conf" \
@@ -1689,8 +1720,7 @@ run_command_client_once() {
   (
     cd "$target_dir" || exit 1
     ulimit -f "$client_log_limit_blocks"
-    exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 \
-      xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' env \
+    exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DISPLAY="$active_client_display" \
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS='-Djammarr.acceptance.enabled=true -Djammarr.acceptance.commandProbe=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
       ALSA_CONFIG_PATH="$client_dir/alsa.conf" ALSOFT_CONF="$client_dir/alsoft.conf" \
@@ -1995,8 +2025,7 @@ start_audio_client() {
   (
     cd "$target_dir" || exit 1
     ulimit -f "$client_log_limit_blocks"
-    exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 \
-      xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' env \
+    exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DISPLAY="$active_client_display" \
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS="-Djammarr.acceptance.enabled=true -Djammarr.acceptance.audioProbe=true -Djammarr.acceptance.audioLeader=$leader -Djammarr.acceptance.audioControlFile=$control_file -Djammarr.acceptance.pcmTraceDir=$client_dir/pcm-trace -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true" \
       ALSA_CONFIG_PATH="$client_dir/alsa.conf" ALSOFT_CONF="$client_dir/alsoft.conf" \

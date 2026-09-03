@@ -42,6 +42,13 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         self.assertIn('ALSA_CONFIG_PATH="$client_dir/alsa.conf"', source)
         self.assertIn('PULSE_SINK="$active_audio_default_sink"', source)
 
+    def test_clients_share_one_private_x_server(self) -> None:
+        source = self.source
+        self.assertIn("start_private_client_display()", source)
+        self.assertIn('Xvfb ":$display_number"', source)
+        self.assertIn('DISPLAY="$active_client_display"', source)
+        self.assertNotIn("xvfb-run -a", source)
+
     def test_command_gate_rejects_post_marker_client_crashes(self) -> None:
         source = self.source
         command = source[source.index("run_command_client_once()") : source.index("start_audio_client()")]
