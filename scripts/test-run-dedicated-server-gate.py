@@ -96,6 +96,8 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         forge = (ROOT / "platforms/mc1.16.5/forge/src/main/java/stonytark/jammarr/client/LegacyClient.java").read_text("utf-8")
         self.assertIn("minecraft.screen instanceof TitleScreen", fabric)
         self.assertIn("minecraft.screen instanceof MainMenuScreen", forge)
+        self.assertIn("minecraft.getModelManager().getMissingModel() == null", fabric)
+        self.assertIn("minecraft.getModelManager().getMissingModel() == null", forge)
 
     def test_command_gate_rejects_post_marker_client_crashes(self) -> None:
         source = self.source

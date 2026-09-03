@@ -75,9 +75,14 @@ public final class LegacyClient {
 
     private void connectAcceptanceServer(Minecraft minecraft) {
         // A generic non-null screen includes startup loading screens.  On the
-        // 1.16 client those can precede ModelManager initialization, so joining
-        // then can race incoming world packets into an unready renderer.
-        if (acceptanceConnectAttempted || minecraft.level != null || !(minecraft.screen instanceof MainMenuScreen)) return;
+        // 1.16 assigns MainMenuScreen before ModelManager.apply has completed.
+        // getMissingModel becomes non-null only after that method initializes
+        // modelGroups, which is the field needed by incoming world packets.
+        if (acceptanceConnectAttempted || minecraft.level != null) return;
+        if (!(minecraft.screen instanceof MainMenuScreen)) {
+            return;
+        }
+        if (minecraft.getModelManager().getMissingModel() == null) return;
         String address = System.getProperty("jammarr.acceptance.server", "").trim();
         if (address.isEmpty()) return;
         int separator = address.lastIndexOf(':');
