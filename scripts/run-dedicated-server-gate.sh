@@ -59,6 +59,7 @@ active_audio_modules=()
 active_audio_keepalive_pids=()
 active_private_audio_pids=()
 active_audio_runtime_dir=""
+active_audio_default_sink=""
 active_audio_environment_saved=0
 active_audio_original_xdg_runtime_dir=""
 active_audio_original_xdg_runtime_dir_set=0
@@ -472,12 +473,14 @@ cleanup_audio_processes() {
   active_audio_modules=()
   active_private_audio_pids=()
   active_audio_runtime_dir=""
+  active_audio_default_sink=""
   active_audio_environment_saved=0
 }
 
 start_private_audio_graph() {
   local label=$1 command pid deadline private_dbus_address private_dbus_pid
   local -a private_dbus_output=()
+  local -a wireplumber_args=()
   # The hardware-free WirePlumber policy profile needs D-Bus session services.
   # Supply a fresh bus so neither it nor any acceptance client can reach the
   # user's desktop session or reserve a physical audio device.
@@ -529,9 +532,21 @@ start_private_audio_graph() {
     sleep .1
   done
 
+  # WirePlumber 0.5 supports profiles; Ubuntu's 0.4 package does not. Both
+  # modes are confined to this fresh D-Bus and PipeWire runtime directory.
+  {
+    printf 'wireplumber-version: '; wireplumber --version 2>&1 || true
+    printf 'wireplumber-profile: '
+  } > "$output_root/$label.private-audio-runtime.txt"
+  if wireplumber --help 2>&1 | grep -q -- '-p'; then
+    wireplumber_args=(-p policy)
+    printf '%s\n' 'policy' >> "$output_root/$label.private-audio-runtime.txt"
+  else
+    printf '%s\n' 'default' >> "$output_root/$label.private-audio-runtime.txt"
+  fi
   env DBUS_SESSION_BUS_ADDRESS="$private_dbus_address" \
     XDG_RUNTIME_DIR="$active_audio_runtime_dir" \
-    PIPEWIRE_RUNTIME_DIR="$active_audio_runtime_dir" wireplumber -p policy \
+    PIPEWIRE_RUNTIME_DIR="$active_audio_runtime_dir" wireplumber "${wireplumber_args[@]}" \
     > "$output_root/$label.private-wireplumber.log" 2>&1 &
   pid=$!
   active_private_audio_pids+=("$pid")
@@ -560,6 +575,45 @@ start_private_audio_graph() {
   export PIPEWIRE_RUNTIME_DIR="$active_audio_runtime_dir"
   export PULSE_SERVER="unix:$active_audio_runtime_dir/pulse/native"
   pactl info > /dev/null
+}
+
+prepare_private_client_audio() {
+  local label=$1 module deadline
+  if [[ -n "$active_audio_default_sink" ]]; then return 0; fi
+  start_private_audio_graph "$label" || return 1
+  active_audio_default_sink="jammarr_${BASHPID}_${label//[^a-zA-Z0-9_]/_}_control"
+  module=$(pactl load-module module-null-sink sink_name="$active_audio_default_sink" \
+    sink_properties=device.description="$active_audio_default_sink" rate=48000 channels=2) || return 1
+  active_audio_modules+=("$module")
+  deadline=$((SECONDS + 10))
+  while ! pactl list short sinks | awk -v sink="$active_audio_default_sink" '$2 == sink { found = 1 } END { exit !found }'; do
+    if (( SECONDS >= deadline )); then
+      echo "$label: private default client sink did not become ready" >&2
+      return 1
+    fi
+    sleep .1
+  done
+}
+
+write_private_client_audio_config() {
+  local client_dir=$1 sink=${2:-$active_audio_default_sink}
+  if [[ -z "$sink" ]]; then
+    echo "private client audio was not prepared" >&2
+    return 1
+  fi
+  printf '%s\n' \
+    '[general]' \
+    'frequency = 48000' \
+    'period_size = 1024' \
+    'periods = 8' > "$client_dir/alsoft.conf"
+  printf '%s\n' \
+    'pcm.!default {' \
+    '  type pulse' \
+    "  device \"$sink\"" \
+    '}' \
+    'ctl.!default {' \
+    '  type pulse' \
+    '}' > "$client_dir/alsa.conf"
 }
 
 activate_shared_audio_sinks() {
@@ -691,6 +745,12 @@ fake_plex_requests_complete() {
 client_bootstrap_failed() {
   local console_log=$1
   grep -Eq 'Timed out trying to setup the Game Window|Failed to initialize the mod loading system and display|ArrayIndexOutOfBoundsException: 0|Invalid paths argument, contained no existing paths|mismatched mod (channel )?list|shaderInstance.* is null|Failed to load texture: minecraft:textures/atlas/blocks\.png' \
+    "$console_log" 2>/dev/null
+}
+
+client_runtime_failed() {
+  local console_log=$1
+  grep -Eq 'Could not find or load main class net\.fabricmc\.devlaunchinjector\.Main|RunGameTask is missing dev-launch-injector at execution|Failed to open OpenAL device|Error starting SoundSystem\. Turning off sounds|shaderInstance.* is null|Failed to load texture: minecraft:textures/atlas/blocks\.png|Unreported exception thrown|#@!@# Game crashed!|Description: Unexpected error' \
     "$console_log" 2>/dev/null
 }
 
@@ -1460,7 +1520,7 @@ run_acceptance_client() {
       if JAMMARR_ACCEPTANCE_RERUN_TASKS=true run_acceptance_client_once "$@"; then return 0; fi
     fi
     if (( attempt == 1 )) && grep -Eq \
-        'Timed out trying to setup the Game Window|Failed to initialize the mod loading system and display|Failed to download .*\.ogg|HttpTimeoutException: request timed out|Could not find or load main class net\.fabricmc\.devlaunchinjector\.Main|DownloadException: Failed to download' \
+        'Timed out trying to setup the Game Window|Failed to initialize the mod loading system and display|Failed to download .*\.ogg|HttpTimeoutException: request timed out|DownloadException: Failed to download' \
         "$client_console" 2>/dev/null; then
       echo "$label: retrying $scenario after a transient client bootstrap failure" >&2
       continue
@@ -1496,6 +1556,7 @@ run_acceptance_client_once() {
     && cache_args+=(--rerun-tasks --refresh-dependencies)
 
   mkdir -p "$client_dir"
+  write_private_client_audio_config "$client_dir" || return 1
   : > "$client_console"
   printf '%s\n' \
     'onboardAccessibility:false' \
@@ -1509,6 +1570,8 @@ run_acceptance_client_once() {
       xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' env \
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS="$java_tool_options" \
+      ALSA_CONFIG_PATH="$client_dir/alsa.conf" ALSOFT_CONF="$client_dir/alsoft.conf" \
+      ALSOFT_DRIVERS=pulse PULSE_SINK="$active_audio_default_sink" \
       LIBGL_ALWAYS_SOFTWARE=1 \
       ./gradlew "${runtime_args[@]}" --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
       "${target_client_task[$label]}" \
@@ -1605,6 +1668,7 @@ run_command_client_once() {
   disables_configuration_cache "$label" && cache_args+=(--no-configuration-cache)
 
   mkdir -p "$client_dir"
+  write_private_client_audio_config "$client_dir" || return 1
   : > "$client_console"
   : > "$diagnostics"
   printf '%s\n' \
@@ -1629,6 +1693,8 @@ run_command_client_once() {
       xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX +render -noreset' env \
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS='-Djammarr.acceptance.enabled=true -Djammarr.acceptance.commandProbe=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
+      ALSA_CONFIG_PATH="$client_dir/alsa.conf" ALSOFT_CONF="$client_dir/alsoft.conf" \
+      ALSOFT_DRIVERS=pulse PULSE_SINK="$active_audio_default_sink" \
       LIBGL_ALWAYS_SOFTWARE=1 \
       ./gradlew "${runtime_args[@]}" --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
       "${target_client_task[$label]}" \
@@ -1644,7 +1710,7 @@ run_command_client_once() {
   if uses_legacy_command_markers "$label"; then
     while ! grep -Fq 'Acceptance command response: Queue is empty' "$client_console" 2>/dev/null \
         || ! grep -Fq 'Acceptance command response: Operator permission is required' "$client_console" 2>/dev/null; do
-      if client_bootstrap_failed "$client_console"; then
+      if client_bootstrap_failed "$client_console" || client_runtime_failed "$client_console"; then
         echo "$label: command client could not initialize its headless display; see $client_console" >&2
         result=1
         break
@@ -1659,7 +1725,7 @@ run_command_client_once() {
   else
     while ! grep -Fq 'Acceptance command permissions: non-operator public=true operator=false' \
         "$client_console" 2>/dev/null; do
-      if client_bootstrap_failed "$client_console"; then
+      if client_bootstrap_failed "$client_console" || client_runtime_failed "$client_console"; then
         echo "$label: command client could not initialize its headless display; see $client_console" >&2
         result=1
         break
@@ -1671,6 +1737,17 @@ run_command_client_once() {
       fi
       sleep 1
     done
+  fi
+
+  # The permissions marker is emitted on the render thread. Keep the process
+  # alive briefly after observing it so a subsequent renderer or audio crash
+  # cannot turn a partial command-tree observation into a false pass.
+  if (( result == 0 )); then
+    sleep 3
+    if ! group_alive "$pid" || client_runtime_failed "$client_console"; then
+      echo "$label: command probe did not remain healthy after command-tree evidence; see $client_console" >&2
+      result=1
+    fi
   fi
 
   if (( result == 0 )); then
@@ -3062,7 +3139,7 @@ run_two_client_audio() {
     rendered_timing_args+=(--maximum-marker-error-ms 120 --maximum-skew-ms 250)
   fi
 
-  if ! start_private_audio_graph "$label" \
+  if ! prepare_private_client_audio "$label" \
       || ! activate_shared_audio_sinks "$label" "$sink_master" "$sink_leader" "$sink_follower"; then
     return 1
   fi
@@ -3897,6 +3974,17 @@ run_target() {
     active_server_group=$server_group
   else
     server_group=""
+  fi
+
+  # Every graphical client—including protocol and command probes—must use the
+  # same private Pulse graph. Starting it here prevents those earlier probes
+  # from falling back to the runner's nonexistent ALSA default device.
+  if (( result == 0 )) && [[ "$protocol_client_gate" == "true" || "$command_client_gate" == "true"
+      || "$audio_client_gate" == "true" || "$vanilla_client_gate" == "true" ]]; then
+    if ! prepare_private_client_audio "$label"; then
+      echo "$label: unable to prepare the isolated client audio environment" >&2
+      result=1
+    fi
   fi
 
   if (( result == 0 )) && [[ "$protocol_client_gate" == "true" ]]; then

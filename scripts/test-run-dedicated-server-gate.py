@@ -23,10 +23,30 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
             source,
         )
         self.assertIn("dbus-daemon --session --fork --print-address=1 --print-pid=1", source)
-        self.assertIn("wireplumber -p policy", source)
+        self.assertIn("wireplumber_args=(-p policy)", source)
+        self.assertIn('wireplumber "${wireplumber_args[@]}"', source)
         self.assertIn('export DBUS_SESSION_BUS_ADDRESS="$private_dbus_address"', source)
         self.assertIn("pipewire-pulse", source)
         self.assertIn('sink_properties=device.description="$sink_leader"', source)
+
+    def test_all_graphical_client_gates_prepare_private_audio_first(self) -> None:
+        source = self.source
+        target = source[source.index("run_target()") :]
+        prepare = target.index('prepare_private_client_audio "$label"')
+        protocol = target.index('run_wrong_protocol_client "$label"')
+        command = target.index('run_command_client "$label"')
+        audio = target.index('run_two_client_audio "$label"')
+        self.assertLess(prepare, protocol)
+        self.assertLess(prepare, command)
+        self.assertLess(prepare, audio)
+        self.assertIn('ALSA_CONFIG_PATH="$client_dir/alsa.conf"', source)
+        self.assertIn('PULSE_SINK="$active_audio_default_sink"', source)
+
+    def test_command_gate_rejects_post_marker_client_crashes(self) -> None:
+        source = self.source
+        command = source[source.index("run_command_client_once()") : source.index("start_audio_client()")]
+        self.assertIn("client_runtime_failed", command)
+        self.assertIn("command probe did not remain healthy after command-tree evidence", command)
         self.assertIn('sink_properties=device.description="$sink_follower"', source)
         self.assertIn(
             'export PULSE_SERVER="unix:$active_audio_runtime_dir/pulse/native"', source
