@@ -41,6 +41,23 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         self.assertLess(prepare, audio)
         self.assertIn('ALSA_CONFIG_PATH="$client_dir/alsa.conf"', source)
         self.assertIn('PULSE_SINK="$active_audio_default_sink"', source)
+        self.assertIn("JAMMARR_HEADLESS_OPENAL_DRIVER", source)
+        self.assertIn("headless_client_openal_driver", source)
+        self.assertIn("uses_legacy_audio_profile", source)
+
+        # Minimum-loader coverage can start at the optional-client branch,
+        # without reaching protocol/command/audio dispatch.  Each graphical
+        # entry point must therefore bootstrap the shared environment itself.
+        boundaries = {
+            "run_optional_client()": "run_vanilla_client()",
+            "run_vanilla_client()": "run_client_companion()",
+            "run_client_companion()": "run_delayed_hello_client()",
+            "run_delayed_hello_client()": "run_acceptance_client()",
+        }
+        for start, end in boundaries.items():
+            function = source[source.index(start) : source.index(end)]
+            self.assertIn("prepare_graphical_client_environment", function)
+            self.assertIn('PULSE_SERVER="unix:$active_audio_runtime_dir/pulse/native"', function)
 
     def test_clients_share_one_private_x_server(self) -> None:
         source = self.source
@@ -52,7 +69,7 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
     def test_loom_preflight_retains_execution_classpath_validation(self) -> None:
         init_script = (ROOT / "gradle/verify-loom-dev-launcher.init.gradle").read_text("utf-8")
         self.assertIn("net.fabricmc.loom.task.RunGameTask", init_script)
-        self.assertIn("task.classpath(launcherConfiguration)", init_script)
+        self.assertIn("task.classpath(task.classpath + launcherConfiguration)", init_script)
         self.assertIn("RunGameTask is missing dev-launch-injector at execution", init_script)
 
     def test_command_gate_rejects_post_marker_client_crashes(self) -> None:
@@ -128,6 +145,15 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         self.assertIn('[[ "$openal_driver" == pipewire ]]', launch)
         self.assertIn('"OpenAL initialized on device $sink"', launch)
 
+    def test_station_audio_capture_retries_without_lowering_audibility_threshold(self) -> None:
+        source = self.source
+        self.assertIn("capture_audible_transition()", source)
+        helper = source[source.index("capture_audible_transition()") : source.index("audio_control_sequence=0")]
+        self.assertIn("for attempt in 1 2", helper)
+        self.assertIn('audio_capture_is_audible "$raw" "$metrics"', helper)
+        sonic = source[source.index("send_audio_control \"$label\" leader 'adventure:42:49'") : source.index("send_audio_control \"$label\" leader 'fault:underrun'")]
+        self.assertIn('capture_audible_transition "$sink_leader" "$raw" "$metrics" 4', sonic)
+
     def test_sustained_audio_rejects_a_backend_break_immediately(self) -> None:
         source = self.source
         self.assertIn("audio_log_has_terminal_backend_failure()", source)
@@ -187,18 +213,15 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         self.assertIn("backend interruption from transport or chunk-order corruption", churn)
 
     def test_cleanup_preserves_audio_graph_dependency_order(self) -> None:
-        cleanup = self.source[
-            self.source.index("cleanup_audio_processes()") :
-            self.source.index("start_private_audio_graph()")
-        ]
+        start = self.source.index("cleanup_audio_processes()")
+        cleanup = self.source[start : self.source.index("shutdown_private_client_environment()", start)]
         self.assertLess(
             cleanup.index('for pid in "${active_audio_keepalive_pids[@]}"'),
             cleanup.index('for module in "${active_audio_modules[@]}"'),
         )
-        self.assertLess(
-            cleanup.index('for module in "${active_audio_modules[@]}"'),
-            cleanup.index('for ((index = ${#active_private_audio_pids[@]}'),
-        )
+        self.assertNotIn("active_private_audio_pids", cleanup)
+        self.assertIn("active_audio_base_modules", self.source)
+        self.assertIn("shutdown_private_client_environment", self.source)
 
     def test_invalid_config_waits_for_detached_minecraft_group(self) -> None:
         source = self.source

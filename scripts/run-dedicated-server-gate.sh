@@ -56,6 +56,7 @@ active_rcon_port=""
 active_audio_client_pids=()
 active_audio_recorder_pids=()
 active_audio_modules=()
+active_audio_base_modules=()
 active_audio_keepalive_pids=()
 active_private_audio_pids=()
 active_audio_runtime_dir=""
@@ -388,6 +389,7 @@ isolate_audio_cache() {
 
 cleanup_all() {
   cleanup_audio_processes
+  shutdown_private_client_environment
   if [[ -n "$active_client_pid" ]]; then
     terminate_client_launch "$active_client_pid" 10 || true
     active_client_pid=""
@@ -424,7 +426,7 @@ cleanup_all() {
 }
 
 cleanup_audio_processes() {
-  local pid module index
+  local pid module
   for pid in "${active_audio_client_pids[@]}"; do
     terminate_client_launch "$pid" 10 || true
   done
@@ -437,6 +439,20 @@ cleanup_audio_processes() {
     wait "$pid" 2>/dev/null || true
   done
   for module in "${active_audio_modules[@]}"; do
+    pactl unload-module "$module" > /dev/null 2>&1 || true
+  done
+  active_audio_client_pids=()
+  active_audio_recorder_pids=()
+  active_audio_keepalive_pids=()
+  active_audio_modules=()
+}
+
+shutdown_private_client_environment() {
+  local pid module index
+  # Per-scenario cleanup deliberately leaves this base graph and its X server
+  # alive. Optional, delayed-hello, vanilla, companion, and command clients
+  # must all use the same verified private environment as the audio clients.
+  for module in "${active_audio_base_modules[@]}"; do
     pactl unload-module "$module" > /dev/null 2>&1 || true
   done
   for ((index = ${#active_private_audio_pids[@]} - 1; index >= 0; index--)); do
@@ -469,10 +485,7 @@ cleanup_audio_processes() {
       unset DBUS_SESSION_BUS_ADDRESS
     fi
   fi
-  active_audio_client_pids=()
-  active_audio_recorder_pids=()
-  active_audio_keepalive_pids=()
-  active_audio_modules=()
+  active_audio_base_modules=()
   active_private_audio_pids=()
   active_audio_runtime_dir=""
   active_audio_default_sink=""
@@ -620,7 +633,7 @@ prepare_private_client_audio() {
   active_audio_default_sink="jammarr_${BASHPID}_${label//[^a-zA-Z0-9_]/_}_control"
   module=$(pactl load-module module-null-sink sink_name="$active_audio_default_sink" \
     sink_properties=device.description="$active_audio_default_sink" rate=48000 channels=2) || return 1
-  active_audio_modules+=("$module")
+  active_audio_base_modules+=("$module")
   deadline=$((SECONDS + 10))
   while ! pactl list short sinks | awk -v sink="$active_audio_default_sink" '$2 == sink { found = 1 } END { exit !found }'; do
     if (( SECONDS >= deadline )); then
@@ -650,6 +663,35 @@ write_private_client_audio_config() {
     'ctl.!default {' \
     '  type pulse' \
     '}' > "$client_dir/alsa.conf"
+}
+
+# Every graphical launch, including clients that deliberately use OpenAL's
+# null backend, must enter the same private X/PipeWire environment.  Some
+# narrow gates (notably the minimum-Fabric-loader probe) begin with an
+# optional client instead of a Jammarr audio client; lazily preparing the
+# graph only in the latter left those clients with an unset DISPLAY.
+prepare_graphical_client_environment() {
+  local label=$1 client_dir=$2
+  prepare_private_client_audio "$label" || return 1
+  write_private_client_audio_config "$client_dir"
+}
+
+headless_client_openal_driver() {
+  local label=${1:-} driver=${JAMMARR_HEADLESS_OPENAL_DRIVER:-}
+  # LWJGL 2's bundled OpenAL used by the legacy targets remains reliable
+  # through PipeWire-Pulse. Modern OpenAL Soft can address the isolated
+  # PipeWire graph directly, avoiding the Pulse backend failure seen during
+  # 1.18.2 command acceptance.
+  if [[ -z "$driver" ]]; then
+    if uses_legacy_audio_profile "$label"; then driver=pulse; else driver=pipewire; fi
+  fi
+  case "$driver" in
+    pulse|pipewire|alsa|null) printf '%s\n' "$driver" ;;
+    *)
+      echo "Unsupported JAMMARR_HEADLESS_OPENAL_DRIVER: $driver" >&2
+      return 1
+      ;;
+  esac
 }
 
 activate_shared_audio_sinks() {
@@ -894,6 +936,7 @@ run_optional_client() {
   fi
 
   mkdir -p "$client_dir"
+  prepare_graphical_client_environment "$label" "$client_dir" || return 1
   : > "$client_console"
   printf '%s\n' 'onboardAccessibility:false' 'skipMultiplayerWarning:true' \
     'joinedFirstServer:true' 'narrator:0' > "$client_dir/options.txt"
@@ -903,6 +946,11 @@ run_optional_client() {
     exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DISPLAY="$active_client_display" \
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS='-XX:ActiveProcessorCount=4 -Djammarr.acceptance.enabled=true -Djammarr.acceptance.suppressClientHello=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
+      ALSA_CONFIG_PATH="$client_dir/alsa.conf" ALSOFT_CONF="$client_dir/alsoft.conf" \
+      ALSOFT_DRIVERS="$(headless_client_openal_driver "$label")" \
+      PULSE_SERVER="unix:$active_audio_runtime_dir/pulse/native" \
+      PIPEWIRE_RUNTIME_DIR="$active_audio_runtime_dir" XDG_RUNTIME_DIR="$active_audio_runtime_dir" \
+      PULSE_SINK="$active_audio_default_sink" \
       LIBGL_ALWAYS_SOFTWARE=1 \
       ./gradlew "${runtime_args[@]}" --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
       "${target_client_task[$label]}" \
@@ -1040,6 +1088,7 @@ run_vanilla_client() {
   fi
 
   mkdir -p "$prism_workspace"
+  prepare_graphical_client_environment "$label" "$instance_dir" || return 1
   : > "$client_console"
   : > "$diagnostics"
   request_start=$(wc -l < "$fake_plex_request_log")
@@ -1050,6 +1099,10 @@ run_vanilla_client() {
     exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DISPLAY="$active_client_display" \
       "${vanilla_audio_env[@]}" \
       JAVA_TOOL_OPTIONS='-Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
+      ALSA_CONFIG_PATH="$instance_dir/alsa.conf" ALSOFT_CONF="$instance_dir/alsoft.conf" \
+      PULSE_SERVER="unix:$active_audio_runtime_dir/pulse/native" \
+      PIPEWIRE_RUNTIME_DIR="$active_audio_runtime_dir" XDG_RUNTIME_DIR="$active_audio_runtime_dir" \
+      PULSE_SINK="$active_audio_default_sink" \
       LIBGL_ALWAYS_SOFTWARE=1 \
       python3 "$repo_root/scripts/run-prism-vanilla-client.py" \
       --minecraft "$minecraft_version" \
@@ -1383,6 +1436,7 @@ run_client_companion() {
   fi
 
   mkdir -p "$client_dir/liteconfig/common"
+  prepare_graphical_client_environment "$server_label" "$client_dir" || return 1
   : > "$client_console"
   printf '%s\n' \
     'onboardAccessibility:false' \
@@ -1402,6 +1456,11 @@ run_client_companion() {
     exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DISPLAY="$active_client_display" \
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS='-Djammarr.acceptance.enabled=true -Djammarr.acceptance.audioProbe=true -Djammarr.acceptance.audioLeader=true -Djammarr.acceptance.commandProbe=true -Djammarr.acceptance.clientHelloDelayMs=1 -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
+      ALSA_CONFIG_PATH="$client_dir/alsa.conf" ALSOFT_CONF="$client_dir/alsoft.conf" \
+      ALSOFT_DRIVERS="$(headless_client_openal_driver "$server_label")" \
+      PULSE_SERVER="unix:$active_audio_runtime_dir/pulse/native" \
+      PIPEWIRE_RUNTIME_DIR="$active_audio_runtime_dir" XDG_RUNTIME_DIR="$active_audio_runtime_dir" \
+      PULSE_SINK="$active_audio_default_sink" \
       LIBGL_ALWAYS_SOFTWARE=1 \
       ./gradlew "$client_task" --no-daemon --max-workers=2 --console=plain \
       -PjammarrAcceptanceUsername="$username" \
@@ -1476,6 +1535,7 @@ run_delayed_hello_client() {
   disables_configuration_cache "$label" && cache_args+=(--no-configuration-cache)
 
   mkdir -p "$client_dir"
+  prepare_graphical_client_environment "$label" "$client_dir" || return 1
   : > "$client_console"
   printf '%s\n' \
     'onboardAccessibility:false' \
@@ -1488,6 +1548,11 @@ run_delayed_hello_client() {
     exec setsid env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DISPLAY="$active_client_display" \
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS="-Djammarr.acceptance.enabled=true -Djammarr.acceptance.clientHelloDelayMs=${delayed_hello_ms} -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true" \
+      ALSA_CONFIG_PATH="$client_dir/alsa.conf" ALSOFT_CONF="$client_dir/alsoft.conf" \
+      ALSOFT_DRIVERS="$(headless_client_openal_driver "$label")" \
+      PULSE_SERVER="unix:$active_audio_runtime_dir/pulse/native" \
+      PIPEWIRE_RUNTIME_DIR="$active_audio_runtime_dir" XDG_RUNTIME_DIR="$active_audio_runtime_dir" \
+      PULSE_SINK="$active_audio_default_sink" \
       LIBGL_ALWAYS_SOFTWARE=1 \
       ./gradlew "${runtime_args[@]}" --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
       "${target_client_task[$label]}" \
@@ -1576,7 +1641,7 @@ run_acceptance_client_once() {
   local client_dir="$output_root/$label.$scenario"
   local client_console="$output_root/$label.$scenario.console.log"
   local evidence="$output_root/$label.$scenario.server.txt"
-  local pid deadline exit_grace_deadline result=0
+  local pid deadline exit_grace_deadline result=0 openal_driver
   local -a runtime_args=() cache_args=()
   [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
   [[ "$label" == *-quilt && "$quilt_modmenu_gate" == true ]] && runtime_args+=(-PjammarrIncludeModMenu=true)
@@ -1589,6 +1654,7 @@ run_acceptance_client_once() {
 
   mkdir -p "$client_dir"
   write_private_client_audio_config "$client_dir" || return 1
+  openal_driver=$(headless_client_openal_driver "$label") || return 1
   : > "$client_console"
   printf '%s\n' \
     'onboardAccessibility:false' \
@@ -1602,7 +1668,9 @@ run_acceptance_client_once() {
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS="$java_tool_options" \
       ALSA_CONFIG_PATH="$client_dir/alsa.conf" ALSOFT_CONF="$client_dir/alsoft.conf" \
-      ALSOFT_DRIVERS=pulse PULSE_SINK="$active_audio_default_sink" \
+      ALSOFT_DRIVERS="$openal_driver" PULSE_SERVER="unix:$active_audio_runtime_dir/pulse/native" \
+      PIPEWIRE_RUNTIME_DIR="$active_audio_runtime_dir" XDG_RUNTIME_DIR="$active_audio_runtime_dir" \
+      PULSE_SINK="$active_audio_default_sink" \
       LIBGL_ALWAYS_SOFTWARE=1 \
       ./gradlew "${runtime_args[@]}" --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
       "${target_client_task[$label]}" \
@@ -1689,7 +1757,7 @@ run_command_client_once() {
   local client_console="$output_root/$label.$scenario.console.log"
   local diagnostics="$output_root/$label.$scenario.diagnostics.txt"
   local evidence="$output_root/$label.$scenario.evidence.txt"
-  local pid deadline result=0
+  local pid deadline result=0 openal_driver
   local -a runtime_args=() cache_args=()
   [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
   [[ "$label" == *-quilt && "$quilt_modmenu_gate" == true ]] && runtime_args+=(-PjammarrIncludeModMenu=true)
@@ -1700,6 +1768,7 @@ run_command_client_once() {
 
   mkdir -p "$client_dir"
   write_private_client_audio_config "$client_dir" || return 1
+  openal_driver=$(headless_client_openal_driver "$label") || return 1
   : > "$client_console"
   : > "$diagnostics"
   printf '%s\n' \
@@ -1724,7 +1793,9 @@ run_command_client_once() {
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS='-Djammarr.acceptance.enabled=true -Djammarr.acceptance.commandProbe=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
       ALSA_CONFIG_PATH="$client_dir/alsa.conf" ALSOFT_CONF="$client_dir/alsoft.conf" \
-      ALSOFT_DRIVERS=pulse PULSE_SINK="$active_audio_default_sink" \
+      ALSOFT_DRIVERS="$openal_driver" PULSE_SERVER="unix:$active_audio_runtime_dir/pulse/native" \
+      PIPEWIRE_RUNTIME_DIR="$active_audio_runtime_dir" XDG_RUNTIME_DIR="$active_audio_runtime_dir" \
+      PULSE_SINK="$active_audio_default_sink" \
       LIBGL_ALWAYS_SOFTWARE=1 \
       ./gradlew "${runtime_args[@]}" --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
       "${target_client_task[$label]}" \
@@ -2030,6 +2101,8 @@ start_audio_client() {
       JAVA_TOOL_OPTIONS="-Djammarr.acceptance.enabled=true -Djammarr.acceptance.audioProbe=true -Djammarr.acceptance.audioLeader=$leader -Djammarr.acceptance.audioControlFile=$control_file -Djammarr.acceptance.pcmTraceDir=$client_dir/pcm-trace -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true" \
       ALSA_CONFIG_PATH="$client_dir/alsa.conf" ALSOFT_CONF="$client_dir/alsoft.conf" \
       ALSOFT_DRIVERS="$alsoft_drivers" ALSOFT_LOGLEVEL="$openal_loglevel" \
+      PULSE_SERVER="unix:$active_audio_runtime_dir/pulse/native" \
+      PIPEWIRE_RUNTIME_DIR="$active_audio_runtime_dir" XDG_RUNTIME_DIR="$active_audio_runtime_dir" \
       PULSE_SINK="$pulse_sink" LIBGL_ALWAYS_SOFTWARE=1 \
       ./gradlew "${runtime_args[@]}" --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
       "${target_client_task[$label]}" \
@@ -2259,6 +2332,24 @@ capture_audio_sink() {
   done
   kill -TERM "$recorder" 2>/dev/null || true
   wait "$recorder" 2>/dev/null || true
+}
+
+# A newly-created legacy OpenAL stream can be PLAYING before PipeWire exposes
+# its first monitor samples. Do not weaken the program-tone threshold: take
+# one bounded replacement capture if the initial post-transition window was
+# still mostly the graph's startup delay.
+capture_audible_transition() {
+  local sink=$1
+  local raw=$2
+  local metrics=$3
+  local seconds=${4:-4}
+  local attempt
+  for attempt in 1 2; do
+    capture_audio_sink "$sink" "$raw" "$seconds"
+    if audio_capture_is_audible "$raw" "$metrics"; then return 0; fi
+    if (( attempt == 1 )); then sleep 1; fi
+  done
+  return 1
 }
 
 audio_control_sequence=0
@@ -2506,8 +2597,7 @@ run_audio_control_scenarios() {
     echo "$label: general Library Shuffle station did not generate audible playback" >&2; return 1
   fi
   sleep 1
-  capture_audio_sink "$sink_leader" "$raw" 4
-  if ! audio_capture_is_audible "$raw" "$metrics"; then
+  if ! capture_audible_transition "$sink_leader" "$raw" "$metrics" 4; then
     echo "$label: Library Shuffle reached PLAYING without audible output" >&2; return 1
   fi
   printf 'General Library Shuffle generated audible station playback.\n' >> "$scenario_evidence"
@@ -2521,8 +2611,7 @@ run_audio_control_scenarios() {
     echo "$label: Sonic Adventure did not generate audible waypoint playback" >&2; return 1
   fi
   sleep 1
-  capture_audio_sink "$sink_leader" "$raw" 4
-  if ! audio_capture_is_audible "$raw" "$metrics"; then
+  if ! capture_audible_transition "$sink_leader" "$raw" "$metrics" 4; then
     echo "$label: Sonic Adventure reached PLAYING without audible output" >&2; return 1
   fi
   printf 'Sonic Adventure generated an audible analyzed-track path.\n' >> "$scenario_evidence"

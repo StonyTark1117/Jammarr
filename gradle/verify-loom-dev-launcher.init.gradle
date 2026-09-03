@@ -10,8 +10,13 @@ allprojects {
                 // older Loom tasks during afterEvaluate, so identify the
                 // concrete task instead of silently skipping the injection.
                 if (task.class.name == 'net.fabricmc.loom.task.RunGameTask') {
-                    task.classpath(launcherConfiguration)
                     doFirst {
+                        // Loom finalizes/replaces its launch classpath after
+                        // project evaluation. Merge immediately before
+                        // JavaExec creates the process command so the
+                        // dev-launch-injector main class is actually visible
+                        // to the child JVM on every Loom generation.
+                        task.classpath(task.classpath + launcherConfiguration)
                         if (!task.classpath.files.any { it.name.startsWith('dev-launch-injector-') }) {
                             throw new GradleException('RunGameTask is missing dev-launch-injector at execution')
                         }
