@@ -2,6 +2,26 @@ allprojects {
     afterEvaluate {
         def launcherConfiguration = configurations.findByName('loomDevelopmentDependencies')
         if (launcherConfiguration != null && tasks.findByName('verifyLoomDevLauncher') == null) {
+            // AbstractRunTask copies its protected internalClasspath over the
+            // public JavaExec classpath in exec().  Find that collection on
+            // every Loom generation rather than mutating JavaExec.classpath,
+            // which is necessarily discarded immediately before launch.
+            def internalClasspathFor = { task ->
+                Class<?> type = task.class
+                java.lang.reflect.Method getter = null
+                while (type != null && getter == null) {
+                    try {
+                        getter = type.getDeclaredMethod('getInternalClasspath')
+                    } catch (NoSuchMethodException ignored) {
+                        type = type.superclass
+                    }
+                }
+                if (getter == null) {
+                    throw new GradleException("RunGameTask does not expose internalClasspath: ${task.class.name}")
+                }
+                getter.setAccessible(true)
+                return getter.invoke(task)
+            }
             tasks.withType(JavaExec).configureEach { task ->
                 // Loom finalizes RunGameTask after project evaluation. Setting
                 // this classpath earlier is overwritten on newer Loom builds,
@@ -10,15 +30,11 @@ allprojects {
                 // older Loom tasks during afterEvaluate, so identify the
                 // concrete task instead of silently skipping the injection.
                 if (task.class.name == 'net.fabricmc.loom.task.RunGameTask') {
+                    def internalClasspath = internalClasspathFor(task)
+                    internalClasspath.from(launcherConfiguration)
                     doFirst {
-                        // Loom finalizes/replaces its launch classpath after
-                        // project evaluation. Merge immediately before
-                        // JavaExec creates the process command so the
-                        // dev-launch-injector main class is actually visible
-                        // to the child JVM on every Loom generation.
-                        task.classpath(task.classpath + launcherConfiguration)
-                        if (!task.classpath.files.any { it.name.startsWith('dev-launch-injector-') }) {
-                            throw new GradleException('RunGameTask is missing dev-launch-injector at execution')
+                        if (!internalClasspath.files.any { it.name.startsWith('dev-launch-injector-') }) {
+                            throw new GradleException('RunGameTask internalClasspath is missing dev-launch-injector at execution')
                         }
                     }
                 }
