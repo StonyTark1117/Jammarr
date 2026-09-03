@@ -99,6 +99,13 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         self.assertIn("minecraft.getModelManager().getMissingModel() == null", fabric)
         self.assertIn("minecraft.getModelManager().getMissingModel() == null", forge)
 
+    def test_modern_acceptance_clients_wait_for_model_readiness(self) -> None:
+        for version in ("mc1.18.2", "mc1.19.2"):
+            for loader in ("fabric", "forge"):
+                source = (ROOT / f"platforms/{version}/{loader}/src/main/java/stonytark/jammarr/client/JammarrClient.java").read_text("utf-8")
+                self.assertIn("minecraft.screen instanceof TitleScreen", source)
+                self.assertIn("minecraft.getModelManager().getMissingModel() == null", source)
+
     def test_command_gate_rejects_post_marker_client_crashes(self) -> None:
         source = self.source
         command = source[source.index("run_command_client_once()") : source.index("start_audio_client()")]

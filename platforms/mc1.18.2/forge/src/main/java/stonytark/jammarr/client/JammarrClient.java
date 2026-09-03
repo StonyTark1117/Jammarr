@@ -4,6 +4,7 @@ import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.ConnectScreen;
+import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.client.multiplayer.ServerData;
 import net.minecraft.client.multiplayer.resolver.ServerAddress;
 import net.minecraft.server.packs.resources.ResourceManager;
@@ -58,7 +59,9 @@ public final class JammarrClient {
     }
 
     private void connectAcceptanceServer(Minecraft minecraft) {
-        if (acceptanceConnectAttempted || minecraft.level != null || minecraft.screen == null) return;
+        if (acceptanceConnectAttempted || minecraft.level != null
+                || !(minecraft.screen instanceof TitleScreen)
+                || minecraft.getModelManager().getMissingModel() == null) return;
         String address = System.getProperty("jammarr.acceptance.server", "").trim();
         if (address.isEmpty()) return;
         acceptanceConnectAttempted = true;
