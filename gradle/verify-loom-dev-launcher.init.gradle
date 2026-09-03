@@ -2,15 +2,17 @@ allprojects {
     afterEvaluate {
         def launcherConfiguration = configurations.findByName('loomDevelopmentDependencies')
         if (launcherConfiguration != null && tasks.findByName('verifyLoomDevLauncher') == null) {
-            tasks.withType(JavaExec).configureEach {
+            tasks.withType(JavaExec).configureEach { task ->
                 // Loom finalizes RunGameTask after project evaluation. Setting
                 // this classpath earlier is overwritten on newer Loom builds,
                 // leaving dev-launch-injector as the main class with no JAR.
-                def main = mainClass.present ? mainClass.get() : null
-                if (main == 'net.fabricmc.devlaunchinjector.Main') {
-                    classpath launcherConfiguration
+                // `mainClass` is a lazy provider and is not present yet on
+                // older Loom tasks during afterEvaluate, so identify the
+                // concrete task instead of silently skipping the injection.
+                if (task.class.name == 'net.fabricmc.loom.task.RunGameTask') {
+                    task.classpath(launcherConfiguration)
                     doFirst {
-                        if (!classpath.files.any { it.name.startsWith('dev-launch-injector-') }) {
+                        if (!task.classpath.files.any { it.name.startsWith('dev-launch-injector-') }) {
                             throw new GradleException('RunGameTask is missing dev-launch-injector at execution')
                         }
                     }

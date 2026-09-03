@@ -49,6 +49,12 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         self.assertIn('DISPLAY="$active_client_display"', source)
         self.assertNotIn("xvfb-run -a", source)
 
+    def test_loom_preflight_retains_execution_classpath_validation(self) -> None:
+        init_script = (ROOT / "gradle/verify-loom-dev-launcher.init.gradle").read_text("utf-8")
+        self.assertIn("net.fabricmc.loom.task.RunGameTask", init_script)
+        self.assertIn("task.classpath(launcherConfiguration)", init_script)
+        self.assertIn("RunGameTask is missing dev-launch-injector at execution", init_script)
+
     def test_command_gate_rejects_post_marker_client_crashes(self) -> None:
         source = self.source
         command = source[source.index("run_command_client_once()") : source.index("start_audio_client()")]

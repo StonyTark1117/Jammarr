@@ -27,7 +27,7 @@ jobs:
 
   artifact:
     name: ${{ matrix.name }}
-    needs: matrix
+    needs: [matrix, runtime-preflight]
     strategy:
       fail-fast: false
       max-parallel: 16
