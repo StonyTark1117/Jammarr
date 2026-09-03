@@ -66,6 +66,8 @@ active_audio_original_pipewire_runtime_dir=""
 active_audio_original_pipewire_runtime_dir_set=0
 active_audio_original_pulse_server=""
 active_audio_original_pulse_server_set=0
+active_audio_original_dbus_session_bus_address=""
+active_audio_original_dbus_session_bus_address_set=0
 active_proxy_pid=""
 active_config=""
 active_config_backup=""
@@ -458,6 +460,11 @@ cleanup_audio_processes() {
     else
       unset PULSE_SERVER
     fi
+    if (( active_audio_original_dbus_session_bus_address_set )); then
+      export DBUS_SESSION_BUS_ADDRESS="$active_audio_original_dbus_session_bus_address"
+    else
+      unset DBUS_SESSION_BUS_ADDRESS
+    fi
   fi
   active_audio_client_pids=()
   active_audio_recorder_pids=()
@@ -469,13 +476,12 @@ cleanup_audio_processes() {
 }
 
 start_private_audio_graph() {
-  local label=$1 command pid deadline
-  local -a wireplumber_args=()
-  # The acceptance graph consists solely of Pulse null sinks.  A WirePlumber
-  # instance is neither required nor safe here: its default ALSA monitor can
-  # enumerate and reserve the user's real desktop devices through the session
-  # bus, which makes an ostensibly private capture interfere with Discord.
-  for command in pipewire wireplumber pipewire-pulse pactl pacat parec; do
+  local label=$1 command pid deadline private_dbus_address private_dbus_pid
+  local -a private_dbus_output=()
+  # The hardware-free WirePlumber policy profile needs D-Bus session services.
+  # Supply a fresh bus so neither it nor any acceptance client can reach the
+  # user's desktop session or reserve a physical audio device.
+  for command in dbus-daemon pipewire wireplumber pipewire-pulse pactl pacat parec; do
     if ! command -v "$command" > /dev/null; then
       echo "$label: private audio acceptance requires $command" >&2
       return 1
@@ -486,16 +492,29 @@ start_private_audio_graph() {
   active_audio_original_xdg_runtime_dir_set=0
   active_audio_original_pipewire_runtime_dir_set=0
   active_audio_original_pulse_server_set=0
+  active_audio_original_dbus_session_bus_address_set=0
   [[ ${XDG_RUNTIME_DIR+x} ]] && active_audio_original_xdg_runtime_dir_set=1
   active_audio_original_xdg_runtime_dir=${XDG_RUNTIME_DIR-}
   [[ ${PIPEWIRE_RUNTIME_DIR+x} ]] && active_audio_original_pipewire_runtime_dir_set=1
   active_audio_original_pipewire_runtime_dir=${PIPEWIRE_RUNTIME_DIR-}
   [[ ${PULSE_SERVER+x} ]] && active_audio_original_pulse_server_set=1
   active_audio_original_pulse_server=${PULSE_SERVER-}
+  [[ ${DBUS_SESSION_BUS_ADDRESS+x} ]] && active_audio_original_dbus_session_bus_address_set=1
+  active_audio_original_dbus_session_bus_address=${DBUS_SESSION_BUS_ADDRESS-}
 
   active_audio_runtime_dir=$(mktemp -d /tmp/jammarr-dedicated-gate-audio.XXXXXX)
   chmod 700 "$active_audio_runtime_dir"
-  env -u DBUS_SESSION_BUS_ADDRESS \
+  mapfile -t private_dbus_output < <(dbus-daemon --session --fork --print-address=1 --print-pid=1)
+  private_dbus_address=${private_dbus_output[0]:-}
+  private_dbus_pid=${private_dbus_output[1]:-}
+  if [[ -z "$private_dbus_address" || ! "$private_dbus_pid" =~ ^[0-9]+$ ]] \
+      || ! kill -0 "$private_dbus_pid" 2>/dev/null; then
+    echo "$label: private D-Bus session did not become ready" >&2
+    return 1
+  fi
+  active_private_audio_pids+=("$private_dbus_pid")
+  export DBUS_SESSION_BUS_ADDRESS="$private_dbus_address"
+  env DBUS_SESSION_BUS_ADDRESS="$private_dbus_address" \
     XDG_RUNTIME_DIR="$active_audio_runtime_dir" \
     PIPEWIRE_RUNTIME_DIR="$active_audio_runtime_dir" pipewire \
     > "$output_root/$label.private-pipewire.log" 2>&1 &
@@ -510,21 +529,10 @@ start_private_audio_graph() {
     sleep .1
   done
 
-  # WirePlumber's policy-only profile links the Pulse null sinks but omits the
-  # ALSA/BlueZ/video hardware monitors.  Older headless CI images may not
-  # implement profiles; accept their default manager only when there is no
-  # desktop D-Bus session to reach.  On a workstation, fail closed instead of
-  # risking a reservation or route change to the user's active audio devices.
-  if wireplumber -p policy --version > /dev/null 2>&1; then
-    wireplumber_args=(-p policy)
-  elif [[ -n ${DBUS_SESSION_BUS_ADDRESS-} ]]; then
-    echo "$label: WirePlumber lacks a hardware-free profile; refusing to touch the desktop audio session" >&2
-    return 1
-  fi
-  env -u DBUS_SESSION_BUS_ADDRESS \
+  env DBUS_SESSION_BUS_ADDRESS="$private_dbus_address" \
     XDG_RUNTIME_DIR="$active_audio_runtime_dir" \
-    PIPEWIRE_RUNTIME_DIR="$active_audio_runtime_dir" wireplumber \
-    "${wireplumber_args[@]}" > "$output_root/$label.private-wireplumber.log" 2>&1 &
+    PIPEWIRE_RUNTIME_DIR="$active_audio_runtime_dir" wireplumber -p policy \
+    > "$output_root/$label.private-wireplumber.log" 2>&1 &
   pid=$!
   active_private_audio_pids+=("$pid")
   sleep 1
@@ -533,7 +541,7 @@ start_private_audio_graph() {
     return 1
   fi
 
-  env -u DBUS_SESSION_BUS_ADDRESS \
+  env DBUS_SESSION_BUS_ADDRESS="$private_dbus_address" \
     XDG_RUNTIME_DIR="$active_audio_runtime_dir" \
     PIPEWIRE_RUNTIME_DIR="$active_audio_runtime_dir" pipewire-pulse \
     > "$output_root/$label.private-pipewire-pulse.log" 2>&1 &
@@ -801,8 +809,8 @@ run_optional_client() {
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS='-XX:ActiveProcessorCount=4 -Djammarr.acceptance.enabled=true -Djammarr.acceptance.suppressClientHello=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
       LIBGL_ALWAYS_SOFTWARE=1 \
-      ./gradlew "${target_client_task[$label]}" --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
-      "${runtime_args[@]}" \
+      ./gradlew "${runtime_args[@]}" --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
+      "${target_client_task[$label]}" \
       -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="127.0.0.1:${port}" \
       -PjammarrAcceptanceGameDir="$client_dir" \
@@ -1389,8 +1397,8 @@ run_delayed_hello_client() {
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS="-Djammarr.acceptance.enabled=true -Djammarr.acceptance.clientHelloDelayMs=${delayed_hello_ms} -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true" \
       LIBGL_ALWAYS_SOFTWARE=1 \
-      ./gradlew "${target_client_task[$label]}" --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
-      "${runtime_args[@]}" \
+      ./gradlew "${runtime_args[@]}" --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
+      "${target_client_task[$label]}" \
       -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="127.0.0.1:${port}" \
       -PjammarrAcceptanceGameDir="$client_dir" \
@@ -1502,8 +1510,8 @@ run_acceptance_client_once() {
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS="$java_tool_options" \
       LIBGL_ALWAYS_SOFTWARE=1 \
-      ./gradlew "${target_client_task[$label]}" --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
-      "${runtime_args[@]}" \
+      ./gradlew "${runtime_args[@]}" --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
+      "${target_client_task[$label]}" \
       -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="127.0.0.1:${port}" \
       -PjammarrAcceptanceGameDir="$client_dir" \
@@ -1622,8 +1630,8 @@ run_command_client_once() {
       JAVA_HOME="$java_home" PATH="$java_home/bin:$PATH" \
       JAVA_TOOL_OPTIONS='-Djammarr.acceptance.enabled=true -Djammarr.acceptance.commandProbe=true -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true' \
       LIBGL_ALWAYS_SOFTWARE=1 \
-      ./gradlew "${target_client_task[$label]}" --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
-      "${runtime_args[@]}" \
+      ./gradlew "${runtime_args[@]}" --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
+      "${target_client_task[$label]}" \
       -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="127.0.0.1:${port}" \
       -PjammarrAcceptanceGameDir="$client_dir" \
@@ -1917,8 +1925,8 @@ start_audio_client() {
       ALSA_CONFIG_PATH="$client_dir/alsa.conf" ALSOFT_CONF="$client_dir/alsoft.conf" \
       ALSOFT_DRIVERS="$alsoft_drivers" ALSOFT_LOGLEVEL="$openal_loglevel" \
       PULSE_SINK="$pulse_sink" LIBGL_ALWAYS_SOFTWARE=1 \
-      ./gradlew "${target_client_task[$label]}" --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
-      "${runtime_args[@]}" \
+      ./gradlew "${runtime_args[@]}" --no-daemon --max-workers=2 --console=plain "${cache_args[@]}" \
+      "${target_client_task[$label]}" \
       -PjammarrAcceptanceUsername="$username" \
       -PjammarrAcceptanceServer="127.0.0.1:${port}" \
       -PjammarrAcceptanceGameDir="$client_dir" \

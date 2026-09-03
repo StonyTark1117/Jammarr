@@ -19,12 +19,12 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         self.assertIn("/tmp/jammarr-dedicated-gate-audio.XXXXXX", source)
         self.assertIn('PIPEWIRE_RUNTIME_DIR="$active_audio_runtime_dir" pipewire', source)
         self.assertIn(
-            "for command in pipewire wireplumber pipewire-pulse pactl pacat parec; do", source
+            "for command in dbus-daemon pipewire wireplumber pipewire-pulse pactl pacat parec; do",
+            source,
         )
-        self.assertIn("env -u DBUS_SESSION_BUS_ADDRESS", source)
-        self.assertIn("wireplumber -p policy --version", source)
-        self.assertIn("wireplumber_args=(-p policy)", source)
-        self.assertIn("refusing to touch the desktop audio session", source)
+        self.assertIn("dbus-daemon --session --fork --print-address=1 --print-pid=1", source)
+        self.assertIn("wireplumber -p policy", source)
+        self.assertIn('export DBUS_SESSION_BUS_ADDRESS="$private_dbus_address"', source)
         self.assertIn("pipewire-pulse", source)
         self.assertIn('sink_properties=device.description="$sink_leader"', source)
         self.assertIn('sink_properties=device.description="$sink_follower"', source)
@@ -49,9 +49,10 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         self.assertIn("flock 7", optional)
         self.assertIn("-XX:ActiveProcessorCount=4", optional)
         self.assertIn("flock -u 7", optional)
+        self.assertIn('./gradlew "${runtime_args[@]}"', optional)
         self.assertLess(
             optional.index("flock 7"),
-            optional.index('./gradlew "${target_client_task[$label]}"'),
+            optional.index('./gradlew "${runtime_args[@]}"'),
         )
         self.assertLess(
             optional.index("terminate_client_launch"),
