@@ -12,6 +12,7 @@ import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.ConnectScreen;
+import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.PackType;
 import net.minecraft.server.packs.resources.ResourceManager;
@@ -67,7 +68,10 @@ public final class LegacyClient implements ClientModInitializer {
     }
 
     private void connectAcceptanceServer(Minecraft minecraft) {
-        if (acceptanceConnectAttempted || minecraft.level != null || minecraft.screen == null) return;
+        // A generic non-null screen includes startup loading screens.  On the
+        // 1.16 client those can precede ModelManager initialization, so joining
+        // then can race incoming world packets into an unready renderer.
+        if (acceptanceConnectAttempted || minecraft.level != null || !(minecraft.screen instanceof TitleScreen)) return;
         String address = System.getProperty("jammarr.acceptance.server", "").trim();
         if (address.isEmpty()) return;
         int separator = address.lastIndexOf(':');

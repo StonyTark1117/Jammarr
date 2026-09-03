@@ -2,6 +2,7 @@ package stonytark.jammarr.client;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screen.ConnectingScreen;
+import net.minecraft.client.gui.screen.MainMenuScreen;
 import net.minecraft.client.settings.KeyBinding;
 import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
 import net.minecraftforge.client.event.InputEvent;
@@ -73,7 +74,10 @@ public final class LegacyClient {
     }
 
     private void connectAcceptanceServer(Minecraft minecraft) {
-        if (acceptanceConnectAttempted || minecraft.level != null || minecraft.screen == null) return;
+        // A generic non-null screen includes startup loading screens.  On the
+        // 1.16 client those can precede ModelManager initialization, so joining
+        // then can race incoming world packets into an unready renderer.
+        if (acceptanceConnectAttempted || minecraft.level != null || !(minecraft.screen instanceof MainMenuScreen)) return;
         String address = System.getProperty("jammarr.acceptance.server", "").trim();
         if (address.isEmpty()) return;
         int separator = address.lastIndexOf(':');

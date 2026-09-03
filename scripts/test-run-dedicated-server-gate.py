@@ -91,6 +91,12 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
             self.assertNotIn("'--server'", build)
             self.assertNotIn("'--port'", build)
 
+    def test_legacy_1165_acceptance_waits_for_the_title_screen(self) -> None:
+        fabric = (ROOT / "platforms/mc1.16.5/fabric/src/main/java/stonytark/jammarr/client/LegacyClient.java").read_text("utf-8")
+        forge = (ROOT / "platforms/mc1.16.5/forge/src/main/java/stonytark/jammarr/client/LegacyClient.java").read_text("utf-8")
+        self.assertIn("minecraft.screen instanceof TitleScreen", fabric)
+        self.assertIn("minecraft.screen instanceof MainMenuScreen", forge)
+
     def test_command_gate_rejects_post_marker_client_crashes(self) -> None:
         source = self.source
         command = source[source.index("run_command_client_once()") : source.index("start_audio_client()")]
