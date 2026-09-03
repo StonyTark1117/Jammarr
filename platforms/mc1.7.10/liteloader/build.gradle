@@ -159,7 +159,7 @@ tasks.register('downloadProductionLiteLoader') {
         if (!loader.isFile() || sha256(loader) != expected) {
             File pending = new File(loader.parentFile, loader.name + '.part')
             pending.delete()
-            new URL('https://bmclapi2.bangbang93.com/maven/com/mumfrey/liteloader/1.7.10/liteloader-1.7.10.jar')
+            new URL('https://dl.liteloader.com/versions/com/mumfrey/liteloader/1.7.10/liteloader-1.7.10.jar')
                     .withInputStream { input -> pending.withOutputStream { output -> output << input } }
             String digest = sha256(pending)
             if (digest != expected) {

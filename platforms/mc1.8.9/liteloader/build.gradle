@@ -43,7 +43,19 @@ litemod {
     }
 }
 
-repositories { mavenCentral() }
+repositories {
+    // ForgeGradle asks for the mutable 1.8.9-SNAPSHOT coordinate. Resolve that
+    // request to the exact upstream snapshot whose bytes are verified below.
+    ivy {
+        name = 'pinnedLiteLoader189'
+        url = 'https://repo.mumfrey.com/content/repositories/snapshots/'
+        layout 'pattern', {
+            artifact 'com/mumfrey/liteloader/1.8.9-SNAPSHOT/[artifact]-1.8.9-20260727.184607-11.[ext]'
+        }
+        metadataSources { artifact() }
+    }
+    mavenCentral()
+}
 
 configurations {
     embeddedLibraries
@@ -145,9 +157,12 @@ task verifyToolchainLock {
         if (forgeGradle == null || sha256(forgeGradle) != '29f4f9a4b7ad917937d6ca761404ed4c56ee2a716cbfdd190b9aa99f25eb4695') {
             throw new GradleException('ForgeGradle 2.1 snapshot does not match build 2.1-20211118.174922-42')
         }
-        File loader = configurations.compile.files.find { it.name == 'liteloader-1.8.9-SNAPSHOT.jar' }
-        if (loader == null || sha256(loader) != 'cbc79271e45e0876b9b7e8528f98c091e7b01e4d059d2ebc45ff4b893a0f7393') {
-            throw new GradleException('LiteLoader 1.8.9 snapshot does not match the pinned build')
+        File loader = configurations.liteloaderDeobfCompile.files.find {
+            it.name == 'liteloader-1.8.9-SNAPSHOT.jar'
+        }
+        String loaderDigest = loader == null ? 'missing' : sha256(loader)
+        if (loaderDigest != 'e75cc526ef7e2c35f10590f18246274fcc774996a63b31a98c59d466784d7efa') {
+            throw new GradleException("LiteLoader 1.8.9 upstream snapshot has SHA-256 ${loaderDigest}, expected the pinned 20260727.184607-11 build")
         }
     }
 }
@@ -160,13 +175,14 @@ task downloadProductionLiteLoader {
     doLast {
         productionLoader.parentFile.mkdirs()
         if (!productionLoader.isFile()
-                || sha256(productionLoader) != '63a5ee3e0bb633176458bcc7ba014df9f72ea185c86a23dfb81723ad29cc4b03') {
+                || sha256(productionLoader) != '0750dcddbe75a9f34ce5acbcacd9ec7a7476592cf6d6ed11c034b01a07346e82') {
             File pending = new File(productionLoader.parentFile, productionLoader.name + '.part')
             pending.delete()
-            new URL('https://bmclapi2.bangbang93.com/maven/com/mumfrey/liteloader/1.8.9-SNAPSHOT/liteloader-1.8.9-SNAPSHOT.jar')
+            new URL('https://github.com/Keagel/LiteLoader-1.8.9/releases/download/1.8.9/'
+                    + 'liteloader-1.8.9-SNAPSHOT-release.jar')
                     .withInputStream { input -> pending.withOutputStream { output -> output << input } }
             String digest = sha256(pending)
-            if (digest != '63a5ee3e0bb633176458bcc7ba014df9f72ea185c86a23dfb81723ad29cc4b03') {
+            if (digest != '0750dcddbe75a9f34ce5acbcacd9ec7a7476592cf6d6ed11c034b01a07346e82') {
                 pending.delete()
                 throw new GradleException("LiteLoader production distribution has SHA-256 ${digest}, expected the upstream-published build")
             }
