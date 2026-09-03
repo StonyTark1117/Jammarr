@@ -58,6 +58,7 @@ active_audio_recorder_pids=()
 active_audio_modules=()
 active_audio_base_modules=()
 active_audio_keepalive_pids=()
+active_audio_monitor_pid=""
 active_private_audio_pids=()
 active_audio_runtime_dir=""
 active_audio_default_sink=""
@@ -440,6 +441,11 @@ cleanup_audio_processes() {
     kill -TERM "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
   done
+  if [[ -n "$active_audio_monitor_pid" ]]; then
+    kill -TERM "$active_audio_monitor_pid" 2>/dev/null || true
+    wait "$active_audio_monitor_pid" 2>/dev/null || true
+    active_audio_monitor_pid=""
+  fi
   for module in "${active_audio_modules[@]}"; do
     pactl unload-module "$module" > /dev/null 2>&1 || true
   done
@@ -447,6 +453,30 @@ cleanup_audio_processes() {
   active_audio_recorder_pids=()
   active_audio_keepalive_pids=()
   active_audio_modules=()
+}
+
+stop_shared_audio_monitor() {
+  if [[ -n "$active_audio_monitor_pid" ]]; then
+    kill -TERM "$active_audio_monitor_pid" 2>/dev/null || true
+    wait "$active_audio_monitor_pid" 2>/dev/null || true
+    active_audio_monitor_pid=""
+  fi
+}
+
+start_shared_audio_monitor() {
+  local sink_master=$1
+  stop_shared_audio_monitor
+  parec --raw --latency-msec=200 --device="${sink_master}.monitor" \
+    --format=s16le --rate=48000 --channels=4 \
+    --channel-map=front-left,front-right,rear-left,rear-right \
+    > /dev/null 2>&1 &
+  active_audio_monitor_pid=$!
+  sleep .2
+  if ! kill -0 "$active_audio_monitor_pid" 2>/dev/null; then
+    echo "shared audio monitor exited during startup" >&2
+    active_audio_monitor_pid=""
+    return 1
+  fi
 }
 
 shutdown_private_client_environment() {
@@ -737,17 +767,12 @@ activate_shared_audio_sinks() {
       --stream-name="${sink}_keepalive" < /dev/zero > /dev/null 2>&1 &
     active_audio_keepalive_pids+=("$!")
   done
-  # The per-cycle recorder intentionally starts and stops around each vanilla
-  # coexistence window. Keep a second monitor consumer alive between those
-  # windows so the four-channel master branch never suspends and then has to
-  # renegotiate buffers during the next client's CPU-heavy launch. Pulse
+  # Keep one monitor consumer alive between capture windows so the four-channel
+  # master branch never suspends, avoiding buffer renegotiation during the
+  # next client's CPU-heavy launch. Pulse
   # monitor sources fan out independently, so this silent drain does not take
   # samples away from the evidence recorder.
-  parec --raw --latency-msec=200 --device="${sink_master}.monitor" \
-    --format=s16le --rate=48000 --channels=4 \
-    --channel-map=front-left,front-right,rear-left,rear-right \
-    > /dev/null 2>&1 &
-  active_audio_keepalive_pids+=("$!")
+  start_shared_audio_monitor "$sink_master" || return 1
   deadline=$((SECONDS + 10))
   while true; do
     keepalives_alive=true
@@ -3325,6 +3350,11 @@ run_two_client_audio() {
     : > "$raw_leader"
     : > "$raw_follower"
     : > "$raw_combined"
+    # PipeWire-Pulse 0.3/0.4 can exhaust source-port buffers when a permanent
+    # monitor drain and the evidence recorder consume the same four-channel
+    # master simultaneously. The recorder itself keeps the graph active, so
+    # exchange—not overlap—the consumers for the strict capture window.
+    stop_shared_audio_monitor
     parec --raw --latency-msec=200 --device="${sink_master}.monitor" --format=s16le \
       --rate=48000 --channels=4 \
       --channel-map=front-left,front-right,rear-left,rear-right \
@@ -3348,6 +3378,9 @@ run_two_client_audio() {
     wait "$recorder_pid" 2>/dev/null || true
   done
   active_audio_recorder_pids=()
+  if ! start_shared_audio_monitor "$sink_master"; then
+    result=1
+  fi
   if (( result == 0 )) && ! ffmpeg -hide_banner -loglevel error -y \
       -f s16le -ar 48000 -ac 4 -i "$raw_combined" \
       -filter_complex \

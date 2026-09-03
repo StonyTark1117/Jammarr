@@ -28,6 +28,8 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         self.assertIn('export DBUS_SESSION_BUS_ADDRESS="$private_dbus_address"', source)
         self.assertIn("pipewire-pulse", source)
         self.assertIn('sink_properties=device.description="$sink_leader"', source)
+        self.assertIn("start_shared_audio_monitor()", source)
+        self.assertIn("stop_shared_audio_monitor()", source)
 
     def test_all_graphical_client_gates_prepare_private_audio_first(self) -> None:
         source = self.source
@@ -206,6 +208,13 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         audio_client = source[source.index("\nlaunch_audio_client()") :]
         self.assertNotIn("non_audio_client_openal_driver", audio_client)
 
+    def test_audio_capture_exchanges_the_private_monitor_for_the_recorder(self) -> None:
+        source = self.source
+        audio = source[source.index("run_two_client_audio()") :]
+        capture = audio[audio.index(": > \"$raw_combined\"") : audio.index("active_audio_recorder_pids=()")]
+        self.assertLess(capture.index("stop_shared_audio_monitor"), capture.index("parec --raw"))
+        self.assertIn('start_shared_audio_monitor "$sink_master"', audio)
+
     def test_station_audio_capture_retries_without_lowering_audibility_threshold(self) -> None:
         source = self.source
         self.assertIn("capture_audible_transition()", source)
@@ -244,11 +253,9 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         source = self.source
         activate = source[source.index("activate_shared_audio_sinks()") :]
         activate = activate[: activate.index("stop_listening_port()")]
-        self.assertIn('--device="${sink_master}.monitor"', activate)
-        self.assertIn('> /dev/null 2>&1 &', activate)
-        self.assertGreaterEqual(
-            activate.count('active_audio_keepalive_pids+=("$!")'), 2
-        )
+        self.assertIn('start_shared_audio_monitor "$sink_master"', activate)
+        self.assertIn('for sink in "$sink_leader" "$sink_follower"; do', activate)
+        self.assertIn('active_audio_keepalive_pids+=("$!")', activate)
 
     def test_mixed_churn_analyzes_and_classifies_both_clients(self) -> None:
         source = self.source
