@@ -43,10 +43,20 @@ allprojects {
                 // older Loom tasks during afterEvaluate, so identify the
                 // concrete task instead of silently skipping the injection.
                 if (isLoomRunGameTask(task)) {
+                    // The gate has already supplied an isolated Xvfb display.
+                    // Loom enables its own xvfb-run whenever CI=true, but that
+                    // branch invokes getAllJvmArgs() directly and omits the
+                    // JVM argument provider that writes its @classpath file.
+                    // Running on the prepared display preserves all headless
+                    // isolation while letting JavaExec include that provider.
+                    task.useXvfb.set(false)
                     logger.lifecycle("Configuring Loom launcher injection for ${task.path} (${task.class.name})")
                     def internalClasspath = internalClasspathFor(task)
                     internalClasspath.from(launcherConfiguration)
                     doFirst {
+                        if (task.useXvfb.get()) {
+                            throw new GradleException('RunGameTask must not start a nested CI Xvfb launcher')
+                        }
                         logger.lifecycle("Verifying Loom launcher injection for ${task.path} (${task.class.name})")
                         if (!internalClasspath.files.any { it.name.startsWith('dev-launch-injector-') }) {
                             throw new GradleException('RunGameTask internalClasspath is missing dev-launch-injector at execution')

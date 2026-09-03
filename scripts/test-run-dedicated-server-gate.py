@@ -71,6 +71,8 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         self.assertIn("net.fabricmc.loom.task.RunGameTask", init_script)
         self.assertIn("isLoomRunGameTask(task)", init_script)
         self.assertIn("type = type.superclass", init_script)
+        self.assertIn("task.useXvfb.set(false)", init_script)
+        self.assertIn("RunGameTask must not start a nested CI Xvfb launcher", init_script)
         self.assertIn("getInternalClasspath", init_script)
         self.assertIn("internalClasspath.from(launcherConfiguration)", init_script)
         self.assertIn("RunGameTask internalClasspath is missing dev-launch-injector at execution", init_script)
