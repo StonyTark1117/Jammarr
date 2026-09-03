@@ -54,7 +54,14 @@ public final class LegacyClient {
     }
 
     private void loggedOut(ClientPlayerNetworkEvent.LoggedOutEvent event) {
-        net.minecraft.util.text.ITextComponent reason = event.getNetworkManager().getDisconnectedReason();
+        // Forge can publish LoggedOutEvent while ConnectingScreen is replacing
+        // its initial connection and before it has assigned a NetworkManager.
+        // Cleanup must still happen, but logging the optional disconnect reason
+        // must never turn a deliberate protocol rejection into a client crash.
+        net.minecraft.network.NetworkManager networkManager = event.getNetworkManager();
+        net.minecraft.util.text.ITextComponent reason = networkManager == null
+                ? null
+                : networkManager.getDisconnectedReason();
         if (reason != null) stonytark.jammarr.Jammarr.LOGGER.info(
                 "Client disconnected with reason: {}", reason.getString());
         LegacyNetwork.clientDisconnected();

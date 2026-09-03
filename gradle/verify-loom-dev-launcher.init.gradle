@@ -2,6 +2,9 @@ allprojects {
     afterEvaluate {
         def launcherConfiguration = configurations.findByName('loomDevelopmentDependencies')
         if (launcherConfiguration != null && tasks.findByName('verifyLoomDevLauncher') == null) {
+            tasks.withType(JavaExec).configureEach {
+                classpath launcherConfiguration
+            }
             tasks.register('verifyLoomDevLauncher') {
                 doLast {
                     File injector = launcherConfiguration.files.find {

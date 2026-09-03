@@ -470,6 +470,11 @@ cleanup_audio_processes() {
 
 start_private_audio_graph() {
   local label=$1 command pid deadline
+  local -a wireplumber_args=()
+  # The acceptance graph consists solely of Pulse null sinks.  A WirePlumber
+  # instance is neither required nor safe here: its default ALSA monitor can
+  # enumerate and reserve the user's real desktop devices through the session
+  # bus, which makes an ostensibly private capture interfere with Discord.
   for command in pipewire wireplumber pipewire-pulse pactl pacat parec; do
     if ! command -v "$command" > /dev/null; then
       echo "$label: private audio acceptance requires $command" >&2
@@ -490,7 +495,8 @@ start_private_audio_graph() {
 
   active_audio_runtime_dir=$(mktemp -d /tmp/jammarr-dedicated-gate-audio.XXXXXX)
   chmod 700 "$active_audio_runtime_dir"
-  XDG_RUNTIME_DIR="$active_audio_runtime_dir" \
+  env -u DBUS_SESSION_BUS_ADDRESS \
+    XDG_RUNTIME_DIR="$active_audio_runtime_dir" \
     PIPEWIRE_RUNTIME_DIR="$active_audio_runtime_dir" pipewire \
     > "$output_root/$label.private-pipewire.log" 2>&1 &
   pid=$!
@@ -504,9 +510,21 @@ start_private_audio_graph() {
     sleep .1
   done
 
-  XDG_RUNTIME_DIR="$active_audio_runtime_dir" \
-    PIPEWIRE_RUNTIME_DIR="$active_audio_runtime_dir" wireplumber --profile=policy \
-    > "$output_root/$label.private-wireplumber.log" 2>&1 &
+  # WirePlumber's policy-only profile links the Pulse null sinks but omits the
+  # ALSA/BlueZ/video hardware monitors.  Older headless CI images may not
+  # implement profiles; accept their default manager only when there is no
+  # desktop D-Bus session to reach.  On a workstation, fail closed instead of
+  # risking a reservation or route change to the user's active audio devices.
+  if wireplumber -p policy --version > /dev/null 2>&1; then
+    wireplumber_args=(-p policy)
+  elif [[ -n ${DBUS_SESSION_BUS_ADDRESS-} ]]; then
+    echo "$label: WirePlumber lacks a hardware-free profile; refusing to touch the desktop audio session" >&2
+    return 1
+  fi
+  env -u DBUS_SESSION_BUS_ADDRESS \
+    XDG_RUNTIME_DIR="$active_audio_runtime_dir" \
+    PIPEWIRE_RUNTIME_DIR="$active_audio_runtime_dir" wireplumber \
+    "${wireplumber_args[@]}" > "$output_root/$label.private-wireplumber.log" 2>&1 &
   pid=$!
   active_private_audio_pids+=("$pid")
   sleep 1
@@ -515,7 +533,8 @@ start_private_audio_graph() {
     return 1
   fi
 
-  XDG_RUNTIME_DIR="$active_audio_runtime_dir" \
+  env -u DBUS_SESSION_BUS_ADDRESS \
+    XDG_RUNTIME_DIR="$active_audio_runtime_dir" \
     PIPEWIRE_RUNTIME_DIR="$active_audio_runtime_dir" pipewire-pulse \
     > "$output_root/$label.private-pipewire-pulse.log" 2>&1 &
   pid=$!
@@ -747,6 +766,8 @@ run_optional_client() {
   [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
   [[ "$label" == *-quilt && "$quilt_modmenu_gate" == true ]] && runtime_args+=(-PjammarrIncludeModMenu=true)
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
+  uses_loom_client_launcher "$label" \
+    && runtime_args+=(--init-script "$repo_root/gradle/verify-loom-dev-launcher.init.gradle")
   disables_configuration_cache "$label" && cache_args+=(--no-configuration-cache)
 
   # Forge-family development clients load their client config and bake models
@@ -1349,6 +1370,8 @@ run_delayed_hello_client() {
   [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
   [[ "$label" == *-quilt && "$quilt_modmenu_gate" == true ]] && runtime_args+=(-PjammarrIncludeModMenu=true)
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
+  uses_loom_client_launcher "$label" \
+    && runtime_args+=(--init-script "$repo_root/gradle/verify-loom-dev-launcher.init.gradle")
   disables_configuration_cache "$label" && cache_args+=(--no-configuration-cache)
 
   mkdir -p "$client_dir"
@@ -1458,6 +1481,8 @@ run_acceptance_client_once() {
   [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
   [[ "$label" == *-quilt && "$quilt_modmenu_gate" == true ]] && runtime_args+=(-PjammarrIncludeModMenu=true)
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
+  uses_loom_client_launcher "$label" \
+    && runtime_args+=(--init-script "$repo_root/gradle/verify-loom-dev-launcher.init.gradle")
   disables_configuration_cache "$label" && cache_args+=(--no-configuration-cache)
   [[ ${JAMMARR_ACCEPTANCE_RERUN_TASKS:-false} == true ]] \
     && cache_args+=(--rerun-tasks --refresh-dependencies)
@@ -1567,6 +1592,8 @@ run_command_client_once() {
   [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
   [[ "$label" == *-quilt && "$quilt_modmenu_gate" == true ]] && runtime_args+=(-PjammarrIncludeModMenu=true)
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
+  uses_loom_client_launcher "$label" \
+    && runtime_args+=(--init-script "$repo_root/gradle/verify-loom-dev-launcher.init.gradle")
   disables_configuration_cache "$label" && cache_args+=(--no-configuration-cache)
 
   mkdir -p "$client_dir"
@@ -1797,6 +1824,8 @@ start_audio_client() {
   [[ "$label" == *-quilt ]] && runtime_args+=(-PjammarrRuntimeLoader=quilt)
   [[ "$label" == *-quilt && "$quilt_modmenu_gate" == true ]] && runtime_args+=(-PjammarrIncludeModMenu=true)
   [[ "$label" == *-fabric && -n "$fabric_loader_version" ]] && runtime_args+=(-PjammarrFabricLoaderVersion="$fabric_loader_version")
+  uses_loom_client_launcher "$label" \
+    && runtime_args+=(--init-script "$repo_root/gradle/verify-loom-dev-launcher.init.gradle")
   [[ "$role" == "leader" || "$role" == cold-* ]] && leader=true
   if disables_configuration_cache "$label"; then
     cache_args+=(--no-configuration-cache)

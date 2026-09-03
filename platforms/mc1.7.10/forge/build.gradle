@@ -264,8 +264,7 @@ tasks.register('runProductionClient', JavaExec) {
     mainClass.set('net.minecraft.launchwrapper.Launch')
     doFirst {
         File productionMinecraft = productionClient.get().asFile
-        File natives = new File(gradle.gradleUserHomeDir,
-                'caches/minecraft/net/minecraft/minecraft_natives/1.7.10')
+        File natives = file('run/natives/lwjgl2')
         if (!productionMinecraft.isFile() || sha1(productionMinecraft) != 'e80d9b3bf5085002218d4be59e668bac718abbc6') {
             throw new GradleException('Checksum-verified production Minecraft 1.7.10 client is missing')
         }
