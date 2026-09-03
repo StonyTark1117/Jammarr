@@ -2,6 +2,19 @@ allprojects {
     afterEvaluate {
         def launcherConfiguration = configurations.findByName('loomDevelopmentDependencies')
         if (launcherConfiguration != null && tasks.findByName('verifyLoomDevLauncher') == null) {
+            // Gradle decorates custom task implementations.  The runtime type
+            // is therefore RunGameTask_Decorated, not exactly RunGameTask;
+            // walk its hierarchy so the real launcher task is never skipped.
+            def isLoomRunGameTask = { task ->
+                Class<?> type = task.class
+                while (type != null) {
+                    if (type.name == 'net.fabricmc.loom.task.RunGameTask') {
+                        return true
+                    }
+                    type = type.superclass
+                }
+                return false
+            }
             // AbstractRunTask copies its protected internalClasspath over the
             // public JavaExec classpath in exec().  Find that collection on
             // every Loom generation rather than mutating JavaExec.classpath,
@@ -29,7 +42,7 @@ allprojects {
                 // `mainClass` is a lazy provider and is not present yet on
                 // older Loom tasks during afterEvaluate, so identify the
                 // concrete task instead of silently skipping the injection.
-                if (task.class.name == 'net.fabricmc.loom.task.RunGameTask') {
+                if (isLoomRunGameTask(task)) {
                     def internalClasspath = internalClasspathFor(task)
                     internalClasspath.from(launcherConfiguration)
                     doFirst {

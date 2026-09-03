@@ -69,6 +69,8 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
     def test_loom_preflight_retains_execution_classpath_validation(self) -> None:
         init_script = (ROOT / "gradle/verify-loom-dev-launcher.init.gradle").read_text("utf-8")
         self.assertIn("net.fabricmc.loom.task.RunGameTask", init_script)
+        self.assertIn("isLoomRunGameTask(task)", init_script)
+        self.assertIn("type = type.superclass", init_script)
         self.assertIn("getInternalClasspath", init_script)
         self.assertIn("internalClasspath.from(launcherConfiguration)", init_script)
         self.assertIn("RunGameTask internalClasspath is missing dev-launch-injector at execution", init_script)
