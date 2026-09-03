@@ -7,6 +7,9 @@ import java.util.List;
 /** Minecraft-independent station and Plex result models shared by every loader. */
 public final class StationModels {
     public enum ItemKind { TRACK, ARTIST, ALBUM, PLAYLIST }
+    /** Why a playlist can or cannot be queued by the selected Plex library. */
+    public enum PlaylistAvailability { NONE, QUEUEABLE, EMPTY, OVERSIZED,
+        OUTSIDE_SELECTED_LIBRARY, INCOMPATIBLE_CONTENT, UNAVAILABLE }
     public enum StationType { NONE, AUTOPLAY, LIBRARY_SHUFFLE, TRACK_RADIO, ARTIST_RADIO, ALBUM_RADIO, SONIC_MIX, SONIC_ADVENTURE }
     public enum SonicCapability { CHECKING, READY, NO_PLEX_PASS, ANALYSIS_INCOMPLETE, UNSUPPORTED, PLEX_OFFLINE }
 
@@ -16,13 +19,20 @@ public final class StationModels {
         private final String title;
         private final String subtitle;
         private final long durationMs;
+        private final PlaylistAvailability availability;
 
         public MediaItem(ItemKind kind, String key, String title, String subtitle, long durationMs) {
+            this(kind, key, title, subtitle, durationMs, PlaylistAvailability.NONE);
+        }
+
+        public MediaItem(ItemKind kind, String key, String title, String subtitle, long durationMs,
+                         PlaylistAvailability availability) {
             this.kind = kind == null ? ItemKind.TRACK : kind;
             this.key = safe(key);
             this.title = safe(title);
             this.subtitle = safe(subtitle);
             this.durationMs = Math.max(0, durationMs);
+            this.availability = availability == null ? PlaylistAvailability.NONE : availability;
         }
 
         public ItemKind kind() { return kind; }
@@ -30,6 +40,7 @@ public final class StationModels {
         public String title() { return title; }
         public String subtitle() { return subtitle; }
         public long durationMs() { return durationMs; }
+        public PlaylistAvailability availability() { return availability; }
     }
 
     public static final class StationSeed {

@@ -1266,6 +1266,7 @@ run_client_companion() {
       || ! grep -Fq 'Acceptance audio manifest:' "$client_console" \
       || ! grep -Fq 'Acceptance audio state: PLAYING' "$client_console" \
       || ! grep -Fq 'Acceptance legacy Jammarr screen remained open across client ticks' "$client_console" \
+      || ! grep -Fq 'Acceptance Jammarr title/status/notice rendered with opaque alpha' "$client_console" \
       || ! grep -Fq 'Acceptance legacy search edit survived click, typing, backspace, and screen rebuilds' "$client_console" \
       || ! grep -Fq 'Acceptance legacy Jammarr config screen remained open across client ticks' "$client_console"; do
     if client_bootstrap_failed "$client_console" \
@@ -1618,6 +1619,7 @@ run_command_client() {
       deadline=$((SECONDS + 60))
       while (( result == 0 )) \
           && { ! grep -Fq 'Acceptance legacy Jammarr screen remained open across client ticks' "$client_console" \
+            || ! grep -Fq 'Acceptance Jammarr title/status/notice rendered with opaque alpha' "$client_console" \
             || { requires_hover_help_probe "$label" && ! grep -Fq 'Acceptance legacy hover help rendered on a real control' "$client_console"; } \
             || ! grep -Fq 'Acceptance legacy search edit survived click, typing, backspace, and screen rebuilds' "$client_console" \
             || ! grep -Fq 'Acceptance legacy Jammarr config screen remained open across client ticks' "$client_console"; }; do
@@ -1673,6 +1675,7 @@ run_command_client() {
         deadline=$((SECONDS + 60))
         while ! grep -Fq 'Acceptance Jammarr screen remained open across rendered frames' \
             "$client_console" 2>/dev/null \
+            || ! grep -Fq 'Acceptance Jammarr title/status/notice rendered with opaque alpha' "$client_console" 2>/dev/null \
             || { requires_hover_help_probe "$label" && ! grep -Fq 'Acceptance hover help rendered on a real control' "$client_console" 2>/dev/null; } \
             || ! grep -Fq 'Acceptance Jammarr config screen remained open across rendered frames' \
             "$client_console" 2>/dev/null; do

@@ -19,6 +19,7 @@ import java.util.UUID;
 public final class JammarrPayloads {
     public enum BrowseKind { SEARCH, ARTISTS, ALBUMS, PLAYLISTS, QUEUE }
     public enum ItemKind { TRACK, ARTIST, ALBUM, PLAYLIST }
+    public enum PlaylistAvailability { NONE, QUEUEABLE, EMPTY, OVERSIZED, OUTSIDE_SELECTED_LIBRARY, INCOMPATIBLE_CONTENT, UNAVAILABLE }
     public enum ControlAction { PAUSE, RESUME, SKIP, CLEAR, REMOVE, MOVE_UP, MOVE_DOWN }
     public enum PlaybackStatus { IDLE, PREPARING, PLAYING, PAUSED, PLEX_OFFLINE }
     public enum ErrorCode { INVALID_REQUEST, PERMISSION_DENIED, RATE_LIMITED, QUEUE_FULL, PLEX_OFFLINE, TRACK_FAILED, INTERNAL }
@@ -27,14 +28,19 @@ public final class JammarrPayloads {
     public enum SonicCapability { CHECKING, READY, NO_PLEX_PASS, ANALYSIS_INCOMPLETE, UNSUPPORTED, PLEX_OFFLINE }
     public enum StationAction { START, START_NOW, STOP, SET_AUTOPLAY, PREVIEW_ADVENTURE }
 
-    public record MediaItem(ItemKind kind, String key, String title, String subtitle, long durationMs) {
+    public record MediaItem(ItemKind kind, String key, String title, String subtitle, long durationMs, PlaylistAvailability availability) {
+        public MediaItem(ItemKind kind, String key, String title, String subtitle, long durationMs) {
+            this(kind, key, title, subtitle, durationMs, PlaylistAvailability.NONE);
+        }
         static MediaItem read(RegistryFriendlyByteBuf buf) {
             StationModels.MediaItem value = decode(ControlPackets.MEDIA_ITEM, buf);
-            return new MediaItem(enumValue(ItemKind.class, value.kind()), value.key(), value.title(), value.subtitle(), value.durationMs());
+            return new MediaItem(enumValue(ItemKind.class, value.kind()), value.key(), value.title(), value.subtitle(), value.durationMs(),
+                    enumValue(PlaylistAvailability.class, value.availability()));
         }
         void write(RegistryFriendlyByteBuf buf) {
             ControlPackets.MEDIA_ITEM.encode(new MinecraftWireOutput(buf), new StationModels.MediaItem(
-                    enumValue(StationModels.ItemKind.class, kind), key, title, subtitle, durationMs));
+                    enumValue(StationModels.ItemKind.class, kind), key, title, subtitle, durationMs,
+                    enumValue(StationModels.PlaylistAvailability.class, availability)));
         }
     }
 
@@ -139,18 +145,22 @@ public final class JammarrPayloads {
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
-    public record BrowseResults(BrowseKind kind, String query, int page, boolean hasMore, List<MediaItem> items) implements CustomPacketPayload, JammarrMessage {
+    public record BrowseResults(BrowseKind kind, String query, int page, boolean hasMore, List<MediaItem> items,
+                                ControlPackets.BrowseOutcome outcome, String message) implements CustomPacketPayload, JammarrMessage {
+        public BrowseResults(BrowseKind kind, String query, int page, boolean hasMore, List<MediaItem> items) {
+            this(kind, query, page, hasMore, items, ControlPackets.BrowseOutcome.NONE, "");
+        }
         public static final Type<BrowseResults> TYPE = genericType("browse_results");
         public static final StreamCodec<RegistryFriendlyByteBuf, BrowseResults> CODEC = StreamCodec.ofMember(BrowseResults::write, BrowseResults::read);
         private static BrowseResults read(RegistryFriendlyByteBuf b) {
             ControlPackets.BrowseResults value = decode(ControlPackets.BROWSE_RESULTS, b);
             List<MediaItem> items = value.items().stream().map(JammarrPayloads::toPayload).toList();
-            return new BrowseResults(enumValue(BrowseKind.class, value.kind()), value.query(), value.page(), value.hasMore(), items);
+            return new BrowseResults(enumValue(BrowseKind.class, value.kind()), value.query(), value.page(), value.hasMore(), items, value.outcome(), value.message());
         }
         private void write(RegistryFriendlyByteBuf b) {
             ControlPackets.BROWSE_RESULTS.encode(new MinecraftWireOutput(b), new ControlPackets.BrowseResults(
                     enumValue(ControlPackets.BrowseKind.class, kind), query, page, hasMore,
-                    items.stream().map(JammarrPayloads::toCore).toList()));
+                    items.stream().map(JammarrPayloads::toCore).toList(), outcome, message));
         }
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
@@ -368,12 +378,13 @@ public final class JammarrPayloads {
 
     private static StationModels.MediaItem toCore(MediaItem value) {
         return new StationModels.MediaItem(enumValue(StationModels.ItemKind.class, value.kind()),
-                value.key(), value.title(), value.subtitle(), value.durationMs());
+                value.key(), value.title(), value.subtitle(), value.durationMs(),
+                enumValue(StationModels.PlaylistAvailability.class, value.availability()));
     }
 
     private static MediaItem toPayload(StationModels.MediaItem value) {
         return new MediaItem(enumValue(ItemKind.class, value.kind()), value.key(), value.title(),
-                value.subtitle(), value.durationMs());
+                value.subtitle(), value.durationMs(), enumValue(PlaylistAvailability.class, value.availability()));
     }
 
     private static StationModels.StationSeed toCore(StationSeed value) {

@@ -245,7 +245,8 @@ public final class GlobalPlaybackCoordinator<P> implements AutoCloseable {
                     }
                 } else {
                     send(player,
-                            new ControlPackets.BrowseResults(request.kind(), query, page, result.hasMore(), result.items()));
+                            new ControlPackets.BrowseResults(request.kind(), query, page, result.hasMore(), result.items(),
+                                    result.outcome(), result.message()));
                 }
             }
         }));

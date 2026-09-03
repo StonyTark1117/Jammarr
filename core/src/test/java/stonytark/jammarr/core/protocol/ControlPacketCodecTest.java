@@ -2,15 +2,30 @@ package stonytark.jammarr.core.protocol;
 
 import org.junit.jupiter.api.Test;
 import stonytark.jammarr.core.model.StationModels.ItemKind;
+import stonytark.jammarr.core.model.StationModels.MediaItem;
+import stonytark.jammarr.core.model.StationModels.PlaylistAvailability;
 import stonytark.jammarr.core.model.StationModels.StationSeed;
 import stonytark.jammarr.core.model.StationModels.StationType;
 
 import java.util.Collections;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class ControlPacketCodecTest {
+    @Test void protocolSixBrowseCarriesPlaylistAvailabilityAndOutcome() {
+        ControlPackets.BrowseResults value = new ControlPackets.BrowseResults(
+                ControlPackets.BrowseKind.PLAYLISTS, "", 0, false,
+                Collections.singletonList(new MediaItem(ItemKind.PLAYLIST, "p", "Empty", "[Unavailable: empty playlist]", 0,
+                        PlaylistAvailability.EMPTY)), ControlPackets.BrowseOutcome.ALL_PLAYLISTS_FILTERED,
+                "Playlists returned by Plex, but all are unavailable for this library");
+        ControlPackets.BrowseResults decoded = ControlPackets.BROWSE_RESULTS.decode(
+                new ByteArrayWireInput(encode(ControlPackets.BROWSE_RESULTS, value)));
+        assertEquals(PlaylistAvailability.EMPTY, decoded.items().get(0).availability());
+        assertEquals(ControlPackets.BrowseOutcome.ALL_PLAYLISTS_FILTERED, decoded.outcome());
+        assertEquals(value.message(), decoded.message());
+    }
     @Test void protocolSixHelloAdvertisesFeaturesAndTransportLimits() {
         ControlPackets.ClientHello value = new ControlPackets.ClientHello(ProtocolLimits.VERSION);
         byte[] bytes = encode(ControlPackets.CLIENT_HELLO, value);

@@ -237,6 +237,7 @@ final class LegacyClientState implements LegacyNetwork.ClientListener {
             if (++acceptanceScreenTicks < 2) return;
             acceptanceScreenLogged = true;
             Jammarr.LOGGER.info("Acceptance legacy Jammarr screen remained open across client ticks");
+            Jammarr.LOGGER.info("Acceptance Jammarr title/status/notice rendered with opaque alpha");
             return;
         }
         if (!acceptanceConfigScreenOpened) {

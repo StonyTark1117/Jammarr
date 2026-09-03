@@ -3,10 +3,12 @@ package stonytark.jammarr.core.server;
 import stonytark.jammarr.core.model.QueueTrack;
 import stonytark.jammarr.core.model.StationModels.ItemKind;
 import stonytark.jammarr.core.model.StationModels.MediaItem;
+import stonytark.jammarr.core.model.StationModels.PlaylistAvailability;
 import stonytark.jammarr.core.model.StationModels.SonicCapability;
 import stonytark.jammarr.core.model.StationModels.SonicResult;
 import stonytark.jammarr.core.model.StationModels.StationSeed;
 import stonytark.jammarr.core.protocol.ControlPackets.BrowseKind;
+import stonytark.jammarr.core.protocol.ControlPackets;
 import stonytark.jammarr.core.network.BoundedStreams;
 import stonytark.jammarr.core.network.HttpTransport;
 import stonytark.jammarr.core.network.UrlConnectionHttpTransport;
@@ -51,12 +53,21 @@ public final class PlexService implements PlexGateway {
     public static final class Page {
         private final List<MediaItem> items;
         private final boolean hasMore;
+        private final ControlPackets.BrowseOutcome outcome;
+        private final String message;
         public Page(List<MediaItem> items, boolean hasMore) {
+            this(items, hasMore, ControlPackets.BrowseOutcome.NONE, "");
+        }
+        public Page(List<MediaItem> items, boolean hasMore, ControlPackets.BrowseOutcome outcome, String message) {
             this.items = immutable(items);
             this.hasMore = hasMore;
+            this.outcome = outcome == null ? ControlPackets.BrowseOutcome.NONE : outcome;
+            this.message = message == null ? "" : message;
         }
         public List<MediaItem> items() { return items; }
         public boolean hasMore() { return hasMore; }
+        public ControlPackets.BrowseOutcome outcome() { return outcome; }
+        public String message() { return message; }
     }
     public static final class SonicStatus {
         private final SonicCapability capability;
@@ -343,20 +354,37 @@ public final class PlexService implements PlexGateway {
         }
         JsonArray metadata = array(container(getJson(path, params)), "Metadata");
         List<MediaItem> items = new ArrayList<>();
+        int playlistCount = 0;
         for (JsonElement element : metadata) {
             MediaItem item = mediaItem(element);
             if (kind == BrowseKind.PLAYLISTS && item != null) {
+                playlistCount++;
                 String reason = playlistUnavailableReason(item.key());
                 if (!reason.isEmpty()) {
+                    PlaylistAvailability availability = playlistAvailability(reason);
                     item = new MediaItem(item.kind(), item.key(), item.title(),
-                            "[Unavailable: " + reason + "]", item.durationMs());
+                            "[Unavailable: " + reason + "]", item.durationMs(), availability);
+                } else {
+                    item = new MediaItem(item.kind(), item.key(), item.title(), item.subtitle(), item.durationMs(),
+                            PlaylistAvailability.QUEUEABLE);
                 }
             }
             if (item != null) items.add(item);
         }
         boolean more = items.size() > pageSize;
         if (more) items = new ArrayList<>(items.subList(0, pageSize));
-        return new Page(immutable(items), more);
+        ControlPackets.BrowseOutcome outcome = ControlPackets.BrowseOutcome.NONE;
+        String message = "";
+        if (kind == BrowseKind.PLAYLISTS) {
+            if (playlistCount == 0) {
+                outcome = ControlPackets.BrowseOutcome.NO_PLAYLISTS;
+                message = "No playlists returned by Plex";
+            } else if (items.isEmpty()) {
+                outcome = ControlPackets.BrowseOutcome.ALL_PLAYLISTS_FILTERED;
+                message = "Playlists returned by Plex, but all are unavailable for this library";
+            }
+        }
+        return new Page(immutable(items), more, outcome, message);
     }
 
     public List<QueueTrack> expand(ItemKind kind, String key) throws IOException, InterruptedException {
@@ -532,6 +560,14 @@ public final class PlexService implements PlexGateway {
             if (selectedQueueTrack(resultContainer, element) == null) return "outside selected music library";
         }
         return "";
+    }
+
+    private PlaylistAvailability playlistAvailability(String reason) {
+        if ("empty playlist".equals(reason)) return PlaylistAvailability.EMPTY;
+        if ("over 500 tracks".equals(reason)) return PlaylistAvailability.OVERSIZED;
+        if ("outside selected music library".equals(reason)) return PlaylistAvailability.OUTSIDE_SELECTED_LIBRARY;
+        if (reason.contains("incompatible")) return PlaylistAvailability.INCOMPATIBLE_CONTENT;
+        return PlaylistAvailability.UNAVAILABLE;
     }
 
     private boolean belongsToSelectedLibrary(JsonObject resultContainer, JsonObject item) {

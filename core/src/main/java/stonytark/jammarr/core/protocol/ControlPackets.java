@@ -2,6 +2,7 @@ package stonytark.jammarr.core.protocol;
 
 import stonytark.jammarr.core.model.StationModels.ItemKind;
 import stonytark.jammarr.core.model.StationModels.MediaItem;
+import stonytark.jammarr.core.model.StationModels.PlaylistAvailability;
 import stonytark.jammarr.core.model.StationModels.StationSeed;
 import stonytark.jammarr.core.model.StationModels.StationType;
 
@@ -12,6 +13,7 @@ import java.util.List;
 /** Shared protocol-6 request and browsing packet models/codecs. */
 public final class ControlPackets {
     public enum BrowseKind { SEARCH, ARTISTS, ALBUMS, PLAYLISTS, QUEUE }
+    public enum BrowseOutcome { NONE, NO_PLAYLISTS, ALL_PLAYLISTS_FILTERED, PLEX_UNAVAILABLE }
     public enum ControlAction { PAUSE, RESUME, SKIP, CLEAR, REMOVE, MOVE_UP, MOVE_DOWN }
     public enum StationAction { START, START_NOW, STOP, SET_AUTOPLAY, PREVIEW_ADVENTURE }
 
@@ -86,16 +88,20 @@ public final class ControlPackets {
             String query = input.readUtf(128);
             int page = input.readVarInt();
             boolean hasMore = input.readBoolean();
+            BrowseOutcome outcome = readEnum(input, BrowseOutcome.class);
+            String message = input.readUtf(256);
             int count = boundedCount(input, ProtocolLimits.MAX_BROWSE_RESULTS, "browse results");
             List<MediaItem> items = new ArrayList<MediaItem>(count);
             for (int i = 0; i < count; i++) items.add(readMediaItem(input));
-            return new BrowseResults(kind, query, page, hasMore, items);
+            return new BrowseResults(kind, query, page, hasMore, items, outcome, message);
         }
         @Override public void encode(WireOutput output, BrowseResults value) {
             writeEnum(output, value.kind());
             output.writeUtf(value.query(), 128);
             output.writeVarInt(value.page());
             output.writeBoolean(value.hasMore());
+            writeEnum(output, value.outcome());
+            output.writeUtf(value.message(), 256);
             int count = Math.min(ProtocolLimits.MAX_BROWSE_RESULTS, value.items().size());
             output.writeVarInt(count);
             for (int i = 0; i < count; i++) writeMediaItem(output, value.items().get(i));
@@ -238,18 +244,28 @@ public final class ControlPackets {
         private final int page;
         private final boolean hasMore;
         private final List<MediaItem> items;
+        private final BrowseOutcome outcome;
+        private final String message;
         public BrowseResults(BrowseKind kind, String query, int page, boolean hasMore, List<MediaItem> items) {
+            this(kind, query, page, hasMore, items, BrowseOutcome.NONE, "");
+        }
+        public BrowseResults(BrowseKind kind, String query, int page, boolean hasMore, List<MediaItem> items,
+                             BrowseOutcome outcome, String message) {
             this.kind = require(kind, "kind");
             this.query = safe(query);
             this.page = page;
             this.hasMore = hasMore;
             this.items = immutable(items);
+            this.outcome = outcome == null ? BrowseOutcome.NONE : outcome;
+            this.message = message == null ? "" : message;
         }
         public BrowseKind kind() { return kind; }
         public String query() { return query; }
         public int page() { return page; }
         public boolean hasMore() { return hasMore; }
         public List<MediaItem> items() { return items; }
+        public BrowseOutcome outcome() { return outcome; }
+        public String message() { return message; }
     }
 
     public static final class QueueRequest implements JammarrMessage {
@@ -300,7 +316,7 @@ public final class ControlPackets {
 
     private static MediaItem readMediaItem(WireInput input) {
         return new MediaItem(readEnum(input, ItemKind.class), input.readUtf(256), input.readUtf(256),
-                input.readUtf(256), input.readVarLong());
+                input.readUtf(256), input.readVarLong(), readEnum(input, PlaylistAvailability.class));
     }
 
     private static void writeMediaItem(WireOutput output, MediaItem item) {
@@ -309,6 +325,7 @@ public final class ControlPackets {
         output.writeUtf(item.title(), 256);
         output.writeUtf(item.subtitle(), 256);
         output.writeVarLong(item.durationMs());
+        writeEnum(output, item.availability());
     }
 
     private static StationSeed readStationSeed(WireInput input) {

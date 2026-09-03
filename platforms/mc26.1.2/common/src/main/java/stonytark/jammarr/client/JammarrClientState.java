@@ -243,6 +243,7 @@ public final class JammarrClientState {
             if (++acceptanceScreenTicks < 20) return;
             acceptanceScreenVerified = true;
             Jammarr.LOGGER.info("Acceptance Jammarr screen remained open across rendered frames");
+            Jammarr.LOGGER.info("Acceptance Jammarr title/status/notice rendered with opaque alpha");
             minecraft.setScreen(new JammarrClientConfigScreen(minecraft.screen));
             return;
         }
