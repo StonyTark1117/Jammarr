@@ -36,7 +36,7 @@ minecraft {
                         '--quickPlayMultiplayer', providers.gradleProperty('jammarrAcceptanceServer').get()
             }
         }
-        server { args '--nogui' }
+        server { args '--nogui', '--mixin.config', 'jammarr.mixins.json' }
     }
 }
 sourceSets.main.output.resourcesDir = sourceSets.main.java.classesDirectory.get().asFile
@@ -81,6 +81,7 @@ sourceSets {
         }
         resources {
             srcDir file('../../../src/main/resources')
+            exclude { it.file == file('../../../src/main/resources/jammarr.mixins.json') }
             exclude 'META-INF/neoforge.mods.toml'
             exclude 'fabric.mod.json'
         }
@@ -127,7 +128,8 @@ def releaseEntries = ['META-INF/jarjar/core-1.1.0.jar', 'META-INF/jarjar/jlayer-
                       'META-INF/LICENSE-Jammarr-CC0-1.0.txt', 'META-INF/LICENSE-LGPL-2.1-or-later.txt',
                       'META-INF/THIRD_PARTY_NOTICES.md', 'META-INF/mods.toml', 'jammarr.mixins.json',
                       'jammarr.png', 'pack.mcmeta', 'assets/jammarr/lang/en_us.json', 'stonytark/jammarr/Jammarr.class',
-                      'stonytark/jammarr/client/JammarrClient.class', 'stonytark/jammarr/network/JammarrNetwork.class']
+                      'stonytark/jammarr/client/JammarrClient.class', 'stonytark/jammarr/network/JammarrNetwork.class',
+                      'stonytark/jammarr/mixin/DedicatedServerShutdownMixin.class']
 
 tasks.register('verifyRelease') {
     group = 'verification'
@@ -139,6 +141,10 @@ tasks.register('verifyRelease') {
             def found = zip.entries().collect { it.name } as Set
             releaseEntries.each { entry ->
                 if (!found.contains(entry)) throw new GradleException("Release archive is missing ${entry}")
+            }
+            def mixins = new groovy.json.JsonSlurper().parseText(zip.getInputStream(zip.getEntry('jammarr.mixins.json')).getText('UTF-8'))
+            if (!mixins.mixins.contains('DedicatedServerShutdownMixin')) {
+                throw new GradleException('Forge release does not enable dedicated-server watcher cleanup')
             }
             def metadata = zip.getInputStream(zip.getEntry('META-INF/mods.toml')).getText('UTF-8')
             if (!metadata.contains('modId="jammarr"') || !metadata.contains('versionRange="[1.21,1.21.1)"')

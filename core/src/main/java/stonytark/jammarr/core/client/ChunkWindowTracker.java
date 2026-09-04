@@ -47,13 +47,18 @@ public final class ChunkWindowTracker {
     }
 
     public synchronized Optional<Acknowledgement> received(long requestId, int index) {
-        if (index < 0 || index >= totalChunks) return Optional.empty();
+        // A recovery keeps the track session id, so replies queued before its
+        // new manifest can still arrive. Only the requested window may advance
+        // this transfer; remembering future chunks would skip the server's
+        // required next window and make every subsequent request fail.
+        if (inFlight == null || index < inFlight.startIndex
+                || index >= inFlight.startIndex + inFlight.count) return Optional.empty();
         // An older response can finish the window after a retry has changed
         // its request id. The current response then consists of duplicates;
         // it must still acknowledge that window so the server can advance.
         received.set(index);
         while (firstMissing < totalChunks && received.get(firstMissing)) firstMissing++;
-        if (inFlight == null || inFlight.id != requestId) return Optional.empty();
+        if (inFlight.id != requestId) return Optional.empty();
         int end = inFlight.startIndex + inFlight.count;
         for (int i = inFlight.startIndex; i < end; i++) if (!received.get(i)) return Optional.empty();
         Acknowledgement acknowledgement = new Acknowledgement(inFlight.id, end - 1);

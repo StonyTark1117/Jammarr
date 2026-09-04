@@ -7,6 +7,27 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TransportTimingTest {
+    @Test void staleRepliesAfterRecoveryCannotSkipTheServersNextWindow() {
+        for (boolean requestAlreadySent : new boolean[] {false, true}) {
+            ChunkWindowTracker tracker = new ChunkWindowTracker(115, 800, 8, 1_500);
+            ChunkWindowTracker.Request request = requestAlreadySent
+                    ? tracker.request(0, 0, 12_000).get() : null;
+            // CI received old request 5, chunks 138..145, after a new manifest
+            // at 115. The next three valid windows must still end at 138.
+            for (int index = 138; index <= 145; index++) tracker.received(5, index);
+            for (int window = 0; window < 3; window++) {
+                if (request == null) request = tracker.request(window * 2_000, 0, 12_000).get();
+                assertEquals(115 + window * 8, request.startIndex());
+                for (int index = request.startIndex(); index < request.startIndex() + request.count(); index++) {
+                    java.util.Optional<ChunkWindowTracker.Acknowledgement> ack = tracker.received(request.id(), index);
+                    assertEquals(index == request.startIndex() + request.count() - 1, ack.isPresent());
+                }
+                request = null;
+            }
+            assertEquals(139, tracker.request(6_000, 0, 12_000).get().startIndex());
+        }
+    }
+
     @Test void lateWindowMustStillBeAcknowledgedWhenTheCurrentRetryArrives() {
         ChunkWindowTracker tracker = new ChunkWindowTracker(96, 160, 8, 1_500);
         ChunkWindowTracker.Request original = tracker.request(0, 0, 12_000).get();

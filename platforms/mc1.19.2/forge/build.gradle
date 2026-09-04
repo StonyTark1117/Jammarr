@@ -135,6 +135,7 @@ def releaseEntries = ['META-INF/jarjar/core-1.1.0.jar', 'META-INF/jarjar/jlayer-
                       'META-INF/LICENSE-Jammarr-CC0-1.0.txt', 'META-INF/LICENSE-LGPL-2.1-or-later.txt',
                       'META-INF/THIRD_PARTY_NOTICES.md', 'META-INF/mods.toml', 'jammarr.mixins.json',
                       'stonytark/jammarr/mixin/HandshakePendingMessagesMixin.class',
+                      'stonytark/jammarr/mixin/ClientDisconnectReasonMixin.class',
                       'jammarr.png', 'pack.mcmeta', 'assets/jammarr/lang/en_us.json',
                       'stonytark/jammarr/Jammarr.class', 'stonytark/jammarr/client/JammarrClient.class',
                       'stonytark/jammarr/network/JammarrNetwork.class', 'stonytark/jammarr/network/JammarrPayloads.class']
@@ -160,6 +161,9 @@ tasks.register('verifyRelease') {
                     zip.getInputStream(zip.getEntry('jammarr.mixins.json')).getText('UTF-8'))
             if (!mixins.mixins.contains('HandshakePendingMessagesMixin')) {
                 throw new GradleException('Release archive does not enable the Forge login acknowledgement fix')
+            }
+            if (!mixins.client.contains('ClientDisconnectReasonMixin')) {
+                throw new GradleException('Forge release does not record received disconnect reasons')
             }
             if (!zip.getInputStream(zip.getEntry('jammarr.mixins.json')).getText('UTF-8').contains('"JAVA_17"')) {
                 throw new GradleException('Forge 1.19.2 mixin metadata does not target Java 17')
