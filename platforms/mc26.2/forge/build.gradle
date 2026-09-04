@@ -72,6 +72,7 @@ sourceSets {
             exclude 'stonytark/jammarr/client/JammarrClientConfigScreen.java'
             exclude 'stonytark/jammarr/client/JammarrClientState.java'
             exclude 'stonytark/jammarr/client/JammarrScreen.java'
+            exclude 'stonytark/jammarr/client/SoundChannelDiagnostics.java'
             exclude 'stonytark/jammarr/config/JammarrConfig.java'
             exclude 'stonytark/jammarr/gametest/**'
             exclude 'stonytark/jammarr/network/JammarrNetwork.java'

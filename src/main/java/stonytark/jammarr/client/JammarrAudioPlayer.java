@@ -312,7 +312,7 @@ public final class JammarrAudioPlayer {
             if (error != null || handle == null) {
                 if (error != null) Jammarr.LOGGER.warn("Jammarr audio channel creation failed", error);
                 else Jammarr.LOGGER.warn("Jammarr audio channel creation returned no channel: {}",
-                        Minecraft.getInstance().getSoundManager().getDebugString());
+                        SoundChannelDiagnostics.describe(Minecraft.getInstance().getSoundManager()));
                 if (channelStarts.complete(startToken)) requestRebuffer("audio channel creation");
                 return;
             }
