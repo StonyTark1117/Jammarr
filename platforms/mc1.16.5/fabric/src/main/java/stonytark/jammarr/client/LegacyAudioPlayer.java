@@ -3,6 +3,7 @@ package stonytark.jammarr.client;
 import stonytark.jammarr.core.client.ChunkWindowTracker;
 import stonytark.jammarr.core.client.ClockSynchronizer;
 import stonytark.jammarr.core.client.DriftPolicy;
+import stonytark.jammarr.core.client.BackendRateCorrection;
 import stonytark.jammarr.core.client.AsyncStartGuard;
 import stonytark.jammarr.core.client.PlaybackStartPolicy;
 import stonytark.jammarr.core.network.Hashing;
@@ -76,6 +77,7 @@ public final class LegacyAudioPlayer {
     private int underruns;
     private volatile boolean started;
     private float appliedVolume = Float.NaN;
+    private float appliedPlaybackRate = 1.0f;
     private final AsyncStartGuard channelStarts = new AsyncStartGuard();
 
     public LegacyAudioPlayer(ClockSynchronizer clock) { this.clock = clock; }
@@ -350,6 +352,8 @@ public final class LegacyAudioPlayer {
                     channelStartedPositionMs = actualPosition;
                     lastCorrectionMs = readyNow;
                     value.disableAttenuation(); value.setRelative(true); value.setVolume(0);
+                    appliedPlaybackRate = 1.0f;
+                    value.setPitch(appliedPlaybackRate);
                     pcmStream = startingStream;
                     value.attachBufferStream(startingStream); value.play();
                     // Publish only after the backend initialization command has run,
@@ -420,6 +424,18 @@ public final class LegacyAudioPlayer {
                 return true;
             }
             appliedVolume = Float.NaN;
+        }
+        // A small device-rate mismatch otherwise grows until recovery stops
+        // several seconds of healthy queued audio. Correct it while playing;
+        // large or persistent failures still go through the same drift guard.
+        // The first audible second is excluded because latency subtraction
+        // clamps the startup position to zero before the device is audible.
+        if (measured.position.playedMillis() >= 1_000) {
+            float rate = BackendRateCorrection.pitch(drift);
+            if (Math.abs(rate - appliedPlaybackRate) >= 0.0005f) {
+                appliedPlaybackRate = rate;
+                channel.execute(value -> value.setPitch(rate));
+            }
         }
         if (!backendDrift.observe(drift, measured.observedAtMonotonicMs)) return false;
         Jammarr.LOGGER.warn("Jammarr detected sustained backend playback drift: driftMs={} latencyMs={}",
