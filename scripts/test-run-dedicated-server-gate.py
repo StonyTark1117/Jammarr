@@ -74,19 +74,31 @@ group_alive() { return 0; }
         scenario = self.source[self.source.index("run_audio_control_scenarios()") :]
         promotion = scenario[scenario.index('  : > "$scenario_evidence"') : scenario.index('  # A transient first leader')]
         wait = re.search(r'^wait_for_marker_after\(\) \{\n.*?^\}\n', self.source, re.MULTILINE | re.DOTALL).group()
-        with tempfile.TemporaryDirectory() as directory:
-            result = subprocess.run(["bash", "-c", wait + '''
+        # Keep the real polling logic, with a short deadline for a missing acknowledgement.
+        wait = wait.replace('wait_for_marker_after()', 'poll_for_marker()')
+        wait += 'wait_for_marker_after() { poll_for_marker "$1" "$2" "$3" 2; }\n'
+        for client_logs_chat, separate_mod_log in (("true", "false"), ("false", "false"), ("true", "true")):
+            with self.subTest(client_logs_chat=client_logs_chat, separate_mod_log=separate_mod_log), tempfile.TemporaryDirectory() as directory:
+                result = subprocess.run(["bash", "-c", wait + '''
 set -eu
-label=replay; leader_log=$1/leader.log; scenario_evidence=$1/evidence.txt; fifo_fd=9
+label=replay; output_root=$1; leader_log=$1/leader.log; scenario_evidence=$1/evidence.txt; fifo_fd=9
+server_console=$output_root/$label.console.log; server_log=$server_console
+# Forge's FML log excludes vanilla command messages that appear in its console.
+if [[ "$3" == true ]]; then server_log=$1/mod.log; fi
 # A marker from a previous launch must not satisfy the new promotion.
 echo JAMMARR_ACCEPTANCE_AUDIO_OPERATOR_READY > "$leader_log"
+echo JAMMARR_ACCEPTANCE_AUDIO_OPERATOR_READY > "$server_log"
+echo JAMMARR_ACCEPTANCE_AUDIO_OPERATOR_READY > "$server_console"
 mkfifo "$1/console"
 exec 9<>"$1/console"
 (
   while IFS= read -r line; do
     case "$line" in
       'op JammarrAudioA') sleep .25; touch "$1/operator" ;;
-      'tell JammarrAudioA '*) echo "$line" >> "$leader_log"; break ;;
+      'tell JammarrAudioA '*)
+        echo "$line" >> "$server_console"
+        if [[ "$2" == true ]]; then echo "$line" >> "$leader_log"; fi
+        break ;;
     esac
   done < "$1/console"
 ) & server=$!
@@ -98,8 +110,8 @@ promote() {
 promote
 # This is the permission check that rejects the first client control packet.
 test -f "$1/operator" || { echo 'Control arrived before operator promotion' >&2; exit 42; }
-''', "test", directory], capture_output=True, text=True, timeout=5)
-            self.assertEqual(result.returncode, 0, result.stderr)
+''', "test", directory, client_logs_chat, separate_mod_log], capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_audio_gate_uses_a_private_graph(self) -> None:
         source = self.source

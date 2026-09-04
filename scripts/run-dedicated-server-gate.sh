@@ -2484,9 +2484,12 @@ run_audio_control_scenarios() {
     # Writing to stdin only queues the command. The client's control packet can
     # otherwise reach the server before promotion and be rejected. A subsequent
     # server message acknowledges that the console queue has processed the op.
-    first=$(wc -l < "$leader_log")
+    # Beta clients do not log ordinary chat, and Forge's separate FML log can
+    # exclude vanilla command messages. Both servers echo them to the console.
+    local operator_log="$output_root/$label.console.log"
+    first=$(wc -l < "$operator_log")
     printf 'op JammarrAudioA\ntell JammarrAudioA JAMMARR_ACCEPTANCE_AUDIO_OPERATOR_READY\n' >&"$fifo_fd"
-    if ! wait_for_marker_after "$leader_log" "$first" 'JAMMARR_ACCEPTANCE_AUDIO_OPERATOR_READY' 60; then
+    if ! wait_for_marker_after "$operator_log" "$first" 'JAMMARR_ACCEPTANCE_AUDIO_OPERATOR_READY' 60; then
       echo "$label: audio scenario operator promotion was not acknowledged" >&2
       return 1
     fi
