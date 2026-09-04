@@ -30,7 +30,9 @@ public final class JammarrClientConfigScreen extends Screen {
     }
 
     @Override public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics, mouseX, mouseY, partialTick);
+        // Screen.renderWithTooltip already applies the background in newer
+        // renderers. Requesting blur again exhausts the frame's single slot.
+        renderMenuBackground(graphics);
         super.render(graphics, mouseX, mouseY, partialTick);
         graphics.drawCenteredString(font, title, width / 2, height / 2 - 62, 0xFFFFFF);
         graphics.drawCenteredString(font, Component.translatable("jammarr.config.local_only"), width / 2, height / 2 - 46, 0xA0D8FF);

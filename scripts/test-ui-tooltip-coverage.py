@@ -69,7 +69,10 @@ class UiTooltipCoverageTest(unittest.TestCase):
         self.assertIn("Acceptance hover help rendered on a real control", gate)
 
     def test_modern_blur_guard_covers_every_post_1216_screen_family(self) -> None:
-        screens = [ROOT / "src/main/java/stonytark/jammarr/client/JammarrScreen.java"]
+        screens = [
+            ROOT / "src/main/java/stonytark/jammarr/client/JammarrScreen.java",
+            ROOT / "src/main/java/stonytark/jammarr/client/JammarrClientConfigScreen.java",
+        ]
         screens.extend(
             ROOT / f"platforms/mc{version}/common/src/main/java/stonytark/jammarr/client/JammarrScreen.java"
             for version in ("1.21.9", "1.21.10", "1.21.11")
