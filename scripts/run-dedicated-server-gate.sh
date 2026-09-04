@@ -2481,7 +2481,15 @@ run_audio_control_scenarios() {
 
   : > "$scenario_evidence"
   if uses_console_control "$label"; then
-    printf 'op JammarrAudioA\n' >&"$fifo_fd"
+    # Writing to stdin only queues the command. The client's control packet can
+    # otherwise reach the server before promotion and be rejected. A subsequent
+    # server message acknowledges that the console queue has processed the op.
+    first=$(wc -l < "$leader_log")
+    printf 'op JammarrAudioA\ntell JammarrAudioA JAMMARR_ACCEPTANCE_AUDIO_OPERATOR_READY\n' >&"$fifo_fd"
+    if ! wait_for_marker_after "$leader_log" "$first" 'JAMMARR_ACCEPTANCE_AUDIO_OPERATOR_READY' 60; then
+      echo "$label: audio scenario operator promotion was not acknowledged" >&2
+      return 1
+    fi
   elif ! run_minecraft_rcon 127.0.0.1 "$rcon_port" "$rcon_password" \
       'op JammarrAudioA' > /dev/null; then
     echo "$label: unable to promote the audio scenario leader" >&2

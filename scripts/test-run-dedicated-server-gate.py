@@ -70,6 +70,37 @@ group_alive() { return 0; }
                     self.assertNotIn("command not found", result.stderr)
                     self.assertEqual(result.returncode, expected, result.stderr)
 
+    def test_audio_controls_wait_for_console_promotion_acknowledgement(self) -> None:
+        scenario = self.source[self.source.index("run_audio_control_scenarios()") :]
+        promotion = scenario[scenario.index('  : > "$scenario_evidence"') : scenario.index('  # A transient first leader')]
+        wait = re.search(r'^wait_for_marker_after\(\) \{\n.*?^\}\n', self.source, re.MULTILINE | re.DOTALL).group()
+        with tempfile.TemporaryDirectory() as directory:
+            result = subprocess.run(["bash", "-c", wait + '''
+set -eu
+label=replay; leader_log=$1/leader.log; scenario_evidence=$1/evidence.txt; fifo_fd=9
+# A marker from a previous launch must not satisfy the new promotion.
+echo JAMMARR_ACCEPTANCE_AUDIO_OPERATOR_READY > "$leader_log"
+mkfifo "$1/console"
+exec 9<>"$1/console"
+(
+  while IFS= read -r line; do
+    case "$line" in
+      'op JammarrAudioA') sleep .25; touch "$1/operator" ;;
+      'tell JammarrAudioA '*) echo "$line" >> "$leader_log"; break ;;
+    esac
+  done < "$1/console"
+) & server=$!
+trap 'kill "$server" 2>/dev/null || true; wait "$server" 2>/dev/null || true' EXIT
+uses_console_control() { return 0; }
+promote() {
+''' + promotion + '''
+}
+promote
+# This is the permission check that rejects the first client control packet.
+test -f "$1/operator" || { echo 'Control arrived before operator promotion' >&2; exit 42; }
+''', "test", directory], capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_audio_gate_uses_a_private_graph(self) -> None:
         source = self.source
         self.assertIn("start_private_audio_graph()", source)
