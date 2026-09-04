@@ -7,6 +7,24 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TransportTimingTest {
+    @Test void lateWindowMustStillBeAcknowledgedWhenTheCurrentRetryArrives() {
+        ChunkWindowTracker tracker = new ChunkWindowTracker(96, 160, 8, 1_500);
+        ChunkWindowTracker.Request original = tracker.request(0, 0, 12_000).get();
+        ChunkWindowTracker.Request retry = tracker.request(1_501, 0, 12_000).get();
+        // The original response arrives after the timeout changed the request id.
+        for (int index = 96; index < 104; index++) {
+            assertFalse(tracker.received(original.id(), index).isPresent());
+        }
+        assertEquals(104, tracker.firstMissing());
+        // A matching retry contains accepted duplicates, which must release
+        // the window instead of trapping every later request at chunk 96.
+        ChunkWindowTracker.Acknowledgement ack = tracker.received(retry.id(), 96).get();
+        assertEquals(retry.id(), ack.requestId());
+        assertEquals(103, ack.receivedThroughIndex());
+        ChunkWindowTracker.Request next = tracker.request(1_502, 0, 12_000).get();
+        assertEquals(104, next.startIndex());
+    }
+
     @Test void estimatesClockOffsetFromMidpointAndFiltersJitter() {
         ClockSynchronizer clock = new ClockSynchronizer();
         ClockSynchronizer.Sample first = clock.accept(1_000, 1_150, 1_100);

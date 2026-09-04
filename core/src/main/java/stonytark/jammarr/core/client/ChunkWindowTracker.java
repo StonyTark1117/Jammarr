@@ -47,7 +47,10 @@ public final class ChunkWindowTracker {
     }
 
     public synchronized Optional<Acknowledgement> received(long requestId, int index) {
-        if (index < firstMissing || index >= totalChunks) return Optional.empty();
+        if (index < 0 || index >= totalChunks) return Optional.empty();
+        // An older response can finish the window after a retry has changed
+        // its request id. The current response then consists of duplicates;
+        // it must still acknowledge that window so the server can advance.
         received.set(index);
         while (firstMissing < totalChunks && received.get(firstMissing)) firstMissing++;
         if (inFlight == null || inFlight.id != requestId) return Optional.empty();
