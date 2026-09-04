@@ -2354,15 +2354,9 @@ audio_capture_is_audible() {
 audio_capture_is_silent() {
   local raw=$1
   local metrics=$2
-  local samples
-  # Ignore the recorder's bounded startup tail and isolate the synthetic Plex
-  # program tone. Require a sustained tone before declaring a leak so bounded
-  # transition tails and ordinary broadband game sounds cannot masquerade as playback.
-  ffmpeg -hide_banner -loglevel info -ss 1 -f s16le -ar 48000 -ac 2 -i "$raw" \
-    -af 'bandpass=f=1000:w=10,silenceremove=start_periods=1:start_duration=1.5:start_threshold=-50dB,volumedetect' -f null - \
-    > /dev/null 2> "$metrics" || return 1
-  samples=$(sed -n 's/.*n_samples: \([0-9][0-9]*\).*/\1/p' "$metrics" | tail -n 1)
-  [[ "$samples" == "0" ]]
+  # Identify the generated Plex carrier/marker pair so unrelated Minecraft
+  # music can continue while this client's Jammarr playback is muted.
+  python3 "$repo_root/scripts/analyze-program-silence.py" "$raw" > "$metrics"
 }
 
 audio_capture_is_attenuated() {

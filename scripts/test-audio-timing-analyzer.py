@@ -63,7 +63,8 @@ def require_failure(path: Path, phrase: str) -> None:
         raise AssertionError(f"{path.name} did not trigger {phrase!r}: {failures}")
 
 
-def mix_opposite_marker(raw: bytes, target_slot: int) -> bytes:
+def mix_opposite_marker(raw: bytes, target_slot: int, duration_ms: int = 180,
+                        offset_ms: int = 0) -> bytes:
     donor_slot = target_slot + 1
     while marker_type(donor_slot) == marker_type(target_slot):
         donor_slot += 1
@@ -73,7 +74,9 @@ def mix_opposite_marker(raw: bytes, target_slot: int) -> bytes:
         values.byteswap()
     target_frame = target_slot * SAMPLE_RATE // 4
     donor_frame = donor_slot * SAMPLE_RATE // 4
-    frames = SAMPLE_RATE * 180 // 1_000
+    target_frame += SAMPLE_RATE * offset_ms // 1_000
+    donor_frame += SAMPLE_RATE * offset_ms // 1_000
+    frames = SAMPLE_RATE * duration_ms // 1_000
     for frame in range(frames):
         for channel in range(2):
             target = (target_frame + frame) * 2 + channel
@@ -111,6 +114,17 @@ def main() -> None:
                 or report["capture"].get("marker_sequence_mismatches") != 0:
             raise AssertionError("analyzer did not recover a clean phase beyond 4095")
 
+        # A brief competing game sound can split one pulse into two detected
+        # fragments. Its original onset remains correct; retain the independent
+        # overlap measurement rather than inventing a second, late pulse.
+        interrupted = root / "interrupted-marker.s16le"
+        interrupted.write_bytes(mix_opposite_marker(raw, 16, duration_ms=10, offset_ms=60))
+        status, report = analyze(interrupted)
+        if status != 0 or report["capture"]["max_marker_interval_error_ms"] != 0:
+            raise AssertionError(f"a split on-time marker became a late pulse: {report.get('failures')}")
+        if report["capture"]["max_marker_overlap_ms"] != 10:
+            raise AssertionError("short marker interference lost its independent overlap measurement")
+
         start = byte_offset(4_000)
         displacement = byte_offset(120)
         early = root / "early.s16le"
@@ -120,6 +134,11 @@ def main() -> None:
         late = root / "late.s16le"
         late.write_bytes(raw[:start] + raw[start:start + displacement] + raw[start:])
         require_failure(late, "marker displacement")
+
+        small_late = root / "late-60ms.s16le"
+        short_displacement = byte_offset(60)
+        small_late.write_bytes(raw[:start] + raw[start:start + short_displacement] + raw[start:])
+        require_failure(small_late, "marker displacement")
 
         # Replace the next three seconds with a replay of the preceding three. The
         # duration and 250 ms cadence stay intact, so only the absolute marker

@@ -85,9 +85,20 @@ def analyze(path: Path, sample_rate: int) -> dict:
         start = index
         while index + 1 < len(labels) and labels[index + 1] == label:
             index += 1
-        if index - start + 1 >= 3:
-            runs.append((label, start * 10, (index - start + 1) * 10))
+        marker_start = start * 10
+        marker_end = (index + 1) * 10
+        # One ambiguous analysis window can split a correctly timed pulse.
+        # Rejoin its fragments within the fixture's 180 ms pulse plus edge
+        # quantization, preserving the independent silence/overlap samples.
+        if (runs and runs[-1][0] == label
+                and marker_start - (runs[-1][1] + runs[-1][2]) <= 10
+                and marker_end - runs[-1][1] <= 200):
+            previous = runs[-1]
+            runs[-1] = (label, previous[1], marker_end - previous[1])
+        else:
+            runs.append((label, marker_start, marker_end - marker_start))
         index += 1
+    runs = [run for run in runs if run[2] >= 30]
 
     first_marker_window = runs[0][1] // 10 if runs else len(silent)
     longest_silence = 0
