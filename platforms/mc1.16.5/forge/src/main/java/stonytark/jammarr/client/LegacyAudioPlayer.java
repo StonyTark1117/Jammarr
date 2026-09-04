@@ -170,7 +170,11 @@ public final class LegacyAudioPlayer {
                     "start", request.startIndex(), "count", request.count());
         });
         Minecraft minecraft = Minecraft.getInstance();
-        if (JammarrSettings.enabled()) minecraft.getMusicManager().stopPlaying();
+        // Stop music through SoundManager so pending loads remain tracked and
+        // are stopped too. MusicManager.stopPlaying() increments its delay;
+        // after a song starts at Integer.MAX_VALUE, that overflows and restarts
+        // music every tick, exhausting streaming channels while loads finish.
+        if (JammarrSettings.enabled()) minecraft.getSoundManager().stop(null, SoundCategory.MUSIC);
         long decodedStartPosition = Math.max(0, firstChunkStartMs) + decoder.initialPcmDelayMillis();
         long localStart = clock.toLocalTime(manifest.startedAtEpochMs() + decodedStartPosition);
         long authoritativePosition = Math.max(0, clock.toServerTime(now) - manifest.startedAtEpochMs());
