@@ -169,6 +169,9 @@ final class StreamingMp3Decoder implements AutoCloseable {
         closed = true; input.close();
         synchronized (flowControl) { flowControl.notifyAll(); }
         synchronized (pcmAvailable) { pcmAvailable.notifyAll(); }
-        thread.interrupt(); pcm.clear(); consumerBuffer = null; consumerOffset = 0; bufferedBytes.set(0);
+        // Closing input and notifying both monitors wakes every blocking path.
+        // Interrupting here can abort Forge's lazy module/class-file reads and
+        // permanently poison JLayer class resolution during a rapid restart.
+        pcm.clear(); consumerBuffer = null; consumerOffset = 0; bufferedBytes.set(0);
     }
 }
