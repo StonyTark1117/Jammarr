@@ -675,7 +675,28 @@ write_private_client_audio_config() {
 prepare_graphical_client_environment() {
   local label=$1 client_dir=$2
   prepare_private_client_audio "$label" || return 1
+  write_private_client_loader_config "$label" "$client_dir" || return 1
   write_private_client_audio_config "$client_dir"
+}
+
+write_private_client_loader_config() {
+  local label=$1 client_dir=$2
+  if [[ "$label" == 1.20.3-forge ]]; then
+    # Forge 49.0.2's asynchronous splash renderer can read FMLConfig while
+    # NightConfig reloads it, throwing in DisplayWindow.initRender before
+    # Minecraft creates its window. Use the loader's supported splash opt-out
+    # in this disposable game directory; Minecraft still renders every UI
+    # probe and both audio clients still use the measured private sinks.
+    mkdir -p "$client_dir/config"
+    printf '%s\n' 'earlyWindowControl = false' > "$client_dir/config/fml.toml"
+  fi
+}
+
+preserve_client_attempt() {
+  local console_log=$1 attempt=$2
+  if [[ -f "$console_log" ]]; then
+    cp -- "$console_log" "${console_log%.log}.attempt-$attempt.log"
+  fi
 }
 
 headless_client_openal_driver() {
@@ -975,6 +996,10 @@ run_optional_client() {
   ) &
   pid=$!
   active_client_pid=$pid
+  if ! wait_for_client_launch "$pid" "$client_console"; then
+    active_client_pid=""
+    return 1
+  fi
 
   deadline=$((SECONDS + 600))
   while ! optional_client_joined "$label" "$server_console" "$client_console" "$username"; do
@@ -1484,6 +1509,10 @@ run_client_companion() {
   ) &
   pid=$!
   active_client_pid=$pid
+  if ! wait_for_client_launch "$pid" "$client_console"; then
+    active_client_pid=""
+    return 1
+  fi
 
   deadline=$((SECONDS + 600))
   while ! grep -Fq 'Acceptance client received server hello after delayed handshake' "$client_console" \
@@ -1578,6 +1607,10 @@ run_delayed_hello_client() {
   ) &
   pid=$!
   active_client_pid=$pid
+  if ! wait_for_client_launch "$pid" "$client_console"; then
+    active_client_pid=""
+    return 1
+  fi
 
   deadline=$((SECONDS + 600))
   while ! grep -Fq 'Acceptance client received server hello after delayed handshake' "$client_console"; do
@@ -1635,6 +1668,7 @@ run_acceptance_client() {
         'Timed out trying to setup the Game Window|Failed to initialize the mod loading system and display|Failed to download .*\.ogg|HttpTimeoutException: request timed out|DownloadException: Failed to download' \
         "$client_console" 2>/dev/null; then
       echo "$label: retrying $scenario after a transient client bootstrap failure" >&2
+      preserve_client_attempt "$client_console" "$attempt"
       continue
     fi
     return 1
@@ -1669,6 +1703,7 @@ run_acceptance_client_once() {
     && cache_args+=(--rerun-tasks --refresh-dependencies)
 
   mkdir -p "$client_dir"
+  write_private_client_loader_config "$label" "$client_dir" || return 1
   write_private_client_audio_config "$client_dir" || return 1
   openal_driver=$(non_audio_client_openal_driver) || return 1
   : > "$client_console"
@@ -1697,6 +1732,10 @@ run_acceptance_client_once() {
   ) &
   pid=$!
   active_client_pid=$pid
+  if ! wait_for_client_launch "$pid" "$client_console"; then
+    active_client_pid=""
+    return 1
+  fi
 
   deadline=$((SECONDS + 600))
   while ! rejection_observed "$server_console" "$client_console" "$rejection" \
@@ -1752,6 +1791,7 @@ run_command_client() {
     if run_command_client_once "$@"; then return 0; fi
     if (( attempt == 1 )) && client_bootstrap_failed "$client_console"; then
       echo "$label: retrying command client after a transient renderer bootstrap failure" >&2
+      preserve_client_attempt "$client_console" "$attempt"
       continue
     fi
     return 1
@@ -1784,6 +1824,7 @@ run_command_client_once() {
   disables_configuration_cache "$label" && cache_args+=(--no-configuration-cache)
 
   mkdir -p "$client_dir"
+  write_private_client_loader_config "$label" "$client_dir" || return 1
   write_private_client_audio_config "$client_dir" || return 1
   openal_driver=$(non_audio_client_openal_driver) || return 1
   : > "$client_console"
@@ -1823,6 +1864,10 @@ run_command_client_once() {
   ) &
   pid=$!
   active_client_pid=$pid
+  if ! wait_for_client_launch "$pid" "$client_console"; then
+    active_client_pid=""
+    return 1
+  fi
 
   deadline=$((SECONDS + 600))
   if uses_legacy_command_markers "$label"; then
@@ -2036,6 +2081,7 @@ start_audio_client() {
   fi
 
   mkdir -p "$client_dir/config" "$client_dir/pcm-trace"
+  write_private_client_loader_config "$label" "$client_dir" || return 1
   # A target's acceptance game directory is intentionally reusable, but its
   # pre-backend PCM traces are evidence for this launch only. Leaving an older
   # larger trace here can make the strict analyzer select stale audio while
@@ -2183,9 +2229,15 @@ audio_log_has_terminal_backend_failure() {
     "$client_console" 2>/dev/null
 }
 
-private_audio_graph_has_buffer_starvation() {
+report_private_audio_graph_warnings() {
   local label=$1
-  grep -Eq 'out of buffers' "$output_root/$label.private-pipewire-pulse.log" 2>/dev/null
+  # PipeWire can recover from an unavailable output buffer. A warning anywhere
+  # in this graph's lifetime does not establish that a client disconnected.
+  # Keep the warning visible and require the captured PCM to pass the same
+  # continuity, overlap and synchronization checks as every other capture.
+  if grep -Eq 'out of buffers' "$output_root/$label.private-pipewire-pulse.log" 2>/dev/null; then
+    echo "$label: PipeWire reported unavailable buffers; validating the recorded audio" >&2
+  fi
 }
 
 latest_audio_state_is() {
@@ -2274,6 +2326,7 @@ launch_audio_client() {
     # require the replacement process to reach real Jammarr PLAYING state.
     echo "$label: retrying $role client once after a pre-playback failure" >&2
     terminate_client_launch "$pid" 20 || return 1
+    preserve_client_attempt "$output_root/$label.audio-$role.console.log" "$attempt"
     remaining=()
     for existing in "${active_audio_client_pids[@]}"; do
       if [[ "$existing" != "$pid" ]]; then remaining+=("$existing"); fi
@@ -3094,9 +3147,9 @@ run_mixed_vanilla_audio() {
       result=1
     fi
 
+    report_private_audio_graph_warnings "$label"
     if (( result == 0 )) \
-        && { private_audio_graph_has_buffer_starvation "$label" \
-          || audio_log_has_terminal_backend_failure "$output_root/$label.audio-leader.console.log" \
+        && { audio_log_has_terminal_backend_failure "$output_root/$label.audio-leader.console.log" \
           || audio_log_has_terminal_backend_failure "$output_root/$label.audio-follower.console.log" \
           || ! group_alive "$leader_pid" || ! group_alive "$follower_pid" \
           || ! latest_audio_state_is "$output_root/$label.audio-leader.console.log" PLAYING \
@@ -3326,8 +3379,10 @@ run_two_client_audio() {
       > "$raw_combined" &
     recorder_pid=$!; active_audio_recorder_pids+=("$recorder_pid")
     sleep "$capture_seconds"
+    report_private_audio_graph_warnings "$label"
     if ! ss -ltnH "sport = :$port" | grep -q . \
-        || private_audio_graph_has_buffer_starvation "$label" \
+        || ! group_alive "$leader_pid" || ! group_alive "$follower_pid" \
+        || ! kill -0 "$recorder_pid" 2>/dev/null \
         || audio_log_has_terminal_backend_failure "$output_root/$label.audio-leader.console.log" \
         || audio_log_has_terminal_backend_failure "$output_root/$label.audio-follower.console.log" \
         || grep -Fq 'Client disconnected with reason:' \
@@ -3505,6 +3560,17 @@ wait_for_group_start() {
   done
 }
 
+wait_for_client_launch() {
+  local pid=$1 console_log=$2
+  # The background shell can still share our group until it execs setsid.
+  # Do not classify that scheduling window as a dead Minecraft client.
+  if ! wait_for_group_start "$pid" 10; then
+    echo "Client process group did not start; see $console_log" >&2
+    terminate_client_launch "$pid" 10 || true
+    return 1
+  fi
+}
+
 stop_group() {
   local group_id=$1
   local signal=$2
@@ -3576,30 +3642,46 @@ wait_for_process_tree_exit() {
 terminate_client_launch() {
   local root=$1
   local seconds=$2
-  local pid group deadline live result=0
-  local -a pids=() groups=()
+  local pid group deadline live result=0 caller_pid=$BASHPID caller_group
+  local -a pids=() groups=() shared_group_pids=()
+  [[ "$root" =~ ^[0-9]+$ ]] && (( root > 1 && root != caller_pid )) || return 1
+  caller_group=$(ps -o pgid= -p "$caller_pid" | tr -d ' ')
   mapfile -t pids < <({ printf '%s\n' "$root"; process_tree_pids "$root"; } | sort -un)
   for pid in "${pids[@]}"; do
     group=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
-    if [[ -n "$group" ]]; then groups+=("$group"); fi
+    if [[ "$group" == "$caller_group" ]]; then
+      # Cancellation can beat setsid. Signal only our launch's descendants,
+      # never the shared supervisor group (server, fixtures and sibling gates).
+      shared_group_pids+=("$pid")
+    elif [[ "$group" =~ ^[0-9]+$ ]] && (( group > 1 )); then
+      groups+=("$group")
+    fi
   done
   mapfile -t groups < <(printf '%s\n' "${groups[@]}" | sed '/^$/d' | sort -unr)
 
   for group in "${groups[@]}"; do stop_group "$group" TERM; done
+  for pid in "${shared_group_pids[@]}"; do kill -TERM "$pid" 2>/dev/null || true; done
   deadline=$((SECONDS + seconds))
   while true; do
     live=0
     for group in "${groups[@]}"; do group_alive "$group" && live=1; done
+    for pid in "${shared_group_pids[@]}"; do
+      if ps -o stat= -p "$pid" | grep -q '^[^ Z]'; then live=1; fi
+    done
     if (( live == 0 )); then break; fi
     if (( SECONDS >= deadline )); then result=1; break; fi
     sleep 1
   done
   if (( result != 0 )); then
     for group in "${groups[@]}"; do stop_group "$group" KILL; done
+    for pid in "${shared_group_pids[@]}"; do kill -KILL "$pid" 2>/dev/null || true; done
     deadline=$((SECONDS + 10))
     while true; do
       live=0
       for group in "${groups[@]}"; do group_alive "$group" && live=1; done
+      for pid in "${shared_group_pids[@]}"; do
+        if ps -o stat= -p "$pid" | grep -q '^[^ Z]'; then live=1; fi
+      done
       if (( live == 0 )); then result=0; break; fi
       if (( SECONDS >= deadline )); then break; fi
       sleep 1
@@ -3624,6 +3706,10 @@ ensure_runtime_files() {
   elif ! grep -Eq '^server-port=[0-9]+$' "$run_dir/server.properties"; then
     printf '\nserver-port=%s\n' "$default_port" >> "$run_dir/server.properties"
   fi
+}
+
+runtime_download_failed_transiently() {
+  grep -Eq 'Failed to get asset:|SocketTimeoutException|HttpTimeoutException|Could not download|Received status code (429|502|503|504) from server:' "$1" 2>/dev/null
 }
 
 run_invalid_config_check_once() {
@@ -3717,8 +3803,9 @@ run_invalid_config_check_once() {
         break
       fi
     fi
-    if grep -Eq 'Failed to get asset:|SocketTimeoutException|HttpTimeoutException|Could not download' \
-        "$console_log" 2>/dev/null && ! kill -0 "$pid" 2>/dev/null; then
+    if runtime_download_failed_transiently "$console_log" && ! kill -0 "$pid" 2>/dev/null; then
+      wait "$pid" 2>/dev/null || true
+      active_server_pid=""
       restore_server_config
       return 75
     fi
@@ -3806,6 +3893,7 @@ run_invalid_config_check() {
     if (( status != 75 || attempt == 2 )); then
       return "$status"
     fi
+    preserve_client_attempt "$output_root/$1.invalid-config.console.log" "$attempt"
     echo "$1: retrying invalid-configuration launch after a transient runtime download failure" >&2
     sleep 10
   done

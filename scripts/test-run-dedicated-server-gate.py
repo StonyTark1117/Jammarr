@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 
 from pathlib import Path
+import re
+import subprocess
+import tempfile
 import unittest
 
 
@@ -12,6 +15,60 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.source = GATE.read_text("utf-8")
+
+    def test_download_retry_recognizes_rate_limits_without_retrying_bad_artifacts(self) -> None:
+        function = re.search(
+            r"^runtime_download_failed_transiently\(\) \{\n.*?^\}\n",
+            self.source, re.MULTILINE | re.DOTALL,
+        ).group()
+        cases = (
+            ("Could not HEAD 'https://repo.maven.apache.org/maven2/de/sciss/jump3r/1.0.5/jump3r-1.0.5.pom'. Received status code 429 from server: Too Many Requests", True),
+            ("Received status code 503 from server: Service Unavailable", True),
+            ("Received status code 404 from server: Not Found", False),
+            ("Invalid Jammarr configuration value for plexUrl", False),
+            ("Compilation failed; see the compiler error output for details.", False),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "console.log"
+            for message, transient in cases:
+                with self.subTest(message=message):
+                    log.write_text(message)
+                    result = subprocess.run(
+                        ["bash", "-c", function + '\nruntime_download_failed_transiently "$1"', "test", str(log)],
+                        check=False,
+                    )
+                    self.assertEqual(result.returncode, 0 if transient else 1)
+
+    def test_capture_warning_does_not_replace_client_health_or_pcm_validation(self) -> None:
+        capture = self.source[self.source.index("run_two_client_audio()") :]
+        health_check = re.search(r'    if ! ss -ltnH .*?\n    fi', capture, re.DOTALL).group()
+        backend_check = re.search(
+            r"^audio_log_has_terminal_backend_failure\(\) \{\n.*?^\}\n",
+            self.source, re.MULTILINE | re.DOTALL,
+        ).group()
+        warning_check = re.search(
+            r"^(?:private_audio_graph_has_buffer_starvation|report_private_audio_graph_warnings)\(\) \{\n.*?^\}\n",
+            self.source, re.MULTILINE | re.DOTALL,
+        ).group()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "replay.private-pipewire-pulse.log").write_text(
+                "spa.audioconvert: (0 suppressed) out of buffers on port 0 2\n"
+            )
+            (root / "replay.audio-follower.console.log").write_text("Acceptance audio state: PLAYING\n")
+            for state, expected in (("PLAYING", 0), ("ERROR", 1)):
+                with self.subTest(state=state):
+                    (root / "replay.audio-leader.console.log").write_text(f"Acceptance audio state: {state}\n")
+                    result = subprocess.run([
+                        "bash", "-c", backend_check + warning_check + '''
+output_root=$1; label=replay; port=1; leader_pid=1; follower_pid=2; recorder_pid=$BASHPID; result=0
+# The recorder and clients are live in this replay. Only their log evidence varies.
+ss() { echo listening; }
+group_alive() { return 0; }
+''' + health_check + '\nexit "$result"', "test", directory,
+                    ], capture_output=True, text=True)
+                    self.assertNotIn("command not found", result.stderr)
+                    self.assertEqual(result.returncode, expected, result.stderr)
 
     def test_audio_gate_uses_a_private_graph(self) -> None:
         source = self.source
@@ -232,9 +289,11 @@ class DedicatedServerGateSourceTests(unittest.TestCase):
         churn = source[source.index("run_mixed_vanilla_audio()") :]
         churn = churn[: churn.index("run_two_client_audio()")]
         self.assertIn("audio_log_has_terminal_backend_failure", churn)
-        self.assertIn("private_audio_graph_has_buffer_starvation()", source)
+        self.assertIn("report_private_audio_graph_warnings()", source)
         self.assertIn("out of buffers", source)
-        self.assertIn("private_audio_graph_has_buffer_starvation", churn)
+        self.assertIn("report_private_audio_graph_warnings", churn)
+        self.assertNotIn("private_audio_graph_has_buffer_starvation", source)
+        self.assertIn('! group_alive "$leader_pid" || ! group_alive "$follower_pid"', churn)
 
     def test_protocol_rejection_requires_an_authoritative_server_reason(self) -> None:
         source = self.source
