@@ -310,6 +310,9 @@ public final class JammarrAudioPlayer {
         ChannelAccess access = channelAccess(Minecraft.getInstance().getSoundManager());
         access.createHandle(Library.Pool.STREAMING).whenComplete((handle, error) -> {
             if (error != null || handle == null) {
+                if (error != null) Jammarr.LOGGER.warn("Jammarr audio channel creation failed", error);
+                else Jammarr.LOGGER.warn("Jammarr audio channel creation returned no channel: {}",
+                        Minecraft.getInstance().getSoundManager().getDebugString());
                 if (channelStarts.complete(startToken)) requestRebuffer("audio channel creation");
                 return;
             }
