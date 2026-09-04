@@ -3595,6 +3595,24 @@ wait_for_group_exit() {
   done
 }
 
+record_group_shutdown_diagnostics() {
+  local group_id=$1 prefix=$2 java_home=$3
+  local member_pid executable
+  # Preserve the processes and Java stacks before cleanup destroys the evidence.
+  # Avoid command lines (which can contain credentials) and bound attach waits.
+  ps -eo pid=,ppid=,pgid=,sid=,stat=,wchan=,comm= \
+    | awk -v expected="$group_id" '$3 == expected && $5 !~ /^Z/' \
+    > "$prefix.processes.txt"
+  while read -r member_pid _; do
+    executable=$(readlink "/proc/$member_pid/exe" 2>/dev/null) || continue
+    [[ "${executable##*/}" == java ]] || continue
+    if [[ -x "$java_home/bin/jcmd" ]]; then
+      timeout --kill-after=2s 10s "$java_home/bin/jcmd" "$member_pid" Thread.print \
+        > "$prefix.$member_pid.threads.txt" 2>&1 || true
+    fi
+  done < "$prefix.processes.txt"
+}
+
 process_tree_pids() {
   local root=$1
   ps -eo pid=,ppid= | awk -v root="$root" '
@@ -3853,6 +3871,8 @@ run_invalid_config_check_once() {
   # valid server, and retain that group in the outer cleanup trap as well.
   if [[ -n "$server_group" ]]; then
     if ! wait_for_group_exit "$server_group" 60; then
+      record_group_shutdown_diagnostics "$server_group" \
+        "$output_root/$label.invalid-config.shutdown-timeout" "$java_home"
       stop_group "$server_group" TERM
       if ! wait_for_group_exit "$server_group" 10; then
         stop_group "$server_group" KILL
