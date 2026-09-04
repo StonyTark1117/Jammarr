@@ -186,6 +186,16 @@ jobs:
             build/fabric-loader-0.19.2-gate/**/*.txt
             build/fabric-loader-0.19.2-gate/**/*.json
             build/fabric-loader-0.19.2-gate/**/*.tsv
+      - name: Preserve failed audio captures
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-audio-diagnostics-${{ matrix.name }}-${{ github.sha }}
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            build/dedicated-server-gate/*.s16le
+            build/quilt-modmenu-gate/*.s16le
 
   runtime-preflight:
     name: Runtime environment preflight
