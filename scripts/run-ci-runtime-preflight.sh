@@ -7,6 +7,7 @@ set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 python3 "$repo_root/scripts/test-runtime-process-lifecycle.py"
+python3 "$repo_root/scripts/test-gradle-wrapper-download.py"
 
 run_gate() {
   local runtime=$1
