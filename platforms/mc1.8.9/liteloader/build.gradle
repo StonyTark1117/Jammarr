@@ -150,8 +150,8 @@ def sha256 = { File file ->
 task verifyToolchainLock {
     doLast {
         File wrapper = file('gradle/wrapper/gradle-wrapper.jar')
-        if (sha256(wrapper) != '718d7b25ea60b357fc4cb2212ce10b3f03dfd0e6fe5f23f565b15553ec46bb7e') {
-            throw new GradleException('LiteLoader 1.8.9 Gradle wrapper checksum does not match the pinned MDK')
+        if (sha256(wrapper) != '497c8c2a7e5031f6aa847f88104aa80a93532ec32ee17bdb8d1d2f67a194a9c7') {
+            throw new GradleException('LiteLoader 1.8.9 Gradle wrapper checksum does not match the pinned Gradle 9.5.0 wrapper')
         }
         File forgeGradle = buildscript.configurations.classpath.files.find { it.name.startsWith('ForgeGradle-2.1') }
         if (forgeGradle == null || sha256(forgeGradle) != '29f4f9a4b7ad917937d6ca761404ed4c56ee2a716cbfdd190b9aa99f25eb4695') {
