@@ -21,6 +21,8 @@ minecraft {
     jvmLanguageVersion.set(JavaLanguageVersion.of(8))
     username.set('JammarrDeveloper')
     extraRunJvmArguments.add('-ea:stonytark.jammarr')
+    // RFG runs from class directories, so Forge cannot discover the release JAR manifest.
+    extraRunJvmArguments.add('-Dfml.coreMods.load=stonytark.jammarr.coremod.LoginOrderingPlugin')
 }
 
 def acceptanceServer = providers.gradleProperty('jammarrAcceptanceServer').orNull
@@ -122,6 +124,7 @@ tasks.named('jar', Jar) {
         into 'META-INF'
     }
     manifest.attributes(
+            'FMLCorePlugin': 'stonytark.jammarr.coremod.LoginOrderingPlugin',
             'FMLCorePluginContainsFMLMod': 'true',
             'Implementation-Title': 'Jammarr',
             'Implementation-Version': modVersionValue
@@ -158,6 +161,9 @@ tasks.register('verifyRelease') {
                     'stonytark/jammarr/core/server/GlobalPlaybackCoordinator.class',
                     'stonytark/jammarr/core/server/PlaybackStore.class',
                     'stonytark/jammarr/network/LegacyNetwork.class',
+                    'stonytark/jammarr/coremod/LoginOrderingPlugin.class',
+                    'stonytark/jammarr/coremod/LoginOrderingTransformer.class',
+                    'stonytark/jammarr/network/LoginProtocolOrder.class',
                     'stonytark/jammarr/network/VanillaAttributePacketFilter.class',
                     'stonytark/jammarr/server/LegacyGlobalPlayer.class',
                     'stonytark/jammarr/client/LegacyAudioPlayer.class',
@@ -183,6 +189,10 @@ tasks.register('verifyRelease') {
                 }
             }
             String metadata = zip.getInputStream(zip.getEntry('mcmod.info')).getText('UTF-8')
+            def manifest = new java.util.jar.Manifest(zip.getInputStream(zip.getEntry('META-INF/MANIFEST.MF')))
+            if (manifest.mainAttributes.getValue('FMLCorePlugin') != 'stonytark.jammarr.coremod.LoginOrderingPlugin') {
+                throw new GradleException('Legacy release is missing its Forge login ordering core plugin')
+            }
             [
                     '"modid": "jammarr"',
                     '"version": "1.1.0"',
