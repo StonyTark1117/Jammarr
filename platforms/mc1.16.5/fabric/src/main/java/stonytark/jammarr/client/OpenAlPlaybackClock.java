@@ -3,6 +3,7 @@ package stonytark.jammarr.client;
 import com.mojang.blaze3d.audio.Channel;
 import org.lwjgl.openal.AL;
 import org.lwjgl.openal.AL10;
+import org.lwjgl.openal.AL11;
 import org.lwjgl.openal.ALC10;
 import org.lwjgl.openal.SOFTDeviceClock;
 import org.lwjgl.openal.SOFTSourceLatency;
@@ -26,6 +27,23 @@ final class OpenAlPlaybackClock {
         } catch (RuntimeException unavailable) {
             return -1;
         }
+    }
+
+    /** Skips buffer-preparation time before any queued sample becomes audible. */
+    static boolean alignBeforeStart(Channel channel, LegacyPcmAudioStream stream, long offsetMillis) {
+        if (offsetMillis <= 0) return true;
+        int source = source(channel);
+        if (source <= 0 || !AL10.alIsSource(source)
+                || AL10.alGetSourcei(source, AL10.AL_SOURCE_STATE) != AL10.AL_INITIAL) return false;
+        PcmSubmissionTracker.Snapshot queue = stream.submissionSnapshot(
+                AL10.alGetSourcei(source, AL10.AL_BUFFERS_QUEUED));
+        long frames = Math.round(offsetMillis * (double) stream.getFormat().getSampleRate() / 1_000.0);
+        if (queue == null || frames < 0 || frames >= queue.queuedFrames()
+                || frames > Integer.MAX_VALUE) return false;
+        // OpenAL applies an initial source offset on the next play call. Keep
+        // the submission history intact: its position includes this offset.
+        AL10.alSourcei(source, AL11.AL_SAMPLE_OFFSET, (int) frames);
+        return AL10.alGetError() == AL10.AL_NO_ERROR;
     }
 
     static Position sample(Channel channel, LegacyPcmAudioStream stream) {

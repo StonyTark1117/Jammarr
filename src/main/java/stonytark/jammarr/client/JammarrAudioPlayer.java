@@ -360,7 +360,19 @@ public final class JammarrAudioPlayer {
                     appliedPlaybackRate = 1.0f;
                     value.setPitch(appliedPlaybackRate);
                     pcmStream = startingStream;
-                    value.attachBufferStream(startingStream); value.play();
+                    value.attachBufferStream(startingStream);
+                    // Filling the initial OpenAL buffers can take long enough
+                    // to invalidate the earlier decoder alignment. Advance the
+                    // still-muted source to the position due when play runs.
+                    long startupSkipMs = Math.max(0,
+                            clock.toServerTime(System.currentTimeMillis()) - startingEpochMs
+                                    + startingBackendLeadMs - actualPosition);
+                    boolean aligned = OpenAlPlaybackClock.alignBeforeStart(value, startingStream, startupSkipMs);
+                    AudioTimingTrace.record("channel_start_aligned", "skippedMs", startupSkipMs,
+                            "aligned", aligned, "session", startingSession);
+                    if (!aligned) Jammarr.LOGGER.warn("Jammarr initial audio queue could not align by {} ms",
+                            startupSkipMs);
+                    value.play();
                     // Publish only after the backend initialization command has run,
                     // while the start guard is still held. Until this point the handle
                     // can legitimately report stopped and must not be polled by tick().
